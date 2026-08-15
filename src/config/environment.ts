@@ -2,10 +2,26 @@ import type { JsonObject, JsonValue } from "../domain/json.js";
 import { TABLE_KINDS, type ProviderEnvironment } from "../domain/provider.js";
 
 export interface EnvironmentConfig {
+  readonly adapters: RuntimeAdapterConfig | null;
   readonly environmentId: string;
   readonly provider: ProviderEnvironment;
   readonly raw: JsonObject;
+  readonly runtime: RuntimeEnvironmentConfig | null;
   readonly schema: "agent-task-manager-environment-v1";
+}
+
+export interface RuntimeAdapterConfig {
+  readonly agentRunner: string;
+  readonly modelTransport: string;
+  readonly publication: string | null;
+  readonly sandbox: string;
+}
+
+export interface RuntimeEnvironmentConfig {
+  readonly concurrencyMode: "single-host";
+  readonly outputLimitBytes: number;
+  readonly root: string;
+  readonly terminationGraceMilliseconds: number;
 }
 
 export class EnvironmentConfigError extends TypeError {
@@ -30,6 +46,14 @@ function optionalString(value: JsonValue | undefined, path: string, issues: stri
 function requiredString(value: JsonValue | undefined, path: string, issues: string[]): string | null {
   if (typeof value !== "string" || value.trim() === "") {
     issues.push(`${path} must be a non-empty string`);
+    return null;
+  }
+  return value;
+}
+
+function positiveInteger(value: JsonValue | undefined, path: string, issues: string[]): number | null {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1) {
+    issues.push(`${path} must be a positive integer`);
     return null;
   }
   return value;
@@ -93,11 +117,38 @@ export function parseEnvironmentConfig(value: JsonValue): EnvironmentConfig {
     ]),
   ) as Record<(typeof TABLE_KINDS)[number], string | null>;
 
+  const adaptersValue = value.adapters;
+  let adapters: RuntimeAdapterConfig | null = null;
+  if (adaptersValue !== undefined && !isObject(adaptersValue)) issues.push("adapters must be an object");
+  if (isObject(adaptersValue)) {
+    rejectUnknownKeys(adaptersValue, ["agentRunner", "modelTransport", "publication", "sandbox"], "adapters", issues);
+    const agentRunner = requiredString(adaptersValue.agentRunner, "adapters.agentRunner", issues);
+    const modelTransport = requiredString(adaptersValue.modelTransport, "adapters.modelTransport", issues);
+    const sandbox = requiredString(adaptersValue.sandbox, "adapters.sandbox", issues);
+    const publication = optionalString(adaptersValue.publication, "adapters.publication", issues);
+    if (agentRunner !== null && modelTransport !== null && sandbox !== null) adapters = { agentRunner, modelTransport, publication, sandbox };
+  }
+
+  const runtimeValue = value.runtime;
+  let runtime: RuntimeEnvironmentConfig | null = null;
+  if (runtimeValue !== undefined && !isObject(runtimeValue)) issues.push("runtime must be an object");
+  if (isObject(runtimeValue)) {
+    rejectUnknownKeys(runtimeValue, ["concurrencyMode", "outputLimitBytes", "root", "terminationGraceMilliseconds"], "runtime", issues);
+    const root = requiredString(runtimeValue.root, "runtime.root", issues);
+    const outputLimitBytes = positiveInteger(runtimeValue.outputLimitBytes, "runtime.outputLimitBytes", issues);
+    const terminationGraceMilliseconds = positiveInteger(runtimeValue.terminationGraceMilliseconds, "runtime.terminationGraceMilliseconds", issues);
+    if (runtimeValue.concurrencyMode !== "single-host") issues.push("runtime.concurrencyMode must equal single-host");
+    if (root !== null && outputLimitBytes !== null && terminationGraceMilliseconds !== null && runtimeValue.concurrencyMode === "single-host") {
+      runtime = { concurrencyMode: "single-host", outputLimitBytes, root, terminationGraceMilliseconds };
+    }
+  }
+
   if (issues.length > 0 || environmentId === null || type === null) {
     throw new EnvironmentConfigError(issues);
   }
 
   return {
+    adapters,
     environmentId,
     provider: {
       bootstrapParent,
@@ -106,6 +157,7 @@ export function parseEnvironmentConfig(value: JsonValue): EnvironmentConfig {
       type,
     },
     raw: value,
+    runtime,
     schema: "agent-task-manager-environment-v1",
   };
 }
@@ -117,4 +169,8 @@ export function assertRuntimeReady(config: EnvironmentConfig): void {
       `runtime requires configured table identifiers: ${missing.join(", ")}`,
     ]);
   }
+  const runtimeIssues: string[] = [];
+  if (config.adapters === null) runtimeIssues.push("runtime requires adapters.agentRunner, adapters.modelTransport, and adapters.sandbox");
+  if (config.runtime === null) runtimeIssues.push("runtime requires a closed runtime definition");
+  if (runtimeIssues.length > 0) throw new EnvironmentConfigError(runtimeIssues);
 }

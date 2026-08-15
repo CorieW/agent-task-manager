@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import {
   assertAuthorizedPlan,
+  assertRuntimeReady,
   canonicalize,
   compareWorkspaceSchema,
   finalizeMigrationPlan,
@@ -79,6 +80,22 @@ test("environment configuration is closed and reports missing required fields", 
       }),
     /provider\.tables\.tasks is required/,
   );
+});
+
+test("runtime readiness requires closed adapter and isolation environment definitions", () => {
+  const config = parseEnvironmentConfig({
+    adapters: { agentRunner: "runner", modelTransport: "transport", publication: null, sandbox: "sandbox" },
+    environmentId: "runtime-demo",
+    provider: { bootstrapParent: null, connection: {}, tables: { errors: "e", resources: "r", subAgents: "a", tasks: "t" }, type: "memory" },
+    runtime: { concurrencyMode: "single-host", outputLimitBytes: 100_000, root: "C:/runtime", terminationGraceMilliseconds: 5_000 },
+    schema: "agent-task-manager-environment-v1",
+  });
+  assert.doesNotThrow(() => assertRuntimeReady(config));
+  assert.throws(() => assertRuntimeReady(parseEnvironmentConfig({
+    environmentId: "runtime-demo",
+    provider: { bootstrapParent: null, connection: {}, tables: { errors: "e", resources: "r", subAgents: "a", tasks: "t" }, type: "memory" },
+    schema: "agent-task-manager-environment-v1",
+  })), /runtime requires adapters/);
 });
 
 test("migration authorization rejects a different digest", () => {

@@ -28,14 +28,16 @@ export async function dispatchActivatedAgent(input: {
   readonly toolPolicy: ToolIsolationPolicy;
 }): Promise<DispatchResult> {
   const definition = input.activated.resolved.definition;
-  if (input.toolPolicy.runId !== input.runId) throw new Error("Tool isolation policy belongs to a different run");
   try {
+    if (input.toolPolicy.runId !== input.runId) throw new Error("Tool isolation policy belongs to a different run");
+    validateToolIsolationPolicy(input.toolPolicy);
     const [runnerIdentity, controlPlane, isolation] = await Promise.all([
       input.runner.identity(),
       input.modelTransport.prepare({ model: definition.model, reasoning: definition.reasoning, runId: input.runId }),
       input.toolIsolation.prepare(input.toolPolicy),
     ]);
     if (runnerIdentity.id !== input.runner.id) throw new Error("Agent runner identity does not match its registered adapter");
+    if (!runnerIdentity.supportedProfiles.includes(definition.runnerProfile)) throw new Error(`Agent runner does not support profile ${definition.runnerProfile}`);
     if (controlPlane.receipt.model !== definition.model || controlPlane.receipt.reasoning !== definition.reasoning) throw new Error("Model transport receipt does not match the definition");
     const runtimeReceipt: RuntimeCapabilityReceipt = {
       controlPlaneSeparated: true,
@@ -43,11 +45,14 @@ export async function dispatchActivatedAgent(input: {
       executableDigest: runnerIdentity.executableDigest,
       executableVersion: runnerIdentity.executableVersion,
       filesystemPolicyDigest: isolation.receipt.filesystemPolicyDigest,
+      isolationAdapterId: input.toolIsolation.id,
       model: definition.model,
       modelTransportDigest: controlPlane.receipt.digest,
+      modelTransportAdapterId: input.modelTransport.id,
       networkPolicyDigest: isolation.receipt.networkPolicyDigest,
       reasoning: definition.reasoning,
       runnerProfile: definition.runnerProfile,
+      runnerAdapterId: input.runner.id,
       schema: "runtime-capability-receipt-v1",
       toolEnvironmentDigest: isolation.receipt.environmentDigest,
       toolProcessTreeEnforced: true,
@@ -116,4 +121,23 @@ function jsonObject(value: unknown, label: string): JsonObject {
   const json = toJsonValue(value);
   if (json === null || typeof json !== "object" || Array.isArray(json)) throw new TypeError(`${label} must be an object`);
   return json;
+}
+
+function validateToolIsolationPolicy(policy: ToolIsolationPolicy): void {
+  for (const [label, values] of [["allowedEnvironmentNames", policy.allowedEnvironmentNames], ["allowedReadRoots", policy.allowedReadRoots], ["allowedWriteRoots", policy.allowedWriteRoots]] as const) {
+    if (new Set(values).size !== values.length || values.some((value) => value === "")) throw new TypeError(`Tool policy ${label} must contain unique non-empty values`);
+  }
+  const secretName = /(?:AUTH|CREDENTIAL|KEY|PASSWORD|SECRET|TOKEN)/iu;
+  if (policy.allowedEnvironmentNames.some((name) => secretName.test(name))) throw new Error("Tool policy cannot expose secret-shaped environment variables");
+  for (const root of [...policy.allowedReadRoots, ...policy.allowedWriteRoots]) {
+    if (!/^(?:[A-Za-z]:[\\/]|\/)/u.test(root)) throw new TypeError(`Tool policy root must be absolute: ${root}`);
+  }
+  if (policy.network.mode === "none" && policy.network.allowedOrigins.length !== 0) throw new Error("Network-none policy cannot list allowed origins");
+  if (policy.network.mode === "allowlist" && policy.network.allowedOrigins.length === 0) throw new Error("Network allowlist policy requires at least one origin");
+  for (const origin of policy.network.allowedOrigins) {
+    const url = new URL(origin);
+    if ((url.protocol !== "http:" && url.protocol !== "https:") || url.username !== "" || url.password !== "" || url.pathname !== "/" || url.search !== "" || url.hash !== "") {
+      throw new TypeError(`Tool policy origin is invalid: ${origin}`);
+    }
+  }
 }

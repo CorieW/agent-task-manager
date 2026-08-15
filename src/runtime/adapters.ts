@@ -45,6 +45,7 @@ export interface AgentRunnerIdentity {
   readonly executableDigest: string;
   readonly executableVersion: string;
   readonly id: string;
+  readonly supportedProfiles: readonly string[];
 }
 
 export interface AgentProcessCompletion {

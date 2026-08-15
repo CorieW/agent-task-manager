@@ -36,5 +36,6 @@ export * from "./runtime/adapters.js";
 export * from "./runtime/context-compiler.js";
 export * from "./runtime/contracts.js";
 export * from "./runtime/dispatcher.js";
+export * from "./runtime/environment.js";
 export * from "./runtime/json-schema.js";
 export * from "./runtime/process-supervisor.js";

@@ -1,6 +1,12 @@
 {
   "schema": "agent-task-manager-environment-v1",
   "environmentId": "local-demo",
+  "adapters": {
+    "agentRunner": "configured-runner",
+    "modelTransport": "configured-model-transport",
+    "publication": null,
+    "sandbox": "configured-tool-isolation"
+  },
   "provider": {
     "type": "notion",
     "connection": {
@@ -13,5 +19,11 @@
       "errors": null,
       "resources": null
     }
+  },
+  "runtime": {
+    "concurrencyMode": "single-host",
+    "outputLimitBytes": 1000000,
+    "root": "C:/AgentTaskManager/local-demo",
+    "terminationGraceMilliseconds": 5000
   }
 }

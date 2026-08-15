@@ -11,11 +11,14 @@ export interface RuntimeCapabilityReceipt {
   readonly executableDigest: string;
   readonly executableVersion: string;
   readonly filesystemPolicyDigest: string;
+  readonly isolationAdapterId: string;
   readonly model: string;
   readonly modelTransportDigest: string;
+  readonly modelTransportAdapterId: string;
   readonly networkPolicyDigest: string;
   readonly reasoning: string;
   readonly runnerProfile: string;
+  readonly runnerAdapterId: string;
   readonly schema: "runtime-capability-receipt-v1";
   readonly toolEnvironmentDigest: string;
   readonly toolProcessTreeEnforced: true;
@@ -77,6 +80,18 @@ export function parseAgentResult(input: {
 
 export function resourceContext(records: readonly ResourceRecord[]): RunContextCore["resources"] {
   return records.map(({ body, key, kind }) => ({ body, key, kind })).sort((left, right) => left.key.localeCompare(right.key));
+}
+
+export function validateRuntimeCapabilityReceipt(receipt: RuntimeCapabilityReceipt): void {
+  if (receipt.controlPlaneSeparated !== true || receipt.credentialExposedToTools !== false || receipt.toolProcessTreeEnforced !== true) {
+    throw new Error("Runtime receipt does not prove control-plane and tool-process isolation");
+  }
+  for (const [key, value] of Object.entries(receipt)) {
+    if (key.endsWith("Digest") && (typeof value !== "string" || !/^[a-f0-9]{64}$/u.test(value))) throw new TypeError(`Runtime receipt ${key} is not a SHA-256 digest`);
+  }
+  for (const key of ["executableVersion", "isolationAdapterId", "model", "modelTransportAdapterId", "reasoning", "runnerAdapterId", "runnerProfile"] as const) {
+    if (receipt[key] === "") throw new TypeError(`Runtime receipt ${key} is required`);
+  }
 }
 
 function isIntent(value: unknown): value is AgentResult["proposedIntents"][number] {

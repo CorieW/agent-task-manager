@@ -7,6 +7,9 @@ import {
   dispatchActivatedAgent,
   finalizeAgentResult,
   InMemoryProvider,
+  parseEnvironmentConfig,
+  resolveRuntimeEnvironment,
+  RuntimeAdapterRegistry,
   superviseProcess,
   type AgentProcessCompletion,
   type AgentRunnerAdapter,
@@ -55,7 +58,7 @@ test("dispatches a schema-valid result through separated runtime boundaries", as
   assert.ok(activated);
   const runner: AgentRunnerAdapter = {
     id: "runner",
-    async identity() { return { executableDigest: sha256("runner"), executableVersion: "1.0.0", id: "runner" }; },
+    async identity() { return { executableDigest: sha256("runner"), executableVersion: "1.0.0", id: "runner", supportedProfiles: ["read-only"] }; },
     async start({ context }) {
       const result = finalizeAgentResult({
         contextDigest: context.digest, definitionDigest: context.definitionDigest, outcome: "succeeded",
@@ -85,7 +88,7 @@ test("blocks unauthorized tool activity and records a provider Error", async () 
   assert.ok(activated);
   const runner: AgentRunnerAdapter = {
     id: "runner",
-    async identity() { return { executableDigest: sha256("runner"), executableVersion: "1.0.0", id: "runner" }; },
+    async identity() { return { executableDigest: sha256("runner"), executableVersion: "1.0.0", id: "runner", supportedProfiles: ["read-only"] }; },
     async start() { return completedProcess({ exitCode: 0, stderr: "", stdout: "{}", toolViolation: "write outside allowed root" }); },
   };
   await assert.rejects(dispatchActivatedAgent({
@@ -112,6 +115,45 @@ test("terminates and hard-kills a process tree that exceeds its deadline", async
   assert.equal(killed, 1);
   assert.equal(result.telemetry.timedOut, true);
   assert.equal(result.telemetry.hardKilled, true);
+});
+
+test("resolves only explicitly configured runtime adapters", () => {
+  const runners = new RuntimeAdapterRegistry<AgentRunnerAdapter>();
+  const modelTransports = new RuntimeAdapterRegistry<ModelTransportAdapter>();
+  const toolIsolations = new RuntimeAdapterRegistry<ToolIsolationAdapter>();
+  const runner: AgentRunnerAdapter = {
+    id: "runner", async identity() { return { executableDigest: sha256("runner"), executableVersion: "1", id: "runner", supportedProfiles: ["read-only"] }; },
+    async start() { return completedProcess({ exitCode: 0, stderr: "", stdout: "{}", toolViolation: null }); },
+  };
+  runners.register(runner); modelTransports.register(modelTransport); toolIsolations.register(isolation);
+  const config = parseEnvironmentConfig({
+    adapters: { agentRunner: "runner", modelTransport: "model-transport", publication: null, sandbox: "isolation" },
+    environmentId: "demo", provider: { bootstrapParent: null, connection: {}, tables: { errors: "e", resources: "r", subAgents: "a", tasks: "t" }, type: "memory" },
+    runtime: { concurrencyMode: "single-host", outputLimitBytes: 1_000, root: "C:/runtime", terminationGraceMilliseconds: 100 },
+    schema: "agent-task-manager-environment-v1",
+  });
+  const resolved = resolveRuntimeEnvironment({ config, modelTransports, runners, toolIsolations });
+  assert.equal(resolved.runner, runner);
+  assert.equal(resolved.toolIsolation, isolation);
+});
+
+test("rejects secret-shaped tool environments before adapter preparation", async () => {
+  const provider = await preparedProvider();
+  const [activated] = await activateDefinitions({
+    installedCapabilities: ["repository.read"], installedIntents: ["task.note"], installedRunnerProfiles: ["read-only"],
+    provider, supportedModels: { model: ["medium"] },
+  });
+  assert.ok(activated);
+  let prepared = false;
+  const guardedIsolation: ToolIsolationAdapter = { id: "guarded", async prepare() { prepared = true; return isolation.prepare({ allowedEnvironmentNames: [], allowedReadRoots: [], allowedWriteRoots: [], network: { allowedOrigins: [], mode: "none" }, runId: "x" }); } };
+  await assert.rejects(dispatchActivatedAgent({
+    activated, additionalInput: {}, modelTransport, outputLimitBytes: 1_000, provider, runId: "run-secret",
+    runner: { id: "runner", async identity() { return { executableDigest: sha256("runner"), executableVersion: "1", id: "runner", supportedProfiles: ["read-only"] }; }, async start() { return completedProcess({ exitCode: 0, stderr: "", stdout: "{}", toolViolation: null }); } },
+    taskId: "task-1", toolIsolation: guardedIsolation,
+    toolPolicy: { allowedEnvironmentNames: ["API_TOKEN"], allowedReadRoots: [], allowedWriteRoots: [], network: { allowedOrigins: [], mode: "none" }, runId: "run-secret" },
+  }), /secret-shaped/);
+  assert.equal(prepared, false);
+  assert.equal(provider.errors.length, 1);
 });
 
 async function preparedProvider(): Promise<RecordingProvider> {

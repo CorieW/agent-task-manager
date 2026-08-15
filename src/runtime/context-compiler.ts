@@ -2,7 +2,7 @@
 import { toJsonValue, type JsonObject } from "../domain/json.js";
 import type { AgentTaskProvider } from "../provider/agent-task-provider.js";
 import type { ActivatedDefinition } from "../core/definition-activation.js";
-import { finalizeRunContext, resourceContext, type RunContext, type RuntimeCapabilityReceipt } from "./contracts.js";
+import { finalizeRunContext, resourceContext, validateRuntimeCapabilityReceipt, type RunContext, type RuntimeCapabilityReceipt } from "./contracts.js";
 
 export async function compileRunContext(input: {
   readonly activated: ActivatedDefinition;
@@ -12,6 +12,7 @@ export async function compileRunContext(input: {
   readonly runtimeReceipt: RuntimeCapabilityReceipt;
   readonly taskId: string;
 }): Promise<RunContext> {
+  validateRuntimeCapabilityReceipt(input.runtimeReceipt);
   const task = await input.provider.getTaskSnapshot(input.taskId);
   if (task.archived) throw new Error("Cannot compile context for an archived Task");
   const resolved = input.activated.resolved;
