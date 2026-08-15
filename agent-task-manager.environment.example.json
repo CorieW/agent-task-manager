@@ -1,0 +1,15 @@
+{
+  "schema": "agent-task-manager-environment-v1",
+  "environmentId": "local-demo",
+  "provider": {
+    "type": "memory",
+    "connection": {},
+    "bootstrapParent": null,
+    "tables": {
+      "tasks": null,
+      "subAgents": null,
+      "errors": null,
+      "resources": null
+    }
+  }
+}

@@ -16,7 +16,26 @@ authoritative workflow storage.
 pnpm install
 pnpm check
 pnpm build
-pnpm exec agent-task-manager --help
+node dist/src/cli.js --help
 ```
 
 Node.js 22 or newer and pnpm 11 are required.
+
+## Environment configuration
+
+The CLI reads `agent-task-manager.environment.json` by default, or another path
+passed with `--config`. Copy the tracked
+`agent-task-manager.environment.example.json` to begin. The four table values
+may be `null` only while a provider workspace is awaiting bootstrap; runtime
+execution requires stable IDs for all four tables.
+
+```powershell
+Copy-Item agent-task-manager.environment.example.json agent-task-manager.environment.json
+node dist/src/cli.js validate
+node dist/src/cli.js validate --json --config agent-task-manager.environment.json
+```
+
+Configuration describes the environment only. Keep credentials in environment
+variables or an external secret store and put only variable names or secret
+references in `provider.connection`. The real default configuration file is
+ignored by Git and must never contain committed credentials.
