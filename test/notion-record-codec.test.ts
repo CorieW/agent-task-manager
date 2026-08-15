@@ -1,0 +1,142 @@
+// Exercises exhaustive Notion row decoding and closed managed-content contracts.
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import { sha256 } from "../src/core/digest.js";
+import type { JsonObject } from "../src/domain/json.js";
+import { NotionRecordReader } from "../src/provider/notion/notion-record-codec.js";
+import type { NotionRequest, NotionTransport } from "../src/provider/notion/notion-transport.js";
+
+const TABLES = { errors: "errors", resources: "resources", subAgents: "agents", tasks: "tasks" };
+
+class RecordsTransport implements NotionTransport {
+  public async request(request: NotionRequest): Promise<JsonObject> {
+    if (request.path === "/v1/data_sources/tasks/query") {
+      return { has_more: false, next_cursor: null, results: [taskPage()] };
+    }
+    if (request.path === "/v1/data_sources/agents/query") {
+      return { has_more: false, next_cursor: null, results: [agentPage()] };
+    }
+    if (request.path === "/v1/data_sources/resources/query") {
+      return { has_more: false, next_cursor: null, results: [resourcePage()] };
+    }
+    if (request.path === "/v1/pages/task-1") return taskPage();
+    if (request.path === "/v1/pages/agent-1") return agentPage();
+    if (request.path === "/v1/pages/task-1/properties/blocked") {
+      return request.query?.start_cursor === null
+        ? { has_more: true, next_cursor: "two", results: [{ relation: { id: "dep-1" } }] }
+        : { has_more: false, next_cursor: null, results: [{ relation: { id: "dep-2" } }] };
+    }
+    if (request.path === "/v1/blocks/task-1/children") return blocks([{ paragraph: rich("Task details"), type: "paragraph" }]);
+    if (request.path === "/v1/blocks/agent-1/children") return blocks(managed("Sub-agent definition", JSON.stringify(definition())));
+    if (request.path === "/v1/blocks/resource-1/children") return blocks(managed("Resource body", "resource text"));
+    throw new Error(`Unexpected request ${request.method} ${request.path}`);
+  }
+}
+
+test("decodes task summaries and exhausts relation property pagination", async () => {
+  const reader = new NotionRecordReader(TABLES, new RecordsTransport());
+  const summaries = await reader.listTaskSummaries({ cursor: null, limit: 10, predicate: { status: "Todo" } });
+  assert.equal(summaries.length, 1);
+  const task = await reader.getTaskSnapshot("task-1");
+  assert.deepEqual(task.dependencies, ["dep-1", "dep-2"]);
+  assert.equal(task.body, "Task details");
+});
+
+test("loads strict Sub-agent definitions from their managed range", async () => {
+  const reader = new NotionRecordReader(TABLES, new RecordsTransport());
+  const [agent] = await reader.listSubAgentDefinitions();
+  assert.equal(agent?.name, "Coordinator");
+  assert.equal(agent?.selection.mode, "coordinator");
+  assert.deepEqual(agent?.promptResources, ["prompt/coordinator"]);
+});
+
+test("verifies Resources against their content digest", async () => {
+  const reader = new NotionRecordReader(TABLES, new RecordsTransport());
+  const [resource] = await reader.getResources([{ digest: sha256("resource text"), key: "prompt/coordinator", version: "v1" }]);
+  assert.equal(resource?.body, "resource text");
+});
+
+function taskPage(): JsonObject {
+  return {
+    archived: false,
+    id: "task-1",
+    last_edited_time: "2026-01-01T00:00:00.000Z",
+    object: "page",
+    properties: {
+      "Blocked By": { has_more: true, id: "blocked", relation: [{ id: "dep-inline" }], type: "relation" },
+      Priority: { id: "priority", number: 1, type: "number" },
+      Status: { id: "status", status: { name: "Todo" }, type: "status" },
+      Task: { id: "title", title: [{ plain_text: "First task" }], type: "title" },
+    },
+  };
+}
+
+function agentPage(): JsonObject {
+  return {
+    id: "agent-1",
+    last_edited_time: "2026-01-01T00:00:00.000Z",
+    object: "page",
+    properties: {
+      Enabled: { checkbox: true, id: "enabled", type: "checkbox" },
+      Model: { id: "model", rich_text: [{ plain_text: "gpt-5.6-sol" }], type: "rich_text" },
+      Name: { id: "title", title: [{ plain_text: "Coordinator" }], type: "title" },
+      Revision: { id: "revision", number: 1, type: "number" },
+    },
+  };
+}
+
+function resourcePage(): JsonObject {
+  return {
+    id: "resource-1",
+    last_edited_time: "2026-01-01T00:00:00.000Z",
+    object: "page",
+    properties: {
+      Dependencies: { id: "dependencies", rich_text: [], type: "rich_text" },
+      Digest: { id: "digest", rich_text: [{ plain_text: sha256("resource text") }], type: "rich_text" },
+      Kind: { id: "kind", select: { name: "prompt" }, type: "select" },
+      Resource: { id: "title", title: [{ plain_text: "prompt/coordinator" }], type: "title" },
+      State: { id: "state", select: { name: "active" }, type: "select" },
+      Version: { id: "version", rich_text: [{ plain_text: "v1" }], type: "rich_text" },
+    },
+  };
+}
+
+function definition(): JsonObject {
+  return {
+    allowedIntents: ["task.update"],
+    capabilities: ["coordinate"],
+    concurrency: 1,
+    enabled: true,
+    invocationPriority: 1,
+    model: "gpt-5.6-sol",
+    name: "Coordinator",
+    promptResources: ["prompt/coordinator"],
+    reasoning: "medium",
+    revision: 1,
+    selection: {
+      acceptsAssignmentsFrom: ["coordinator"],
+      maxCandidateSummaries: 10,
+      mode: "coordinator",
+      resultSchemaResource: "schema/result",
+      taskQueryResource: null,
+    },
+    transitions: { succeeded: "Done" },
+    workResultSchemaResource: "schema/work",
+  };
+}
+
+function blocks(results: JsonObject[]): JsonObject {
+  return { has_more: false, next_cursor: null, results };
+}
+
+function managed(heading: string, body: string): JsonObject[] {
+  return [
+    { heading_2: rich(heading), id: "heading", type: "heading_2" },
+    { code: { ...rich(body), language: "json" }, id: "code", type: "code" },
+  ];
+}
+
+function rich(value: string): JsonObject {
+  return { rich_text: [{ plain_text: value }] };
+}
