@@ -300,6 +300,11 @@ export class NotionProvider implements AgentTaskProvider {
       await runtime.state.completeIntent(mutation.idempotencyKey, "task", mutation, receipt);
       return receipt;
     }
+    if (mutation.nextBody !== null && await runtime.reader.getTaskBodyMutationMarker(mutation.taskId) === digestJson(toJsonValue(mutation)) && normalizeText(current.body) === normalizeText(mutation.nextBody)) {
+      const receipt = await runtime.pages.completeMarkedTaskProperties(mutation);
+      await runtime.state.completeIntent(mutation.idempotencyKey, "task", mutation, receipt);
+      return receipt;
+    }
     if (current.version !== mutation.expectedVersion) {
       throw new IndeterminateProviderIntentError(`Pending Task intent conflicts with newer state: ${mutation.taskId}`);
     }

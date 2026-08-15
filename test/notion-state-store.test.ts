@@ -82,6 +82,14 @@ test("repairs only the exact marked pending Notion Task mutation", async () => {
   await anotherState.beginIntent(pending.idempotencyKey, "task", pending);
   await anotherPages.applyTaskMutation({ ...pending, idempotencyKey: "unrelated-same-target" });
   await assert.rejects(anotherProvider.applyTaskMutation(pending), /conflicts with newer state/u);
+
+  const bodyTransport = new ResourceTransport(); bodyTransport.seedTask(NOTION_TABLES.tasks); bodyTransport.failNextTaskPropertyPatch = true;
+  const bodyProvider = new NotionProvider({ environment: notionEnvironment(), environmentId: `recovery-${randomUUID()}`, now, transport: bodyTransport });
+  const bodyTask = await bodyProvider.getTaskSnapshot("task-1");
+  const bodyMutation = { expectedVersion: bodyTask.version, idempotencyKey: "task-body-pending", nextBody: "Updated body", nextProperties: bodyTask.properties, nextStatus: "Done", taskId: bodyTask.id };
+  await assert.rejects(bodyProvider.applyTaskMutation(bodyMutation), /simulated Task property interruption/u);
+  assert.equal((await bodyProvider.applyTaskMutation(bodyMutation)).providerRecord.id, bodyTask.id);
+  assert.equal((await bodyProvider.getTaskSnapshot(bodyTask.id)).body, "Updated body");
 });
 
 test("repairs a pending Notion Resource intent from its exact target state", async () => {
@@ -122,6 +130,7 @@ class ResourceTransport implements NotionTransport {
   readonly #blocks = new Map<string, JsonObject[]>();
   readonly #pages = new Map<string, JsonObject>();
   #clock = 0;
+  public failNextTaskPropertyPatch = false;
 
   public seedTask(parent = "tasks"): void {
     this.#pages.set("task-1", this.page("task-1", {
@@ -156,6 +165,7 @@ class ResourceTransport implements NotionTransport {
     if (pageMatch?.[1] !== undefined) {
       const current = required(this.#pages.get(pageMatch[1]));
       if (request.method === "GET") return current;
+      if (pageMatch[1] === "task-1" && this.failNextTaskPropertyPatch) { this.failNextTaskPropertyPatch = false; throw new Error("simulated Task property interruption"); }
       const body = objectValue(request.body);
       const next = this.page(pageMatch[1], mergeProperties(objectValue(current.properties), objectValue(body.properties)), String(objectValue(current.parent).data_source_id));
       this.#pages.set(pageMatch[1], next);
@@ -164,6 +174,12 @@ class ResourceTransport implements NotionTransport {
     const children = /^\/v1\/blocks\/(.+)\/children$/u.exec(request.path);
     if (children?.[1] !== undefined && request.method === "GET") {
       return { has_more: false, next_cursor: null, results: this.#blocks.get(children[1]) ?? [] };
+    }
+    if (children?.[1] !== undefined && request.method === "PATCH") {
+      const existing = this.#blocks.get(children[1]) ?? []; const added = (objectValue(request.body).children as JsonObject[]).map((item, index) => ({ ...item, id: `${children[1]}-${existing.length + index}` }));
+      this.#blocks.set(children[1], [...existing, ...added]);
+      const current = required(this.#pages.get(children[1])); this.#pages.set(children[1], this.page(children[1], objectValue(current.properties), String(objectValue(current.parent).data_source_id)));
+      return { results: added };
     }
     const block = /^\/v1\/blocks\/(.+)$/u.exec(request.path);
     if (block?.[1] !== undefined && request.method === "PATCH") {

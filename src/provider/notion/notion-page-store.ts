@@ -9,7 +9,7 @@ import type {
   ResourceMutation,
 } from "../../domain/records.js";
 import type { TableKind, WriteReceipt } from "../../domain/provider.js";
-import { NOTION_TASK_MUTATION_PROPERTY } from "./notion-schema.js";
+import { NOTION_TASK_MUTATION_CAPTION_PREFIX, NOTION_TASK_MUTATION_PROPERTY } from "./notion-schema.js";
 import { collectNotionPages, type NotionTransport } from "./notion-transport.js";
 
 export interface NotionMutableTableIds {
@@ -199,22 +199,21 @@ export class NotionPageStore {
     if (current.version !== mutation.expectedVersion) throw new Error("Task version conflict");
     const currentStatus = propertyOption(current.page, "Status");
     if (currentStatus === null) throw new Error("Task Status is missing");
+    const mutationDigest = digestJson(toJsonValue(mutation));
     const targetProperties = {
       ...taskPropertiesWithStatus(mutation.nextProperties, mutation.nextStatus ?? currentStatus),
-      [NOTION_TASK_MUTATION_PROPERTY]: digestJson(toJsonValue(mutation)),
+      [NOTION_TASK_MUTATION_PROPERTY]: mutationDigest,
     };
     const nextProperties = encodeGenericProperties(targetProperties, current.page);
+    if (mutation.nextBody !== null) {
+      await this.appendTaskBodyGeneration(mutation.taskId, mutation.nextBody, mutationDigest);
+      if ((await this.readManagedTaskBody(mutation.taskId)) !== normalizeText(mutation.nextBody)) throw new Error("Task body post-verification failed");
+    }
     await this.transport.request({
       body: { properties: nextProperties },
       method: "PATCH",
       path: `/v1/pages/${mutation.taskId}`,
     });
-    if (mutation.nextBody !== null) {
-      await this.replaceAllContent(mutation.taskId, mutation.nextBody);
-      if ((await this.readManagedTaskBody(mutation.taskId)) !== normalizeText(mutation.nextBody)) {
-        throw new Error("Task body post-verification failed");
-      }
-    }
     const verified = await this.getPage(mutation.taskId);
     if (verified.version === current.version) throw new Error("Task write did not advance last_edited_time");
     for (const [name, expected] of Object.entries(targetProperties)) {
@@ -230,6 +229,24 @@ export class NotionPageStore {
     const current = await this.getPage(taskId);
     assertPageParent(current.page, this.tables.tasks, "Task");
     return this.receipt("tasks", current, idempotencyKey);
+  }
+
+  public async completeMarkedTaskProperties(mutation: ConditionalTaskMutation): Promise<WriteReceipt> {
+    const current = await this.getPage(mutation.taskId);
+    assertPageParent(current.page, this.tables.tasks, "Task");
+    const mutationDigest = digestJson(toJsonValue(mutation));
+    if (await this.taskBodyGenerationMarker(mutation.taskId) !== mutationDigest || mutation.nextBody === null || await this.readManagedTaskBody(mutation.taskId) !== normalizeText(mutation.nextBody)) throw new Error("Task body generation does not authorize property completion");
+    for (const [name, expected] of Object.entries(mutation.nextProperties)) {
+      if (name === NOTION_TASK_MUTATION_PROPERTY) continue;
+      if (!propertyMatches(current.page, name, expected)) throw new Error(`Task source property ${name} changed before recovery`);
+    }
+    const sourceStatus = propertyOption(current.page, "Status");
+    if (sourceStatus === null) throw new Error("Task Status is missing");
+    const targetProperties = { ...taskPropertiesWithStatus(mutation.nextProperties, mutation.nextStatus ?? sourceStatus), [NOTION_TASK_MUTATION_PROPERTY]: mutationDigest };
+    await this.transport.request({ body: { properties: encodeGenericProperties(targetProperties, current.page) }, method: "PATCH", path: `/v1/pages/${mutation.taskId}` });
+    const verified = await this.getPage(mutation.taskId);
+    for (const [name, expected] of Object.entries(targetProperties)) if (!propertyMatches(verified.page, name, expected)) throw new Error(`Task property ${name} post-verification failed`);
+    return this.receipt("tasks", verified, mutation.idempotencyKey);
   }
 
   public async getPage(pageId: string): Promise<LocatedPage> {
@@ -279,17 +296,9 @@ export class NotionPageStore {
     }
   }
 
-  private async replaceAllContent(pageId: string, text: string): Promise<void> {
-    const blocks = await this.childBlocks(pageId);
-    for (const block of blocks) {
-      await this.transport.request({
-        body: { in_trash: true },
-        method: "PATCH",
-        path: `/v1/blocks/${requiredString(block.id, "Block id")}`,
-      });
-    }
+  private async appendTaskBodyGeneration(pageId: string, text: string, mutationDigest: string): Promise<void> {
     await this.transport.request({
-      body: { children: [managedCode(text, "markdown")] },
+      body: { children: [managedCode(text, "markdown", `${NOTION_TASK_MUTATION_CAPTION_PREFIX}${mutationDigest}`)] },
       method: "PATCH",
       path: `/v1/blocks/${pageId}/children`,
     });
@@ -297,9 +306,16 @@ export class NotionPageStore {
 
   private async readManagedTaskBody(pageId: string): Promise<string | null> {
     const blocks = await this.childBlocks(pageId);
-    if (blocks.length !== 1 || blocks[0]?.type !== "code") return null;
-    const code = objectValue(blocks[0].code, "Task body code");
-    return code.language === "markdown" ? blockText(blocks[0]) : null;
+    const generated = blocks.filter((block) => taskBodyGenerationMarker(block) !== null);
+    const active = generated.at(-1) ?? (blocks.length === 1 ? blocks[0] : undefined);
+    if (active?.type !== "code") return null;
+    const code = objectValue(active.code, "Task body code");
+    return code.language === "markdown" ? blockText(active) : null;
+  }
+
+  private async taskBodyGenerationMarker(pageId: string): Promise<string | null> {
+    const generated = (await this.childBlocks(pageId)).map(taskBodyGenerationMarker).filter((value): value is string => value !== null);
+    return generated.at(-1) ?? null;
   }
 
   private async relationIds(page: JsonObject, propertyName: string): Promise<readonly string[]> {
@@ -431,12 +447,20 @@ function managedHeading(text: string): JsonObject {
   return { heading_2: { rich_text: richText(text) }, object: "block", type: "heading_2" };
 }
 
-function managedCode(text: string, language = "json"): JsonObject {
-  return { code: codeValue(text, language), object: "block", type: "code" };
+function managedCode(text: string, language = "json", caption: string | null = null): JsonObject {
+  return { code: codeValue(text, language, caption), object: "block", type: "code" };
 }
 
-function codeValue(text: string, language = "json"): JsonObject {
-  return { language, rich_text: richText(normalizeText(text)) };
+function codeValue(text: string, language = "json", caption: string | null = null): JsonObject {
+  return { ...(caption === null ? {} : { caption: richText(caption) }), language, rich_text: richText(normalizeText(text)) };
+}
+
+function taskBodyGenerationMarker(block: JsonObject): string | null {
+  if (block.type !== "code") return null;
+  const caption = richTextValue(objectValue(block.code, "Task body code").caption);
+  if (!caption.startsWith(NOTION_TASK_MUTATION_CAPTION_PREFIX)) return null;
+  const digest = caption.slice(NOTION_TASK_MUTATION_CAPTION_PREFIX.length);
+  return /^[a-f0-9]{64}$/u.test(digest) ? digest : null;
 }
 
 function richText(text: string): JsonValue[] {

@@ -4,6 +4,7 @@ import { toJsonValue } from "../../domain/json.js";
 import type { TableDescriptor, WorkspaceSchemaDescriptor } from "../../domain/schema.js";
 
 export const NOTION_TASK_MUTATION_PROPERTY = "Manager Mutation";
+export const NOTION_TASK_MUTATION_CAPTION_PREFIX = "agent-task-manager:task-mutation:";
 
 const TABLES: readonly TableDescriptor[] = [
   {

@@ -269,6 +269,10 @@ then finalizes the consumption record. Replays return the applied record without
 another transition. Pending Notion Task intents resume only when the exact
 target is already visible or the original Task version is still current;
 otherwise recovery fails closed rather than overwriting newer provider state.
+For Task-body changes, Notion appends an immutable mutation-digest-marked
+Markdown generation before switching properties. The newest marked generation
+is authoritative; recovery can finish the exact property transition after an
+interruption without deleting or guessing about older human content.
 
 For a response, replace the slot's `null` value with an object whose `action` is
 one of its frozen `routes` keys:

@@ -61,6 +61,12 @@ class MutableTransport implements NotionTransport {
     if (children?.[1] !== undefined && request.method === "GET") {
       return { has_more: false, next_cursor: null, results: this.blocks.get(children[1]) ?? [] };
     }
+    if (children?.[1] !== undefined && request.method === "PATCH") {
+      const existing = this.blocks.get(children[1]) ?? []; const added = (objectValue(request.body).children as JsonObject[]).map((item, index) => ({ ...item, id: `${children[1]}-block-${existing.length + index}` }));
+      this.blocks.set(children[1], [...existing, ...added]);
+      const page = required(this.pages.get(children[1])); this.pages.set(children[1], this.newPage(children[1], String(objectValue(page.parent).data_source_id), objectValue(page.properties)));
+      return { results: added };
+    }
     const block = /^\/v1\/blocks\/(.+)$/u.exec(request.path);
     if (block?.[1] !== undefined && request.method === "PATCH") {
       for (const [pageId, blocks] of this.blocks) {
