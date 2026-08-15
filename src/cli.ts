@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 
 import { randomUUID } from "node:crypto";
-import { readFile, rename, rm, writeFile } from "node:fs/promises";
+import { readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 
 import { parseEnvironmentConfig, type EnvironmentConfig } from "./config/environment.js";
 import { canonicalize } from "./core/canonical-json.js";
@@ -225,7 +225,16 @@ function jsonObject(value: JsonValue | undefined, label: string): JsonObject {
   return value;
 }
 
-if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
+async function isMainModule(): Promise<boolean> {
+  if (process.argv[1] === undefined) return false;
+  try {
+    return await realpath(process.argv[1]) === await realpath(fileURLToPath(import.meta.url));
+  } catch {
+    return resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url));
+  }
+}
+
+if (await isMainModule()) {
   main().then(
     (code) => {
       process.exitCode = code;
