@@ -1,5 +1,5 @@
 // Implements hook-safe, environment-bound local Git and isolated workspace effects.
-import { lstat, mkdir, readFile, readdir, realpath, rm, stat, unlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, readdir, realpath, rm, stat } from "node:fs/promises";
 import { isAbsolute, join, parse, relative, resolve } from "node:path";
 import { AsyncLocalStorage } from "node:async_hooks";
 
@@ -7,6 +7,7 @@ import { sha256 } from "../core/digest.js";
 import type { ExternalEffectControl, ExternalEffectObservation } from "./contracts.js";
 import { createEffectObservation } from "./observations.js";
 import { runBoundedChildProcess } from "./bounded-child-process.js";
+import type { WorkspaceOwnershipStore } from "./workspace-ownership-store.js";
 import type { GitBranchPayload, GitCommitPayload, GitObservePayload, GitPushPayload, ReconcilableEffectAdapter, WorkspaceProvisionPayload, WorkspaceReleasePayload } from "./typed-effect-handlers.js";
 
 export interface LocalRepositoryConfig {
@@ -47,16 +48,17 @@ export class LocalGitEffects {
     private readonly config: LocalGitEffectConfig,
     private readonly executor: GitCommandExecutor,
     private readonly credentials: GitCredentialBroker,
+    private readonly ownership: WorkspaceOwnershipStore,
   ) {
     this.#runtimeRoot = canonicalRoot(config.runtimeRoot, "runtimeRoot");
     this.#workspacesRoot = join(this.#runtimeRoot, "workspaces");
     this.#repositories = new Map(config.repositories.map((repository) => [repository.id, { ...repository, root: canonicalRoot(repository.root, `repository ${repository.id}`) }]));
   }
 
-  public static async create(config: LocalGitEffectConfig, options: { readonly credentials?: GitCredentialBroker; readonly executor?: GitCommandExecutor } = {}): Promise<LocalGitEffects> {
+  public static async create(config: LocalGitEffectConfig, options: { readonly credentials?: GitCredentialBroker; readonly executor?: GitCommandExecutor; readonly ownership: WorkspaceOwnershipStore }): Promise<LocalGitEffects> {
     validateConfig(config);
     const executor = options.executor ?? new NodeGitCommandExecutor(config.executable.path);
-    const instance = new LocalGitEffects(config, executor, options.credentials ?? { async environment() { return {}; } });
+    const instance = new LocalGitEffects(config, executor, options.credentials ?? { async environment() { return {}; } }, options.ownership);
     await instance.verifyBoundary();
     return instance;
   }
@@ -86,7 +88,7 @@ export class LocalGitEffects {
 
   private async reconcileWorkspace(effectId: string, payload: WorkspaceProvisionPayload): Promise<ExternalEffectObservation> {
     const destination = this.workspacePath(payload.workspaceKey);
-    const owned = await this.verifyOwner(effectId, payload.repositoryId, payload.workspaceKey, payload.mode);
+    const owned = await this.verifyOwner(payload.repositoryId, payload.workspaceKey, payload.mode, effectId);
     if (!await exists(destination)) return owned || await this.registeredWorktree(this.repository(payload.repositoryId), destination) ? notApplied({ destinationKey: payload.workspaceKey, partial: true }) : notApplied({ destinationKey: payload.workspaceKey });
     const repository = this.repository(payload.repositoryId);
     const head = await this.gitOutput(destination, ["rev-parse", "HEAD"], true);
@@ -103,7 +105,7 @@ export class LocalGitEffects {
     const prior = await this.reconcileWorkspace(effectId, payload); if (prior.state !== "not_applied") return prior;
     const repository = this.repository(payload.repositoryId); const destination = this.workspacePath(payload.workspaceKey);
     await mkdir(this.#workspacesRoot, { recursive: true });
-    await this.ensureOwner(effectId, payload.repositoryId, payload.workspaceKey, payload.mode);
+    await this.ownership.claim({ mode: payload.mode, provisionEffectId: effectId, repositoryId: payload.repositoryId, workspaceKey: payload.workspaceKey });
     if (await this.registeredWorktree(repository, destination)) { await this.git(repository.root, ["worktree", "remove", "--force", destination]); await this.gitRequired(repository.root, ["worktree", "prune", "--expire", "now"]); }
     if (await exists(destination)) await rm(destination, { force: true, recursive: true });
     const args = payload.mode === "worktree"
@@ -116,7 +118,7 @@ export class LocalGitEffects {
 
   private async reconcileRelease(effectId: string, payload: WorkspaceReleasePayload): Promise<ExternalEffectObservation> {
     const destination = this.workspacePath(payload.workspaceKey);
-    const registered = await this.registeredWorktree(this.repository(payload.repositoryId), destination); const owned = await this.verifyOwner(null, payload.repositoryId, payload.workspaceKey);
+    const registered = await this.registeredWorktree(this.repository(payload.repositoryId), destination); const owned = await this.verifyOwner(payload.repositoryId, payload.workspaceKey);
     if (!await exists(destination) && !registered && !owned) return applied({ repositoryId: payload.repositoryId, workspaceKey: payload.workspaceKey }, { absent: true });
     if (!owned) return indeterminate({ destinationKey: payload.workspaceKey, reason: "ownership_unverified" });
     if (!await exists(destination)) return notApplied({ destinationKey: payload.workspaceKey, staleRegistration: registered });
@@ -125,11 +127,11 @@ export class LocalGitEffects {
   }
   private async applyRelease(effectId: string, payload: WorkspaceReleasePayload): Promise<ExternalEffectObservation> {
     const destination = this.workspacePath(payload.workspaceKey);
-    if (!await this.verifyOwner(null, payload.repositoryId, payload.workspaceKey)) return indeterminate({ destinationKey: payload.workspaceKey, reason: "ownership_unverified" });
+    if (!await this.verifyOwner(payload.repositoryId, payload.workspaceKey)) return indeterminate({ destinationKey: payload.workspaceKey, reason: "ownership_unverified" });
     const repository = this.repository(payload.repositoryId); const owner = await exists(destination) ? await this.workspaceRepository(destination) : null;
     if (owner?.mode === "worktree" || await this.registeredWorktree(repository, destination)) { await this.git(repository.root, ["worktree", "remove", "--force", destination]); await this.gitRequired(repository.root, ["worktree", "prune", "--expire", "now"]); }
     if (await exists(destination)) await rm(destination, { force: true, recursive: true });
-    await unlink(this.ownerPath(payload.workspaceKey));
+    await this.ownership.release({ releaseEffectId: effectId, repositoryId: payload.repositoryId, workspaceKey: payload.workspaceKey });
     return this.reconcileRelease(effectId, payload);
   }
 
@@ -213,10 +215,7 @@ export class LocalGitEffects {
     return mirror === undefined ? null : { id: mirror.id, mode: "mirror", repository: mirror };
   }
   private async assertWorkspaceRepository(destination: string, repositoryId: string): Promise<void> { const owner = await this.workspaceRepository(destination); if (owner?.id !== repositoryId) throw new Error(`Workspace does not belong to repository ${repositoryId}`); }
-  private ownerPath(workspaceKey: string): string { return `${this.workspacePath(workspaceKey)}.owner.json`; }
-  private ownerBody(effectId: string, repositoryId: string, workspaceKey: string, mode?: WorkspaceProvisionPayload["mode"]): string { return JSON.stringify({ effectId, mode: mode ?? null, repositoryId, workspaceKey }); }
-  private async ensureOwner(effectId: string, repositoryId: string, workspaceKey: string, mode: WorkspaceProvisionPayload["mode"]): Promise<void> { const path = this.ownerPath(workspaceKey); const body = this.ownerBody(effectId, repositoryId, workspaceKey, mode); try { await writeFile(path, body, { encoding: "utf8", flag: "wx" }); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST" || await readFile(path, "utf8") !== body) throw new Error("Workspace ownership marker conflicts with this effect"); } }
-  private async verifyOwner(effectId: string | null, repositoryId: string, workspaceKey: string, mode?: WorkspaceProvisionPayload["mode"]): Promise<boolean> { const path = this.ownerPath(workspaceKey); if (!await exists(path)) return false; const parsed = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>; return (effectId === null || parsed.effectId === effectId) && parsed.repositoryId === repositoryId && parsed.workspaceKey === workspaceKey && (mode === undefined || parsed.mode === mode); }
+  private async verifyOwner(repositoryId: string, workspaceKey: string, mode?: WorkspaceProvisionPayload["mode"], provisionEffectId?: string): Promise<boolean> { const owner = await this.ownership.get(workspaceKey); return owner?.state === "active" && owner.repositoryId === repositoryId && (mode === undefined || owner.mode === mode) && (provisionEffectId === undefined || owner.provisionEffectId === provisionEffectId); }
   private async registeredWorktree(repository: LocalRepositoryConfig, destination: string): Promise<boolean> { const output = await this.gitOutput(repository.root, ["worktree", "list", "--porcelain"], true); return output !== null && output.split(/\r?\n/u).some((line) => line.startsWith("worktree ") && samePath(line.slice(9), destination)); }
   private repository(id: string): LocalRepositoryConfig { const found = this.#repositories.get(id); if (found === undefined) throw new Error(`Repository is not configured: ${id}`); return found; }
   private workspacePath(key: string): string { const destination = join(this.#workspacesRoot, sha256(key)); if (!contains(this.#workspacesRoot, destination)) throw new Error("Workspace escaped its configured root"); return destination; }

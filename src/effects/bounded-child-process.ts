@@ -18,7 +18,7 @@ export async function runBoundedChildProcess(input: BoundedChildProcessInput): P
   return new Promise((resolvePromise, reject) => {
     const child = spawn(input.executablePath, [...input.arguments], { cwd: input.cwd, detached: process.platform !== "win32", env: input.environment, shell: false, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
     const stdout: Buffer[] = []; const stderr: Buffer[] = []; let bytes = 0; let settled = false;
-    const settleError = async (error: Error): Promise<void> => { if (settled) return; settled = true; clear(); await killProcessTree(child.pid); reject(error); };
+    const settleError = async (error: Error): Promise<void> => { if (settled) return; settled = true; clear(); try { await killProcessTree(child.pid); reject(error); } catch (teardownError) { reject(new AggregateError([error, teardownError], "Broker process failed and process-tree teardown also failed", { cause: error })); } };
     const append = (target: Buffer[], chunk: Buffer): void => { if (settled) return; bytes += chunk.byteLength; if (bytes > input.outputLimitBytes) void settleError(new Error("Broker process output exceeded its limit")); else target.push(chunk); };
     const onAbort = (): void => { void settleError(new Error("Broker process was cancelled")); };
     const timer = setTimeout(() => { void settleError(new Error("Broker process exceeded its deadline")); }, Math.max(1, input.deadlineAt - Date.now()));

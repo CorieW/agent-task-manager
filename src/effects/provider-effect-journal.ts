@@ -36,12 +36,14 @@ export class ProviderEffectJournal {
     if (verified === null || canonicalize(toJsonValue(verified)) !== body) throw new Error(`External-effect journal verification failed: ${record.effectId}`);
   }
 
-  public async withClaim<T>(effectId: string, deadlineAt: number, operation: () => Promise<T>): Promise<T> {
+  public async withClaim<T>(effectId: string, claimExpiresAt: number, operation: () => Promise<T>): Promise<T> {
     const ownerId = `external-effect:${randomUUID()}`;
-    const acquired = await this.provider.acquireLease({ expiresAt: new Date(deadlineAt + 5_000).toISOString(), idempotencyKey: `external-effect-claim:${effectId}:${ownerId}`, ownerId, scope: "task_assignment", subAgentId: "system/external-effect-broker", taskId: `system/external-effect/${effectId}` });
+    const acquired = await this.provider.acquireLease({ expiresAt: new Date(claimExpiresAt).toISOString(), idempotencyKey: `external-effect-claim:${effectId}:${ownerId}`, ownerId, scope: "task_assignment", subAgentId: "system/external-effect-broker", taskId: `system/external-effect/${effectId}` });
     if (!acquired.acquired || acquired.leaseId === null) throw new Error(`External effect is already claimed: ${effectId}`);
+    let retainUntilExpiry = false;
     try { return await operation(); }
-    finally { await this.provider.releaseLease({ leaseId: acquired.leaseId, ownerId }); }
+    catch (error) { retainUntilExpiry = hasRetainedClaim(error); throw error; }
+    finally { if (!retainUntilExpiry) await this.provider.releaseLease({ leaseId: acquired.leaseId, ownerId }); }
   }
 }
 
@@ -71,3 +73,4 @@ function validateIntent(value: ExternalEffectIntentRecord): void {
 }
 
 function digest(value: string): boolean { return /^[a-f0-9]{64}$/u.test(value); }
+function hasRetainedClaim(error: unknown): boolean { return error !== null && typeof error === "object" && "retainClaimUntilExpiry" in error && (error as { readonly retainClaimUntilExpiry?: unknown }).retainClaimUntilExpiry === true; }

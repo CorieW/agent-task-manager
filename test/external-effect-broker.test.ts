@@ -68,6 +68,16 @@ test("preflights a complete result before applying its first effect", async () =
   await assert.rejects(broker.executeResult(result, deadline()), /bad second payload/); assert.equal(applications, 0);
 });
 
+test("retains the provider claim when deadline cancellation is not acknowledged", async () => {
+  const provider = new InMemoryProvider(environment, target);
+  const handler = testHandler({ async apply() { return new Promise<ExternalEffectObservation>(() => undefined); } });
+  const environmentConfig = { adapters: null, effects: { handlers: { "git.commit": handler.id }, settings: {} }, environmentId: "test", provider: environment, raw: {}, runtime: null, schema: "agent-task-manager-environment-v1" as const };
+  const broker = new ExternalEffectBroker(resolveExternalEffectEnvironment(environmentConfig, [handler]), new ProviderEffectJournal(provider), { async verify() {} }, 5, 1_000);
+  const request = requestFor("git.commit", { message: "fix: quarantine" });
+  await assert.rejects(broker.execute(request, Date.now() + 25), (error: unknown) => error instanceof IndeterminateExternalEffectError && error.retainClaimUntilExpiry);
+  await assert.rejects(broker.execute(request, deadline()), /already claimed/);
+});
+
 function brokerFor(provider: InMemoryProvider, handler: ExternalEffectHandler, authorized = true): ExternalEffectBroker {
   const environmentConfig = {
     adapters: null, effects: { handlers: { "git.commit": handler.id }, settings: {} }, environmentId: "test", provider: environment,

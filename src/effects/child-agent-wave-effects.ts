@@ -52,11 +52,10 @@ export class ProviderChildAgentWaveEffects implements ReconcilableEffectAdapter<
     for (const node of payload.nodes) {
       const record = await this.readNode(effectId, node);
       if (record === null) { missing = true; continue; }
-      await this.context(node);
+      const context = await this.context(node);
       if (record.receipt !== null) { receipts.set(node.nodeKey, record.receipt); continue; }
       const dependencies = node.dependsOn.map((key) => receipts.get(key)).filter((receipt): receipt is ChildAgentNodeReceipt => receipt !== undefined);
       if (dependencies.length !== node.dependsOn.length) { missing = true; continue; }
-      const context = await this.context(node);
       const observation = await this.driver.reconcile({ context, control, dependencyReceipts: dependencies, node, nodeEffectId: record.nodeEffectId, waveEffectId: effectId });
       const finalized = await this.updateFromObservation(record, observation);
       if (finalized.receipt !== null) receipts.set(node.nodeKey, finalized.receipt); else missing = true;

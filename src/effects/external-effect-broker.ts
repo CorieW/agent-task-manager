@@ -9,14 +9,17 @@ import { createEffectObservation, validateEffectObservation } from "./observatio
 import { withSingleHostEffectLock } from "./single-host-effect-lock.js";
 
 export class IndeterminateExternalEffectError extends Error {
-  public constructor(public readonly effectId: string) { super(`External effect is indeterminate: ${effectId}`); }
+  public constructor(public readonly effectId: string, public readonly retainClaimUntilExpiry = false) { super(`External effect is indeterminate: ${effectId}`); }
 }
+class UnacknowledgedEffectCancellationError extends Error {}
 
 export class ExternalEffectBroker {
   public constructor(
     private readonly environment: ResolvedExternalEffectEnvironment,
     private readonly journal: ProviderEffectJournal,
     private readonly authority: ExternalEffectAuthorityVerifier,
+    private readonly cancellationGraceMilliseconds = 5_000,
+    private readonly unacknowledgedCancellationQuarantineMilliseconds = 86_400_000,
   ) {}
 
   public async executeResult(result: AgentResult, deadlineAt: number): Promise<readonly ExternalEffectExecution[]> {
@@ -37,7 +40,8 @@ export class ExternalEffectBroker {
   public async execute(request: ExternalEffectRequest, deadlineAt: number): Promise<ExternalEffectExecution> {
     validateDeadline(deadlineAt);
     await this.authority.verify(request);
-    return withSingleHostEffectLock(request.effectId, () => this.journal.withClaim(request.effectId, deadlineAt, async () => { await this.authority.verify(request); return this.executeLocked(request, deadlineAt); }));
+    const claimExpiresAt = deadlineAt + this.cancellationGraceMilliseconds + this.unacknowledgedCancellationQuarantineMilliseconds;
+    return withSingleHostEffectLock(request.effectId, () => this.journal.withClaim(request.effectId, claimExpiresAt, async () => { await this.authority.verify(request); return this.executeLocked(request, deadlineAt); }));
   }
 
   private async executeLocked(request: ExternalEffectRequest, deadlineAt: number): Promise<ExternalEffectExecution> {
@@ -62,16 +66,16 @@ export class ExternalEffectBroker {
     }
 
     let observed: ExternalEffectObservation;
-    try { observed = await invokeHandler((control) => handler.reconcile(request, control), deadlineAt); }
-    catch (error) { await this.pauseForUnknown(record, error); throw new IndeterminateExternalEffectError(request.effectId); }
+    try { observed = await invokeHandler((control) => handler.reconcile(request, control), deadlineAt, this.cancellationGraceMilliseconds); }
+    catch (error) { await this.pauseForUnknown(record, error); throw new IndeterminateExternalEffectError(request.effectId, error instanceof UnacknowledgedEffectCancellationError); }
     validateEffectObservation(observed);
     if (observed.state !== "not_applied") return this.finalizeOrPause(record, request, observed);
 
     let applied: ExternalEffectObservation;
-    try { applied = await invokeHandler((control) => handler.apply(request, control), deadlineAt); }
+    try { applied = await invokeHandler((control) => handler.apply(request, control), deadlineAt, this.cancellationGraceMilliseconds); }
     catch (error) {
       await this.pauseForUnknown(record, error);
-      throw new IndeterminateExternalEffectError(request.effectId);
+      throw new IndeterminateExternalEffectError(request.effectId, error instanceof UnacknowledgedEffectCancellationError);
     }
     validateEffectObservation(applied);
     if (applied.state === "indeterminate") return this.finalizeOrPause(record, request, applied);
@@ -115,9 +119,17 @@ function validateStoredRequest(record: ExternalEffectIntentRecord, request: Exte
 }
 function safeErrorClass(error: unknown): string { return error instanceof Error && error.name !== "" ? error.name.slice(0, 100) : "UnknownError"; }
 function validateDeadline(deadlineAt: number): void { if (!Number.isSafeInteger(deadlineAt) || deadlineAt <= Date.now() || deadlineAt > Date.now() + 86_400_000) throw new TypeError("External-effect deadline is invalid"); }
-async function invokeHandler(operation: (control: { readonly deadlineAt: number; readonly signal: AbortSignal }) => Promise<ExternalEffectObservation>, deadlineAt: number): Promise<ExternalEffectObservation> {
+async function invokeHandler(operation: (control: { readonly deadlineAt: number; readonly signal: AbortSignal }) => Promise<ExternalEffectObservation>, deadlineAt: number, cancellationGraceMilliseconds: number): Promise<ExternalEffectObservation> {
   const controller = new AbortController(); const remaining = deadlineAt - Date.now(); if (remaining < 1) throw new Error("External-effect deadline exceeded");
-  let timer: NodeJS.Timeout | undefined;
-  try { return await Promise.race([operation({ deadlineAt, signal: controller.signal }), new Promise<never>((_resolve, reject) => { timer = setTimeout(() => { controller.abort(); reject(new Error("External-effect deadline exceeded")); }, remaining); })]); }
-  finally { if (timer !== undefined) clearTimeout(timer); }
+  const running = operation({ deadlineAt, signal: controller.signal }); let timer: NodeJS.Timeout | undefined;
+  const timed = await Promise.race([running.then((value) => ({ kind: "settled" as const, value }), (error: unknown) => ({ error, kind: "rejected" as const })), new Promise<{ readonly kind: "timeout" }>((resolve) => { timer = setTimeout(() => resolve({ kind: "timeout" }), remaining); })]);
+  if (timer !== undefined) clearTimeout(timer);
+  if (timed.kind === "settled") return timed.value;
+  if (timed.kind === "rejected") throw timed.error;
+  controller.abort();
+  let graceTimer: NodeJS.Timeout | undefined;
+  const acknowledged = await Promise.race([running.then(() => true, () => true), new Promise<false>((resolve) => { graceTimer = setTimeout(() => resolve(false), cancellationGraceMilliseconds); })]);
+  if (graceTimer !== undefined) clearTimeout(graceTimer);
+  if (!acknowledged) { void running.catch(() => undefined); throw new UnacknowledgedEffectCancellationError("External-effect cancellation was not acknowledged"); }
+  throw new Error("External-effect deadline exceeded");
 }

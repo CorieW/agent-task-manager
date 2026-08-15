@@ -33,6 +33,7 @@ export * from "./effects/provider-effect-journal.js";
 export * from "./effects/registry.js";
 export * from "./effects/single-host-effect-lock.js";
 export * from "./effects/typed-effect-handlers.js";
+export * from "./effects/workspace-ownership-store.js";
 export * from "./provider/agent-task-provider.js";
 export * from "./provider/in-memory-provider.js";
 export * from "./provider/notion/notion-schema.js";

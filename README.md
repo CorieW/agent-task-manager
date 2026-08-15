@@ -390,6 +390,12 @@ replay until reconciliation can prove the outcome. Live assignment, lease,
 Task, role, and Resource authority is revalidated immediately before every
 effect. Local files are never the durable journal.
 
+Workspace ownership is likewise stored as a provider-backed
+`workspace-ownership-v1` Resource and serialized with a provider lease. The
+runtime never uses a sidecar file as ownership authority. If a handler does not
+acknowledge deadline cancellation, its effect claim remains quarantined until
+the configured claim expiry instead of permitting an overlapping retry.
+
 Child waves additionally store one `child-agent-node-intent-v1` Resource per
 node. Each node receives only its own immutable context and the receipts of its
 declared dependencies. Completed nodes are reused after restart; only missing
