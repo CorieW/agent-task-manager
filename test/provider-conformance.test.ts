@@ -2,13 +2,16 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { test } from "node:test";
+import { describe, test } from "node:test";
 
 import {
   InMemoryProvider,
+  SerializedProviderEmulator,
   type ProviderEnvironment,
+  type SeedableAgentTaskProvider,
   type TaskSnapshot,
   type WorkspaceSchemaDescriptor,
+  type WorkspaceSchemaSnapshot,
 } from "../src/index.js";
 
 const environment: ProviderEnvironment = {
@@ -78,8 +81,35 @@ function task(id: string, status: string): TaskSnapshot {
   };
 }
 
+const providerCases = [
+  {
+    create: (
+      snapshot?: WorkspaceSchemaSnapshot,
+      now?: () => Date,
+    ): SeedableAgentTaskProvider => new InMemoryProvider(environment, target, snapshot, now),
+    name: "direct memory provider",
+  },
+  {
+    create: (
+      snapshot?: WorkspaceSchemaSnapshot,
+      now?: () => Date,
+    ): SeedableAgentTaskProvider =>
+      new SerializedProviderEmulator(new InMemoryProvider(environment, target, snapshot, now)),
+    name: "serialized four-table emulator",
+  },
+] as const;
+
+for (const providerCase of providerCases) {
+describe(providerCase.name, () => {
+const createProvider = (
+  _environment: ProviderEnvironment,
+  _target: WorkspaceSchemaDescriptor,
+  snapshot?: WorkspaceSchemaSnapshot,
+  now?: () => Date,
+): SeedableAgentTaskProvider => providerCase.create(snapshot, now);
+
 test("task summaries honor predicates and cursors without exposing snapshots", async () => {
-  const provider = new InMemoryProvider(environment, target);
+  const provider = createProvider(environment, target);
   provider.seedTask(task("a", "open"));
   provider.seedTask(task("b", "closed"));
   provider.seedTask(task("c", "open"));
@@ -109,7 +139,7 @@ test("task summaries honor predicates and cursors without exposing snapshots", a
 });
 
 test("task writes are atomic, opaque-versioned, replayable, and isolated", async () => {
-  const provider = new InMemoryProvider(environment, target);
+  const provider = createProvider(environment, target);
   const seeded = task("atomic", "open");
   provider.seedTask(seeded);
   seeded.properties.nested = { value: "caller-mutated" };
@@ -144,7 +174,7 @@ test("task writes are atomic, opaque-versioned, replayable, and isolated", async
 
 test("leases are exclusive, expiry-aware, and replayable", async () => {
   let current = Date.parse("2026-01-01T00:00:00.000Z");
-  const provider = new InMemoryProvider(environment, target, undefined, () => new Date(current));
+  const provider = createProvider(environment, target, undefined, () => new Date(current));
   const request = {
     expiresAt: "2026-01-01T00:01:00.000Z",
     idempotencyKey: "lease-1",
@@ -183,7 +213,7 @@ test("leases are exclusive, expiry-aware, and replayable", async () => {
 });
 
 test("lease renewals replay their original result", async () => {
-  const provider = new InMemoryProvider(
+  const provider = createProvider(
     environment,
     target,
     undefined,
@@ -211,7 +241,7 @@ test("lease renewals replay their original result", async () => {
 
 test("manual lease release requires the exact inspected lease version", async () => {
   let current = Date.parse("2026-01-01T00:00:00.000Z");
-  const provider = new InMemoryProvider(environment, target, undefined, () => new Date(current));
+  const provider = createProvider(environment, target, undefined, () => new Date(current));
   const acquired = await provider.acquireLease({ expiresAt: "2026-01-01T00:10:00.000Z", idempotencyKey: "manual-acquire", ownerId: "owner", scope: "agent_run", subAgentId: "worker", taskId: null });
   const before = await provider.getLeaseSnapshot(acquired.leaseId!); assert.notEqual(before, null);
   current += 1_000;
@@ -227,7 +257,7 @@ test("manual lease release requires the exact inspected lease version", async ()
 });
 
 test("sub-agent activity is conditionally replaced", async () => {
-  const provider = new InMemoryProvider(environment, target);
+  const provider = createProvider(environment, target);
   provider.seedDefinition({
     allowedIntents: [],
     capabilities: [],
@@ -286,7 +316,7 @@ test("sub-agent activity is conditionally replaced", async () => {
 });
 
 test("errors use distinct entity and operation identities", async () => {
-  const provider = new InMemoryProvider(environment, target);
+  const provider = createProvider(environment, target);
   const base = {
     description: "description",
     errorKey: "error-1",
@@ -310,7 +340,7 @@ test("errors use distinct entity and operation identities", async () => {
 });
 
 test("resource pins and read models exclude mutation metadata", async () => {
-  const provider = new InMemoryProvider(environment, target);
+  const provider = createProvider(environment, target);
   const mutation = {
     body: "body",
     dependencies: [],
@@ -334,7 +364,7 @@ test("resource pins and read models exclude mutation metadata", async () => {
 });
 
 test("workspace plans converge with verified dependency and digest chains", async () => {
-  const provider = new InMemoryProvider(environment, target);
+  const provider = createProvider(environment, target);
   const observed = await provider.inspectWorkspaceSchema();
   const plan = await provider.planWorkspaceChanges({
     environmentId: "test",
@@ -357,7 +387,7 @@ test("workspace plans converge with verified dependency and digest chains", asyn
 });
 
 test("workspace planning fails closed for an unverifiable relation target", async () => {
-  const provider = new InMemoryProvider(environment, target, {
+  const provider = createProvider(environment, target, {
     capturedAt: "2026-01-01T00:00:00.000Z",
     digest: "observed",
     providerIdentity: "memory",
@@ -389,11 +419,13 @@ test("workspace planning fails closed for an unverifiable relation target", asyn
 });
 
 test("environment validation reports the supplied provider mismatch", async () => {
-  const provider = new InMemoryProvider(environment, target);
+  const provider = createProvider(environment, target);
   const report = await provider.validateEnvironment({ ...environment, type: "other" });
   assert.equal(report.valid, false);
   assert.equal(report.issues[0]?.path, "provider.type");
 });
+});
+}
 
 test("CLI help lists only implemented commands", () => {
   const cli = fileURLToPath(new URL("../src/cli.js", import.meta.url));

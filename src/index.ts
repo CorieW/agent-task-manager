@@ -42,6 +42,7 @@ export * from "./human/inspection.js";
 export * from "./human/outcome-transition-broker.js";
 export * from "./provider/agent-task-provider.js";
 export * from "./provider/in-memory-provider.js";
+export * from "./provider/serialized-provider-emulator.js";
 export * from "./provider/notion/notion-schema.js";
 export * from "./provider/notion/notion-record-codec.js";
 export * from "./provider/notion/notion-page-store.js";
