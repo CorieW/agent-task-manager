@@ -61,3 +61,4 @@ export * from "./runtime/dispatcher.js";
 export * from "./runtime/environment.js";
 export * from "./runtime/no-tool-adapters.js";
 export * from "./runtime/process-supervisor.js";
+export * from "./trial/identification-trial.js";
