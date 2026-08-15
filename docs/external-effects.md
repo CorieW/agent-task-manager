@@ -88,15 +88,15 @@ browser isolation/origin bounds or exact draft publication targets.
 
 ## Closed payloads
 
-| Kind | Required fields |
-| --- | --- |
-| `workspace.provision` | `mode`, `repositoryId`, `sourceRevision`, `workspaceKey` |
-| `workspace.release` | `repositoryId`, `workspaceKey` |
-| `git.observe` | `repositoryId`, `revision`, `workspaceKey` |
-| `git.branch` | `branch`, `expectedHead`, `repositoryId`, `workspaceKey` |
-| `git.commit` | `expectedHead`, `message`, nonempty repository-relative `paths`, `repositoryId`, `workspaceKey` |
-| `git.push` | `branch`, `expectedLocalHead`, nullable `expectedRemoteHead`, configured `remote`, `repositoryId`, `workspaceKey` |
-| `publication.draft_pr` | `baseBranch`, bounded `body`, `expectedHead`, `headBranch`, `publicationTarget`, `repositoryId`, bounded `title` |
-| `command.run` | bounded `arguments`, configured `commandKey`, `repositoryId`, `workspaceKey` |
-| `browser.run` | configured `environmentKey`, `repositoryId`, `scenarioResource`, `workspaceKey` |
-| `child_agent.wave` | `maxConcurrency` (1–32) and an acyclic `nodes` array; every node pins `contextResource`, `contextVersion`, `contextDigest`, `definitionId`, `dependsOn`, and `nodeKey` |
+| Kind                   | Required fields                                                                                                                                                        |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `workspace.provision`  | `mode`, `repositoryId`, `sourceRevision`, `workspaceKey`                                                                                                               |
+| `workspace.release`    | `repositoryId`, `workspaceKey`                                                                                                                                         |
+| `git.observe`          | `repositoryId`, `revision`, `workspaceKey`                                                                                                                             |
+| `git.branch`           | `branch`, `expectedHead`, `repositoryId`, `workspaceKey`                                                                                                               |
+| `git.commit`           | `expectedHead`, `message`, nonempty repository-relative `paths`, `repositoryId`, `workspaceKey`                                                                        |
+| `git.push`             | `branch`, `expectedLocalHead`, nullable `expectedRemoteHead`, configured `remote`, `repositoryId`, `workspaceKey`                                                      |
+| `publication.draft_pr` | `baseBranch`, bounded `body`, `expectedHead`, `headBranch`, `publicationTarget`, `repositoryId`, bounded `title`                                                       |
+| `command.run`          | bounded `arguments`, configured `commandKey`, `repositoryId`, `workspaceKey`                                                                                           |
+| `browser.run`          | configured `environmentKey`, `repositoryId`, `scenarioResource`, `workspaceKey`                                                                                        |
+| `child_agent.wave`     | `maxConcurrency` (1–32) and an acyclic `nodes` array; every node pins `contextResource`, `contextVersion`, `contextDigest`, `definitionId`, `dependsOn`, and `nodeKey` |

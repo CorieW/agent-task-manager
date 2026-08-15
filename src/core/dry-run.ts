@@ -28,16 +28,22 @@ export async function runFoundationDryRun(input: {
   readonly scheduleLimit: number;
   readonly target: WorkspaceSchemaDescriptor;
 }): Promise<FoundationDryRunReport> {
-  const environmentReport = await input.provider.validateEnvironment(input.environment);
+  const environmentReport = await input.provider.validateEnvironment(
+    input.environment,
+  );
   const tableReport = await input.provider.validateTables();
   if (tableReport.target.digest !== input.target.digest) {
-    throw new Error("Provider validation target does not match the dry-run target");
+    throw new Error(
+      "Provider validation target does not match the dry-run target",
+    );
   }
   const migrationPlan =
-    tableReport.state === "needs_bootstrap" || tableReport.state === "needs_additive_migration"
+    tableReport.state === "needs_bootstrap" ||
+    tableReport.state === "needs_additive_migration"
       ? await input.provider.planWorkspaceChanges({
           environmentId: input.environmentId,
-          mode: tableReport.state === "needs_bootstrap" ? "bootstrap" : "migration",
+          mode:
+            tableReport.state === "needs_bootstrap" ? "bootstrap" : "migration",
           observed: tableReport.observed,
           target: input.target,
         })

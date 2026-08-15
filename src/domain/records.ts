@@ -23,7 +23,9 @@ export interface TaskQuery {
 }
 
 export interface SelectionPolicy {
-  readonly acceptsAssignmentsFrom: readonly ("coordinator" | "explicit" | "self")[];
+  readonly acceptsAssignmentsFrom: readonly (
+    "coordinator" | "explicit" | "self"
+  )[];
   readonly maxCandidateSummaries: number;
   readonly mode: "coordinator" | "explicit" | "self";
   readonly resultSchema: string;

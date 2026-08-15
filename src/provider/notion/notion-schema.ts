@@ -1,10 +1,14 @@
 /** Defines the provider-owned minimum schema for a Notion workspace. */
 import { digestJson } from "../../core/digest.js";
 import { toJsonValue } from "../../domain/json.js";
-import type { TableDescriptor, WorkspaceSchemaDescriptor } from "../../domain/schema.js";
+import type {
+  TableDescriptor,
+  WorkspaceSchemaDescriptor,
+} from "../../domain/schema.js";
 
 export const NOTION_TASK_MUTATION_PROPERTY = "Manager Mutation";
-export const NOTION_TASK_MUTATION_CAPTION_PREFIX = "agent-task-manager:task-mutation:";
+export const NOTION_TASK_MUTATION_CAPTION_PREFIX =
+  "agent-task-manager:task-mutation:";
 
 const TABLES: readonly TableDescriptor[] = [
   {
@@ -78,7 +82,14 @@ function property(
   required = true,
   writable = true,
 ) {
-  return { logicalName, physicalName, required, targetTable: null, type, writable } as const;
+  return {
+    logicalName,
+    physicalName,
+    required,
+    targetTable: null,
+    type,
+    writable,
+  } as const;
 }
 
 function relation(
@@ -87,5 +98,12 @@ function relation(
   targetTable: "subAgents" | "tasks",
   required = true,
 ) {
-  return { logicalName, physicalName, required, targetTable, type: "relation", writable: true } as const;
+  return {
+    logicalName,
+    physicalName,
+    required,
+    targetTable,
+    type: "relation",
+    writable: true,
+  } as const;
 }

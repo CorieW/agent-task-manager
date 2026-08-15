@@ -1,7 +1,10 @@
 /** Parses the closed environment definition that supplies trusted provider, runtime-adapter, and external-effect configuration. */
 import type { JsonObject, JsonValue } from "../domain/json.js";
 import { TABLE_KINDS, type ProviderEnvironment } from "../domain/provider.js";
-import { EXTERNAL_EFFECT_KINDS, type ExternalEffectKind } from "../effects/typed-effect-handlers.js";
+import {
+  EXTERNAL_EFFECT_KINDS,
+  type ExternalEffectKind,
+} from "../effects/typed-effect-handlers.js";
 
 export interface EnvironmentConfig {
   readonly adapters: RuntimeAdapterConfig | null;
@@ -51,7 +54,11 @@ function isObject(value: JsonValue | undefined): value is JsonObject {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function optionalString(value: JsonValue | undefined, path: string, issues: string[]): string | null {
+function optionalString(
+  value: JsonValue | undefined,
+  path: string,
+  issues: string[],
+): string | null {
   if (value === null || value === undefined) return null;
   if (typeof value !== "string" || value.trim() === "") {
     issues.push(`${path} must be a non-empty string or null`);
@@ -60,7 +67,11 @@ function optionalString(value: JsonValue | undefined, path: string, issues: stri
   return value;
 }
 
-function requiredString(value: JsonValue | undefined, path: string, issues: string[]): string | null {
+function requiredString(
+  value: JsonValue | undefined,
+  path: string,
+  issues: string[],
+): string | null {
   if (typeof value !== "string" || value.trim() === "") {
     issues.push(`${path} must be a non-empty string`);
     return null;
@@ -68,7 +79,11 @@ function requiredString(value: JsonValue | undefined, path: string, issues: stri
   return value;
 }
 
-function positiveInteger(value: JsonValue | undefined, path: string, issues: string[]): number | null {
+function positiveInteger(
+  value: JsonValue | undefined,
+  path: string,
+  issues: string[],
+): number | null {
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1) {
     issues.push(`${path} must be a positive integer`);
     return null;
@@ -90,10 +105,19 @@ function rejectUnknownKeys(
 
 export function parseEnvironmentConfig(value: JsonValue): EnvironmentConfig {
   const issues: string[] = [];
-  if (!isObject(value)) throw new EnvironmentConfigError(["root must be an object"]);
+  if (!isObject(value))
+    throw new EnvironmentConfigError(["root must be an object"]);
   rejectUnknownKeys(
     value,
-    ["adapters", "effects", "environmentId", "provider", "repository", "runtime", "schema"],
+    [
+      "adapters",
+      "effects",
+      "environmentId",
+      "provider",
+      "repository",
+      "runtime",
+      "schema",
+    ],
     "root",
     issues,
   );
@@ -103,14 +127,23 @@ export function parseEnvironmentConfig(value: JsonValue): EnvironmentConfig {
     issues.push("schema must equal agent-task-manager-environment-v1");
   }
 
-  const environmentId = requiredString(value.environmentId, "environmentId", issues);
+  const environmentId = requiredString(
+    value.environmentId,
+    "environmentId",
+    issues,
+  );
   const providerValue = value.provider;
   if (!isObject(providerValue)) {
     issues.push("provider must be an object");
   }
 
   const provider = isObject(providerValue) ? providerValue : {};
-  rejectUnknownKeys(provider, ["bootstrapParent", "connection", "tables", "type"], "provider", issues);
+  rejectUnknownKeys(
+    provider,
+    ["bootstrapParent", "connection", "tables", "type"],
+    "provider",
+    issues,
+  );
   const type = requiredString(provider.type, "provider.type", issues);
   const bootstrapParent = optionalString(
     provider.bootstrapParent,
@@ -119,13 +152,15 @@ export function parseEnvironmentConfig(value: JsonValue): EnvironmentConfig {
   );
 
   const connection = provider.connection;
-  if (!isObject(connection)) issues.push("provider.connection must be an object");
+  if (!isObject(connection))
+    issues.push("provider.connection must be an object");
   const tablesValue = provider.tables;
   if (!isObject(tablesValue)) issues.push("provider.tables must be an object");
   const tableObject = isObject(tablesValue) ? tablesValue : {};
   rejectUnknownKeys(tableObject, TABLE_KINDS, "provider.tables", issues);
   for (const kind of TABLE_KINDS) {
-    if (!Object.hasOwn(tableObject, kind)) issues.push(`provider.tables.${kind} is required`);
+    if (!Object.hasOwn(tableObject, kind))
+      issues.push(`provider.tables.${kind} is required`);
   }
   const tables = Object.fromEntries(
     TABLE_KINDS.map((kind) => [
@@ -158,12 +193,26 @@ export function parseEnvironmentConfig(value: JsonValue): EnvironmentConfig {
   };
 }
 
-function parseExternalEffectConfig(value: JsonValue | undefined, issues: string[]): ExternalEffectEnvironmentConfig {
+function parseExternalEffectConfig(
+  value: JsonValue | undefined,
+  issues: string[],
+): ExternalEffectEnvironmentConfig {
   if (value === undefined) return { handlers: {}, settings: {} };
-  if (!isObject(value)) { issues.push("effects must be an object"); return { handlers: {}, settings: {} }; }
+  if (!isObject(value)) {
+    issues.push("effects must be an object");
+    return { handlers: {}, settings: {} };
+  }
   rejectUnknownKeys(value, ["handlers", "settings"], "effects", issues);
-  if (!isObject(value.handlers)) { issues.push("effects.handlers must be an object"); return { handlers: {}, settings: {} }; }
-  rejectUnknownKeys(value.handlers, EXTERNAL_EFFECT_KINDS, "effects.handlers", issues);
+  if (!isObject(value.handlers)) {
+    issues.push("effects.handlers must be an object");
+    return { handlers: {}, settings: {} };
+  }
+  rejectUnknownKeys(
+    value.handlers,
+    EXTERNAL_EFFECT_KINDS,
+    "effects.handlers",
+    issues,
+  );
   const handlers: Partial<Record<ExternalEffectKind, string>> = {};
   for (const kind of EXTERNAL_EFFECT_KINDS) {
     const configured = value.handlers[kind];
@@ -173,62 +222,175 @@ function parseExternalEffectConfig(value: JsonValue | undefined, issues: string[
     }
   }
   const settingsValue = value.settings;
-  if (!isObject(settingsValue)) issues.push("effects.settings must be an object");
+  if (!isObject(settingsValue))
+    issues.push("effects.settings must be an object");
   const settings: Record<string, JsonObject> = {};
   if (isObject(settingsValue)) {
     for (const [adapterId, adapterSettings] of Object.entries(settingsValue)) {
-      if (!/^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$/u.test(adapterId) || !isObject(adapterSettings)) issues.push(`effects.settings.${adapterId} must identify one adapter settings object`);
+      if (
+        !/^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$/u.test(adapterId) ||
+        !isObject(adapterSettings)
+      )
+        issues.push(
+          `effects.settings.${adapterId} must identify one adapter settings object`,
+        );
       else settings[adapterId] = adapterSettings;
     }
   }
   return { handlers, settings };
 }
 
-function parseRuntimeAdapterConfig(value: JsonValue | undefined, issues: string[]): RuntimeAdapterConfig | null {
-  if (value !== undefined && !isObject(value)) { issues.push("adapters must be an object"); return null; }
+function parseRuntimeAdapterConfig(
+  value: JsonValue | undefined,
+  issues: string[],
+): RuntimeAdapterConfig | null {
+  if (value !== undefined && !isObject(value)) {
+    issues.push("adapters must be an object");
+    return null;
+  }
   if (!isObject(value)) return null;
-  rejectUnknownKeys(value, ["agentRunner", "modelTransport", "publication", "sandbox"], "adapters", issues);
-  const agentRunner = requiredString(value.agentRunner, "adapters.agentRunner", issues);
-  const modelTransport = requiredString(value.modelTransport, "adapters.modelTransport", issues);
+  rejectUnknownKeys(
+    value,
+    ["agentRunner", "modelTransport", "publication", "sandbox"],
+    "adapters",
+    issues,
+  );
+  const agentRunner = requiredString(
+    value.agentRunner,
+    "adapters.agentRunner",
+    issues,
+  );
+  const modelTransport = requiredString(
+    value.modelTransport,
+    "adapters.modelTransport",
+    issues,
+  );
   const sandbox = requiredString(value.sandbox, "adapters.sandbox", issues);
-  const publication = optionalString(value.publication, "adapters.publication", issues);
-  return agentRunner === null || modelTransport === null || sandbox === null ? null : { agentRunner, modelTransport, publication, sandbox };
+  const publication = optionalString(
+    value.publication,
+    "adapters.publication",
+    issues,
+  );
+  return agentRunner === null || modelTransport === null || sandbox === null
+    ? null
+    : { agentRunner, modelTransport, publication, sandbox };
 }
 
-function parseRuntimeEnvironmentConfig(value: JsonValue | undefined, issues: string[]): RuntimeEnvironmentConfig | null {
-  if (value !== undefined && !isObject(value)) { issues.push("runtime must be an object"); return null; }
+function parseRuntimeEnvironmentConfig(
+  value: JsonValue | undefined,
+  issues: string[],
+): RuntimeEnvironmentConfig | null {
+  if (value !== undefined && !isObject(value)) {
+    issues.push("runtime must be an object");
+    return null;
+  }
   if (!isObject(value)) return null;
-  const keys = ["allowedEnvironmentNames", "allowedNetworkOrigins", "allowedReadRoots", "allowedWriteRoots", "concurrencyMode", "outputLimitBytes", "postKillReapMilliseconds", "root", "terminationGraceMilliseconds"];
+  const keys = [
+    "allowedEnvironmentNames",
+    "allowedNetworkOrigins",
+    "allowedReadRoots",
+    "allowedWriteRoots",
+    "concurrencyMode",
+    "outputLimitBytes",
+    "postKillReapMilliseconds",
+    "root",
+    "terminationGraceMilliseconds",
+  ];
   rejectUnknownKeys(value, keys, "runtime", issues);
   const root = requiredString(value.root, "runtime.root", issues);
-  const outputLimitBytes = positiveInteger(value.outputLimitBytes, "runtime.outputLimitBytes", issues);
-  const postKillReapMilliseconds = positiveInteger(value.postKillReapMilliseconds, "runtime.postKillReapMilliseconds", issues);
-  const terminationGraceMilliseconds = positiveInteger(value.terminationGraceMilliseconds, "runtime.terminationGraceMilliseconds", issues);
-  const allowedEnvironmentNames = stringArray(value.allowedEnvironmentNames, "runtime.allowedEnvironmentNames", issues);
-  const allowedNetworkOrigins = stringArray(value.allowedNetworkOrigins, "runtime.allowedNetworkOrigins", issues);
-  const allowedReadRoots = stringArray(value.allowedReadRoots, "runtime.allowedReadRoots", issues);
-  const allowedWriteRoots = stringArray(value.allowedWriteRoots, "runtime.allowedWriteRoots", issues);
-  if (value.concurrencyMode !== "single-host") issues.push("runtime.concurrencyMode must equal single-host");
-  if (root === null || outputLimitBytes === null || postKillReapMilliseconds === null || terminationGraceMilliseconds === null || value.concurrencyMode !== "single-host") return null;
-  return { allowedEnvironmentNames, allowedNetworkOrigins, allowedReadRoots, allowedWriteRoots, concurrencyMode: "single-host", outputLimitBytes, postKillReapMilliseconds, root, terminationGraceMilliseconds };
+  const outputLimitBytes = positiveInteger(
+    value.outputLimitBytes,
+    "runtime.outputLimitBytes",
+    issues,
+  );
+  const postKillReapMilliseconds = positiveInteger(
+    value.postKillReapMilliseconds,
+    "runtime.postKillReapMilliseconds",
+    issues,
+  );
+  const terminationGraceMilliseconds = positiveInteger(
+    value.terminationGraceMilliseconds,
+    "runtime.terminationGraceMilliseconds",
+    issues,
+  );
+  const allowedEnvironmentNames = stringArray(
+    value.allowedEnvironmentNames,
+    "runtime.allowedEnvironmentNames",
+    issues,
+  );
+  const allowedNetworkOrigins = stringArray(
+    value.allowedNetworkOrigins,
+    "runtime.allowedNetworkOrigins",
+    issues,
+  );
+  const allowedReadRoots = stringArray(
+    value.allowedReadRoots,
+    "runtime.allowedReadRoots",
+    issues,
+  );
+  const allowedWriteRoots = stringArray(
+    value.allowedWriteRoots,
+    "runtime.allowedWriteRoots",
+    issues,
+  );
+  if (value.concurrencyMode !== "single-host")
+    issues.push("runtime.concurrencyMode must equal single-host");
+  if (
+    root === null ||
+    outputLimitBytes === null ||
+    postKillReapMilliseconds === null ||
+    terminationGraceMilliseconds === null ||
+    value.concurrencyMode !== "single-host"
+  )
+    return null;
+  return {
+    allowedEnvironmentNames,
+    allowedNetworkOrigins,
+    allowedReadRoots,
+    allowedWriteRoots,
+    concurrencyMode: "single-host",
+    outputLimitBytes,
+    postKillReapMilliseconds,
+    root,
+    terminationGraceMilliseconds,
+  };
 }
 
-function stringArray(value: JsonValue | undefined, path: string, issues: string[]): readonly string[] {
-  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string" || entry === "")) { issues.push(`${path} must contain non-empty strings`); return []; }
+function stringArray(
+  value: JsonValue | undefined,
+  path: string,
+  issues: string[],
+): readonly string[] {
+  if (
+    !Array.isArray(value) ||
+    value.some((entry) => typeof entry !== "string" || entry === "")
+  ) {
+    issues.push(`${path} must contain non-empty strings`);
+    return [];
+  }
   const result = value as string[];
-  if (new Set(result).size !== result.length) issues.push(`${path} must not contain duplicates`);
+  if (new Set(result).size !== result.length)
+    issues.push(`${path} must not contain duplicates`);
   return [...result];
 }
 
-export function assertRuntimeReady(config: EnvironmentConfig): asserts config is RuntimeReadyEnvironmentConfig {
-  const missing = TABLE_KINDS.filter((kind) => config.provider.tables[kind] === null);
+export function assertRuntimeReady(
+  config: EnvironmentConfig,
+): asserts config is RuntimeReadyEnvironmentConfig {
+  const missing = TABLE_KINDS.filter(
+    (kind) => config.provider.tables[kind] === null,
+  );
   if (missing.length > 0) {
     throw new EnvironmentConfigError([
       `runtime requires configured table identifiers: ${missing.join(", ")}`,
     ]);
   }
   const runtimeIssues: string[] = [];
-  if (config.adapters === null) runtimeIssues.push("runtime requires adapters.agentRunner, adapters.modelTransport, and adapters.sandbox");
-  if (config.runtime === null) runtimeIssues.push("runtime requires a closed runtime definition");
+  if (config.adapters === null)
+    runtimeIssues.push(
+      "runtime requires adapters.agentRunner, adapters.modelTransport, and adapters.sandbox",
+    );
+  if (config.runtime === null)
+    runtimeIssues.push("runtime requires a closed runtime definition");
   if (runtimeIssues.length > 0) throw new EnvironmentConfigError(runtimeIssues);
 }

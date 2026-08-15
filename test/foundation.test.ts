@@ -13,13 +13,16 @@ import {
 } from "../src/index.js";
 
 test("canonicalize sorts object keys recursively", () => {
-  assert.equal(canonicalize({ z: 1, a: { y: true, b: null } }), '{"a":{"b":null,"y":true},"z":1}');
+  assert.equal(
+    canonicalize({ z: 1, a: { y: true, b: null } }),
+    '{"a":{"b":null,"y":true},"z":1}',
+  );
 });
 
 test("canonicalize normalizes strings and rejects normalized key collisions", () => {
   assert.equal(canonicalize("e\u0301"), JSON.stringify("é"));
   assert.throws(
-    () => canonicalize({ "e\u0301": true, "é": false }),
+    () => canonicalize({ "e\u0301": true, é: false }),
     /collide after NFC normalization/,
   );
 });
@@ -46,7 +49,12 @@ test("environment configuration is closed and reports missing required fields", 
         provider: {
           bootstrapParent: null,
           connection: {},
-          tables: { errors: null, resources: null, subAgents: null, tasks: null },
+          tables: {
+            errors: null,
+            resources: null,
+            subAgents: null,
+            tasks: null,
+          },
           type: "memory",
         },
         schema: "agent-task-manager-environment-v1",
@@ -60,7 +68,12 @@ test("environment configuration is closed and reports missing required fields", 
         provider: {
           bootstrapParent: null,
           connection: {},
-          tables: { errors: null, resources: null, subAgents: null, tasks: null },
+          tables: {
+            errors: null,
+            resources: null,
+            subAgents: null,
+            tasks: null,
+          },
           type: "memory",
         },
         schema: "agent-task-manager-environment-v1",
@@ -85,21 +98,50 @@ test("environment configuration is closed and reports missing required fields", 
 
 test("runtime readiness requires closed adapter and isolation environment definitions", () => {
   const config = parseEnvironmentConfig({
-    adapters: { agentRunner: "runner", modelTransport: "transport", publication: null, sandbox: "sandbox" }, effects: { handlers: {}, settings: {} },
+    adapters: {
+      agentRunner: "runner",
+      modelTransport: "transport",
+      publication: null,
+      sandbox: "sandbox",
+    },
+    effects: { handlers: {}, settings: {} },
     environmentId: "runtime-demo",
-    provider: { bootstrapParent: null, connection: {}, tables: { errors: "e", resources: "r", subAgents: "a", tasks: "t" }, type: "memory" },
+    provider: {
+      bootstrapParent: null,
+      connection: {},
+      tables: { errors: "e", resources: "r", subAgents: "a", tasks: "t" },
+      type: "memory",
+    },
     runtime: {
-      allowedEnvironmentNames: [], allowedNetworkOrigins: [], allowedReadRoots: ["C:/workspace"], allowedWriteRoots: ["C:/runtime/worktrees"],
-      concurrencyMode: "single-host", outputLimitBytes: 100_000, postKillReapMilliseconds: 5_000, root: "C:/runtime", terminationGraceMilliseconds: 5_000,
+      allowedEnvironmentNames: [],
+      allowedNetworkOrigins: [],
+      allowedReadRoots: ["C:/workspace"],
+      allowedWriteRoots: ["C:/runtime/worktrees"],
+      concurrencyMode: "single-host",
+      outputLimitBytes: 100_000,
+      postKillReapMilliseconds: 5_000,
+      root: "C:/runtime",
+      terminationGraceMilliseconds: 5_000,
     },
     schema: "agent-task-manager-environment-v1",
   });
   assert.doesNotThrow(() => assertRuntimeReady(config));
-  assert.throws(() => assertRuntimeReady(parseEnvironmentConfig({
-    environmentId: "runtime-demo",
-    provider: { bootstrapParent: null, connection: {}, tables: { errors: "e", resources: "r", subAgents: "a", tasks: "t" }, type: "memory" },
-    schema: "agent-task-manager-environment-v1",
-  })), /runtime requires adapters/);
+  assert.throws(
+    () =>
+      assertRuntimeReady(
+        parseEnvironmentConfig({
+          environmentId: "runtime-demo",
+          provider: {
+            bootstrapParent: null,
+            connection: {},
+            tables: { errors: "e", resources: "r", subAgents: "a", tasks: "t" },
+            type: "memory",
+          },
+          schema: "agent-task-manager-environment-v1",
+        }),
+      ),
+    /runtime requires adapters/,
+  );
 });
 
 test("migration authorization rejects a different digest", () => {
@@ -120,7 +162,10 @@ test("migration authorization rejects a different digest", () => {
 test("provider registry rejects duplicate registrations", () => {
   const registry = new ProviderRegistry();
   registry.register("memory", () => ({}) as never);
-  assert.throws(() => registry.register("memory", () => ({}) as never), /already registered/);
+  assert.throws(
+    () => registry.register("memory", () => ({}) as never),
+    /already registered/,
+  );
 });
 
 test("schema comparison distinguishes bootstrap and incompatible drift", () => {
@@ -147,7 +192,12 @@ test("schema comparison distinguishes bootstrap and incompatible drift", () => {
     version: "v1",
   };
   const missing = compareWorkspaceSchema(
-    { capturedAt: "2026-01-01T00:00:00.000Z", digest: "empty", providerIdentity: "memory", tables: [] },
+    {
+      capturedAt: "2026-01-01T00:00:00.000Z",
+      digest: "empty",
+      providerIdentity: "memory",
+      tables: [],
+    },
     target,
   );
   assert.equal(missing.state, "needs_bootstrap");
@@ -163,7 +213,13 @@ test("schema comparison distinguishes bootstrap and incompatible drift", () => {
           kind: "tasks",
           managedRanges: [],
           properties: [
-            { name: "Task", providerMetadata: {}, targetTableId: null, type: "text", writable: true },
+            {
+              name: "Task",
+              providerMetadata: {},
+              targetTableId: null,
+              type: "text",
+              writable: true,
+            },
           ],
           title: "Tasks",
           version: "1",

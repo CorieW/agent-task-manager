@@ -18,7 +18,11 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "check": "pnpm typecheck && pnpm test",
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
     "test": "pnpm build && node --test dist/test/*.test.js",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
@@ -27,7 +31,11 @@
   },
   "packageManager": "pnpm@11.15.1",
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/node": "24.13.3",
-    "typescript": "5.9.3"
+    "eslint": "^10.8.1",
+    "prettier": "^3.9.6",
+    "typescript": "5.9.3",
+    "typescript-eslint": "^8.66.0"
   }
 }

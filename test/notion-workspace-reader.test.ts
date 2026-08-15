@@ -43,9 +43,14 @@ class FakeTransport implements NotionTransport {
 }
 
 test("normalizes Notion URLs and collection identifiers", () => {
-  assert.equal(normalizeNotionIdentifier(`collection://${IDS.tasks.replaceAll("-", "")}`), IDS.tasks);
   assert.equal(
-    normalizeNotionIdentifier(`https://notion.so/Tasks-${IDS.tasks.replaceAll("-", "")}?v=abc`),
+    normalizeNotionIdentifier(`collection://${IDS.tasks.replaceAll("-", "")}`),
+    IDS.tasks,
+  );
+  assert.equal(
+    normalizeNotionIdentifier(
+      `https://notion.so/Tasks-${IDS.tasks.replaceAll("-", "")}?v=abc`,
+    ),
     IDS.tasks,
   );
   assert.throws(() => normalizeNotionIdentifier("not-an-id"));
@@ -60,9 +65,16 @@ test("collects every Notion page and rejects broken cursors", async () => {
       : { has_more: false, next_cursor: null, results: [{ id: "two" }] };
   });
   assert.deepEqual(seen, [null, "next"]);
-  assert.deepEqual(rows.map((row) => row.id), ["one", "two"]);
+  assert.deepEqual(
+    rows.map((row) => row.id),
+    ["one", "two"],
+  );
   await assert.rejects(
-    collectNotionPages(async () => ({ has_more: true, next_cursor: null, results: [] })),
+    collectNotionPages(async () => ({
+      has_more: true,
+      next_cursor: null,
+      results: [],
+    })),
     /omitted next_cursor/u,
   );
 });
@@ -72,47 +84,92 @@ test("uses authenticated, versioned Notion HTTP requests without exposing tokens
   const transport = new NotionHttpTransport({
     fetch: async (input, init) => {
       observed = new Request(input, init);
-      return Response.json({ code: "object_not_found", message: "missing", object: "error" }, { status: 404 });
+      return Response.json(
+        { code: "object_not_found", message: "missing", object: "error" },
+        { status: 404 },
+      );
     },
     token: "secret-token",
   });
-  await assert.rejects(transport.request({ method: "GET", path: "/v1/data_sources/missing" }), (error) => {
-    assert.equal(String(error).includes("secret-token"), false);
-    return true;
-  });
+  await assert.rejects(
+    transport.request({ method: "GET", path: "/v1/data_sources/missing" }),
+    (error) => {
+      assert.equal(String(error).includes("secret-token"), false);
+      return true;
+    },
+  );
   assert.equal(observed?.headers.get("Notion-Version"), NOTION_API_VERSION);
   assert.equal(observed?.headers.get("Authorization"), "Bearer secret-token");
 });
 
 test("inspects all configured tables into a canonical snapshot", async () => {
   const transport = new FakeTransport();
-  const reader = new NotionWorkspaceReader(environment(), createNotionWorkspaceSchema(), transport, () => new Date(0));
+  const reader = new NotionWorkspaceReader(
+    environment(),
+    createNotionWorkspaceSchema(),
+    transport,
+    () => new Date(0),
+  );
   const snapshot = await reader.inspectWorkspaceSchema();
   assert.equal(snapshot.providerIdentity, "bot-1:Demo");
   assert.equal(snapshot.tables.length, 4);
-  assert.equal(snapshot.tables.find((table) => table.kind === "subAgents")?.properties.find((property) => property.name === "Last Run")?.writable, false);
-  assert.equal(snapshot.tables.find((table) => table.kind === "subAgents")?.properties.find((property) => property.name === "Working On")?.targetTableId, IDS.tasks);
+  assert.equal(
+    snapshot.tables
+      .find((table) => table.kind === "subAgents")
+      ?.properties.find((property) => property.name === "Last Run")?.writable,
+    false,
+  );
+  assert.equal(
+    snapshot.tables
+      .find((table) => table.kind === "subAgents")
+      ?.properties.find((property) => property.name === "Working On")
+      ?.targetTableId,
+    IDS.tasks,
+  );
   assert.equal(transport.requests.length, 9);
 });
 
 test("rejects logical tables that alias one physical data source", async () => {
   const transport = new FakeTransport();
-  const aliased = { ...environment(), tables: { errors: IDS.resources, resources: IDS.resources, subAgents: IDS.resources, tasks: IDS.resources } };
-  const reader = new NotionWorkspaceReader(aliased, createNotionWorkspaceSchema(), transport);
-  await assert.rejects(reader.inspectWorkspaceSchema(), /must use distinct data sources/u);
+  const aliased = {
+    ...environment(),
+    tables: {
+      errors: IDS.resources,
+      resources: IDS.resources,
+      subAgents: IDS.resources,
+      tasks: IDS.resources,
+    },
+  };
+  const reader = new NotionWorkspaceReader(
+    aliased,
+    createNotionWorkspaceSchema(),
+    transport,
+  );
+  await assert.rejects(
+    reader.inspectWorkspaceSchema(),
+    /must use distinct data sources/u,
+  );
 });
 
 test("aborts Notion HTTP calls at the configured deadline", async () => {
   const transport = new NotionHttpTransport({
-    fetch: async (_input, init) => new Promise<Response>((_resolve, reject) => {
-      init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
-    }),
+    fetch: async (_input, init) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener(
+          "abort",
+          () => reject(init.signal?.reason),
+          { once: true },
+        );
+      }),
     timeoutMilliseconds: 5,
     token: "token",
   });
   await assert.rejects(
     transport.request({ method: "GET", path: "/v1/users/me" }),
-    (error) => error instanceof Error && "code" in error && error.code === "request_timeout",
+    (error) =>
+      error instanceof Error &&
+      "code" in error &&
+      error.code === "request_timeout",
   );
 });
 
@@ -137,14 +194,25 @@ function source(id: string, kind: string): JsonObject {
       ...common,
       properties: {
         Enabled: { checkbox: {}, id: "enabled", type: "checkbox" },
-        "Last Run": { id: "last-run", last_edited_time: {}, type: "last_edited_time" },
+        "Last Run": {
+          id: "last-run",
+          last_edited_time: {},
+          type: "last_edited_time",
+        },
         Model: { id: "model", rich_text: {}, type: "rich_text" },
         Name: { id: "title", title: {}, type: "title" },
         Revision: { id: "revision", number: {}, type: "number" },
         Status: { id: "status", select: {}, type: "select" },
-        "Working On": { id: "working", relation: { data_source_id: IDS.tasks }, type: "relation" },
+        "Working On": {
+          id: "working",
+          relation: { data_source_id: IDS.tasks },
+          type: "relation",
+        },
       },
     };
   }
-  return { ...common, properties: { [kind]: { id: "title", title: {}, type: "title" } } };
+  return {
+    ...common,
+    properties: { [kind]: { id: "title", title: {}, type: "title" } },
+  };
 }

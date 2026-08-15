@@ -3,8 +3,18 @@ import { canonicalize } from "../../core/canonical-json.js";
 import { finalizeMigrationPlan } from "../../core/migration-plan.js";
 import { compareWorkspaceSchema } from "../../core/schema-diff.js";
 import { sha256 } from "../../core/digest.js";
-import { toJsonValue, type JsonObject, type JsonValue } from "../../domain/json.js";
-import { TABLE_KINDS, type ProviderEnvironment, type ReconciliationResult, type TableKind, type WriteReceipt } from "../../domain/provider.js";
+import {
+  toJsonValue,
+  type JsonObject,
+  type JsonValue,
+} from "../../domain/json.js";
+import {
+  TABLE_KINDS,
+  type ProviderEnvironment,
+  type ReconciliationResult,
+  type TableKind,
+  type WriteReceipt,
+} from "../../domain/provider.js";
 import type {
   PropertyDescriptor,
   WorkspaceMigrationPlan,
@@ -15,10 +25,22 @@ import type {
 } from "../../domain/schema.js";
 import { NotionPageStore } from "./notion-page-store.js";
 import { parseWriteReceipt } from "../write-receipt-codec.js";
-import { normalizeNotionIdentifier, notionSchemaDigest, NotionWorkspaceReader } from "./notion-workspace-reader.js";
-import { collectNotionPages, type NotionTransport } from "./notion-transport.js";
+import {
+  normalizeNotionIdentifier,
+  notionSchemaDigest,
+  NotionWorkspaceReader,
+} from "./notion-workspace-reader.js";
+import {
+  collectNotionPages,
+  type NotionTransport,
+} from "./notion-transport.js";
 
-const TABLE_ORDER: readonly TableKind[] = ["resources", "errors", "tasks", "subAgents"];
+const TABLE_ORDER: readonly TableKind[] = [
+  "resources",
+  "errors",
+  "tasks",
+  "subAgents",
+];
 
 interface WorkspaceStepRecord {
   readonly receipt: WriteReceipt | null;
@@ -49,24 +71,50 @@ export class NotionWorkspaceManager {
 
   public async inspectWorkspaceSchema(): Promise<WorkspaceSchemaSnapshot> {
     await this.resolveTables();
-    const reader = new NotionWorkspaceReader(this.resolvedEnvironment(), this.target, this.transport, this.now);
+    const reader = new NotionWorkspaceReader(
+      this.resolvedEnvironment(),
+      this.target,
+      this.transport,
+      this.now,
+    );
     return reader.inspectWorkspaceSchema();
   }
 
-  public async planWorkspaceChanges(request: WorkspaceSchemaRequest): Promise<WorkspaceMigrationPlan> {
-    if (request.environmentId !== this.environmentId) throw new Error("Workspace request environment does not match manager");
-    if (request.target.digest !== this.target.digest) throw new Error("Workspace request target does not match configured target");
+  public async planWorkspaceChanges(
+    request: WorkspaceSchemaRequest,
+  ): Promise<WorkspaceMigrationPlan> {
+    if (request.environmentId !== this.environmentId)
+      throw new Error("Workspace request environment does not match manager");
+    if (request.target.digest !== this.target.digest)
+      throw new Error(
+        "Workspace request target does not match configured target",
+      );
     const report = compareWorkspaceSchema(request.observed, request.target);
-    if (report.state === "blocked_incompatible") throw new Error("Cannot plan over an incompatible Notion workspace");
-    const drafts: Array<Pick<WorkspaceMigrationStep, "id" | "kind" | "payload">> = [];
+    if (report.state === "blocked_incompatible")
+      throw new Error("Cannot plan over an incompatible Notion workspace");
+    const drafts: Array<
+      Pick<WorkspaceMigrationStep, "id" | "kind" | "payload">
+    > = [];
     for (const kind of TABLE_ORDER) {
       const expected = tableDescriptor(this.target, kind);
-      const observed = request.observed.tables.find((table) => table.kind === kind);
+      const observed = request.observed.tables.find(
+        (table) => table.kind === kind,
+      );
       if (observed === undefined) {
-        drafts.push({ id: `notion:${this.target.version}:create:${kind}`, kind: "create_table", payload: { kind } });
+        drafts.push({
+          id: `notion:${this.target.version}:create:${kind}`,
+          kind: "create_table",
+          payload: { kind },
+        });
       } else {
-        for (const property of expected.properties.filter((item) => item.targetTable === null)) {
-          if (!observed.properties.some((item) => item.name === property.physicalName)) {
+        for (const property of expected.properties.filter(
+          (item) => item.targetTable === null,
+        )) {
+          if (
+            !observed.properties.some(
+              (item) => item.name === property.physicalName,
+            )
+          ) {
             drafts.push({
               id: `notion:${this.target.version}:property:${kind}:${property.physicalName}`,
               kind: "add_property",
@@ -78,9 +126,18 @@ export class NotionWorkspaceManager {
     }
     for (const kind of TABLE_ORDER) {
       const expected = tableDescriptor(this.target, kind);
-      const observed = request.observed.tables.find((table) => table.kind === kind);
-      for (const property of expected.properties.filter((item) => item.targetTable !== null)) {
-        if (observed === undefined || !observed.properties.some((item) => item.name === property.physicalName)) {
+      const observed = request.observed.tables.find(
+        (table) => table.kind === kind,
+      );
+      for (const property of expected.properties.filter(
+        (item) => item.targetTable !== null,
+      )) {
+        if (
+          observed === undefined ||
+          !observed.properties.some(
+            (item) => item.name === property.physicalName,
+          )
+        ) {
           drafts.push({
             id: `notion:${this.target.version}:relation:${kind}:${property.physicalName}`,
             kind: "add_relation",
@@ -93,7 +150,11 @@ export class NotionWorkspaceManager {
       drafts.push({
         id: `notion:${this.target.version}:schema-state`,
         kind: "record_schema_state",
-        payload: { kind: "resources", targetDigest: this.target.digest, targetVersion: this.target.version },
+        payload: {
+          kind: "resources",
+          targetDigest: this.target.digest,
+          targetVersion: this.target.version,
+        },
       });
     }
 
@@ -124,111 +185,192 @@ export class NotionWorkspaceManager {
     });
   }
 
-  public async applyWorkspaceStep(step: WorkspaceMigrationStep): Promise<WriteReceipt> {
+  public async applyWorkspaceStep(
+    step: WorkspaceMigrationStep,
+  ): Promise<WriteReceipt> {
     await this.resolveTables();
     if (this.#resolved.has("resources")) await this.ensureBootstrapRoot();
     const prior = await this.readStepRecord(step.id);
     if (prior !== null) {
-      if (prior.stepDigest !== stepDigest(step)) throw new Error(`Workspace step ${step.id} changed after it was journaled`);
-      if (prior.state === "applied" && prior.receipt !== null) return prior.receipt;
+      if (prior.stepDigest !== stepDigest(step))
+        throw new Error(
+          `Workspace step ${step.id} changed after it was journaled`,
+        );
+      if (prior.state === "applied" && prior.receipt !== null)
+        return prior.receipt;
       const recovered = await this.reconcileEffect(prior.step);
-      if (recovered.state === "applied") return this.finalizeRecoveredStep(prior.step);
-      if (recovered.state !== "not_applied") throw new Error(`Workspace step ${step.id} remains indeterminate`);
-    } else if (step.id === `notion:${this.target.version}:create:resources` && this.#resolved.has("resources")) {
+      if (recovered.state === "applied")
+        return this.finalizeRecoveredStep(prior.step);
+      if (recovered.state !== "not_applied")
+        throw new Error(`Workspace step ${step.id} remains indeterminate`);
+    } else if (
+      step.id === `notion:${this.target.version}:create:resources` &&
+      this.#resolved.has("resources")
+    ) {
       const recovered = await this.reconcileEffect(step);
-      if (recovered.state === "applied") return this.finalizeRecoveredStep(step);
+      if (recovered.state === "applied")
+        return this.finalizeRecoveredStep(step);
     }
     for (const dependency of step.dependsOn) {
       const record = await this.readStepRecord(dependency);
-      if (record?.state !== "applied") throw new Error(`Workspace step dependency is incomplete: ${dependency}`);
+      if (record?.state !== "applied")
+        throw new Error(
+          `Workspace step dependency is incomplete: ${dependency}`,
+        );
     }
     const current = await this.inspectWorkspaceSchema();
-    if (current.digest !== step.expectedPreSchemaDigest) throw new Error(`Workspace precondition changed: ${step.id}`);
-    if (this.#resolved.has("resources")) await this.writeStepRecord({
-      receipt: null,
-      schema: "agent-task-manager-workspace-step-v1",
-      state: "pending",
-      step,
-      stepDigest: stepDigest(step),
-    });
+    if (current.digest !== step.expectedPreSchemaDigest)
+      throw new Error(`Workspace precondition changed: ${step.id}`);
+    if (this.#resolved.has("resources"))
+      await this.writeStepRecord({
+        receipt: null,
+        schema: "agent-task-manager-workspace-step-v1",
+        state: "pending",
+        step,
+        stepDigest: stepDigest(step),
+      });
 
     if (step.kind === "create_table") await this.createTable(tableKind(step));
-    else if (step.kind === "add_property" || step.kind === "add_relation") await this.addProperty(step);
-    else if (step.kind === "record_schema_state") await this.recordSchemaState();
+    else if (step.kind === "add_property" || step.kind === "add_relation")
+      await this.addProperty(step);
+    else if (step.kind === "record_schema_state")
+      await this.recordSchemaState();
     else throw new Error(`Unsupported Notion workspace step: ${step.kind}`);
 
     const reconciliation = await this.reconcileEffect(step);
-    if (reconciliation.state !== "applied") throw new Error(`Workspace step post-verification failed: ${step.id}`);
+    if (reconciliation.state !== "applied")
+      throw new Error(`Workspace step post-verification failed: ${step.id}`);
     const verifiedSnapshot = await this.inspectWorkspaceSchema();
-    if (verifiedSnapshot.digest !== step.expectedPostSchemaDigest) throw new Error(`Workspace postcondition changed: ${step.id}`);
+    if (verifiedSnapshot.digest !== step.expectedPostSchemaDigest)
+      throw new Error(`Workspace postcondition changed: ${step.id}`);
     const table = tableKind(step);
     const tableId = requiredResolved(this.#resolved, table);
-    const observed = verifiedSnapshot.tables.find((candidate) => candidate.kind === table);
-    if (observed === undefined) throw new Error(`Workspace step did not produce ${table}`);
+    const observed = verifiedSnapshot.tables.find(
+      (candidate) => candidate.kind === table,
+    );
+    if (observed === undefined)
+      throw new Error(`Workspace step did not produce ${table}`);
     const receipt: WriteReceipt = {
       idempotencyKey: step.id,
       observedVersion: observed.version,
       providerRecord: { id: tableId, table },
       writtenAt: this.now().toISOString(),
     };
-    await this.writeStepRecord({ receipt, schema: "agent-task-manager-workspace-step-v1", state: "applied", step, stepDigest: stepDigest(step) });
+    await this.writeStepRecord({
+      receipt,
+      schema: "agent-task-manager-workspace-step-v1",
+      state: "applied",
+      step,
+      stepDigest: stepDigest(step),
+    });
     return receipt;
   }
 
-  public async reconcileWorkspaceStep(stepId: string, supplied?: WorkspaceMigrationStep): Promise<ReconciliationResult> {
+  public async reconcileWorkspaceStep(
+    stepId: string,
+    supplied?: WorkspaceMigrationStep,
+  ): Promise<ReconciliationResult> {
     await this.resolveTables();
     const stored = await this.readStepRecord(stepId);
     if (stored?.state === "applied" && stored.receipt !== null) {
-      return { evidence: { receipt: toJsonValue(stored.receipt), stepDigest: stored.stepDigest }, state: "applied" };
+      return {
+        evidence: {
+          receipt: toJsonValue(stored.receipt),
+          stepDigest: stored.stepDigest,
+        },
+        state: "applied",
+      };
     }
-    const effective = supplied ?? stored?.step ?? this.knownUnjournaledStep(stepId);
+    const effective =
+      supplied ?? stored?.step ?? this.knownUnjournaledStep(stepId);
     if (effective === null) return { evidence: {}, state: "not_applied" };
     const result = await this.reconcileEffect(effective);
     if (stored?.state === "pending" && result.state === "applied") {
       const receipt = await this.finalizeRecoveredStep(effective);
-      return { evidence: { receipt: toJsonValue(receipt), stepDigest: stepDigest(effective) }, state: "applied" };
+      return {
+        evidence: {
+          receipt: toJsonValue(receipt),
+          stepDigest: stepDigest(effective),
+        },
+        state: "applied",
+      };
     }
     return result;
   }
 
-  private async reconcileEffect(supplied: WorkspaceMigrationStep): Promise<ReconciliationResult> {
+  private async reconcileEffect(
+    supplied: WorkspaceMigrationStep,
+  ): Promise<ReconciliationResult> {
     await this.resolveTables();
     const kind = tableKind(supplied);
     if (supplied.kind === "create_table") {
       return this.#resolved.has(kind)
-        ? { evidence: { dataSourceId: requiredResolved(this.#resolved, kind) }, state: "applied" }
+        ? {
+            evidence: { dataSourceId: requiredResolved(this.#resolved, kind) },
+            state: "applied",
+          }
         : { evidence: {}, state: "not_applied" };
     }
     if (supplied.kind === "add_property" || supplied.kind === "add_relation") {
-      const physicalName = requiredString(supplied.payload.physicalName, "Workspace property name");
-      const table = (await this.inspectWorkspaceSchema()).tables.find((candidate) => candidate.kind === kind);
-      const expected = tableDescriptor(this.target, kind).properties.find((item) => item.physicalName === physicalName);
-      const observed = table?.properties.find((item) => item.name === physicalName);
-      const applied = expected !== undefined && observed !== undefined && observed.type === expected.type && observed.writable === expected.writable;
-      return applied ? { evidence: { property: physicalName }, state: "applied" } : { evidence: {}, state: "not_applied" };
+      const physicalName = requiredString(
+        supplied.payload.physicalName,
+        "Workspace property name",
+      );
+      const table = (await this.inspectWorkspaceSchema()).tables.find(
+        (candidate) => candidate.kind === kind,
+      );
+      const expected = tableDescriptor(this.target, kind).properties.find(
+        (item) => item.physicalName === physicalName,
+      );
+      const observed = table?.properties.find(
+        (item) => item.name === physicalName,
+      );
+      const applied =
+        expected !== undefined &&
+        observed !== undefined &&
+        observed.type === expected.type &&
+        observed.writable === expected.writable;
+      return applied
+        ? { evidence: { property: physicalName }, state: "applied" }
+        : { evidence: {}, state: "not_applied" };
     }
     if (supplied.kind === "record_schema_state") {
       const state = await this.readSchemaState();
-      return state?.targetDigest === this.target.digest && state.targetVersion === this.target.version
+      return state?.targetDigest === this.target.digest &&
+        state.targetVersion === this.target.version
         ? { evidence: state, state: "applied" }
         : { evidence: {}, state: "not_applied" };
     }
     return { evidence: {}, state: "failed" };
   }
 
-  private async finalizeRecoveredStep(step: WorkspaceMigrationStep): Promise<WriteReceipt> {
+  private async finalizeRecoveredStep(
+    step: WorkspaceMigrationStep,
+  ): Promise<WriteReceipt> {
     const snapshot = await this.inspectWorkspaceSchema();
-    if (snapshot.digest !== step.expectedPostSchemaDigest) throw new Error(`Recovered workspace postcondition does not match: ${step.id}`);
+    if (snapshot.digest !== step.expectedPostSchemaDigest)
+      throw new Error(
+        `Recovered workspace postcondition does not match: ${step.id}`,
+      );
     const table = tableKind(step);
-    const observed = snapshot.tables.find((candidate) => candidate.kind === table);
-    if (observed === undefined) throw new Error(`Recovered workspace step did not produce ${table}`);
+    const observed = snapshot.tables.find(
+      (candidate) => candidate.kind === table,
+    );
+    if (observed === undefined)
+      throw new Error(`Recovered workspace step did not produce ${table}`);
     const receipt: WriteReceipt = {
       idempotencyKey: step.id,
       observedVersion: observed.version,
       providerRecord: { id: requiredResolved(this.#resolved, table), table },
       writtenAt: this.now().toISOString(),
     };
-    await this.writeStepRecord({ receipt, schema: "agent-task-manager-workspace-step-v1", state: "applied", step, stepDigest: stepDigest(step) });
+    await this.writeStepRecord({
+      receipt,
+      schema: "agent-task-manager-workspace-step-v1",
+      state: "applied",
+      step,
+      stepDigest: stepDigest(step),
+    });
     return receipt;
   }
 
@@ -247,12 +389,16 @@ export class NotionWorkspaceManager {
   }
 
   public configuredTablePatch(): Readonly<Record<TableKind, string>> {
-    return Object.fromEntries(TABLE_KINDS.map((kind) => [kind, requiredResolved(this.#resolved, kind)])) as unknown as Readonly<Record<TableKind, string>>;
+    return Object.fromEntries(
+      TABLE_KINDS.map((kind) => [kind, requiredResolved(this.#resolved, kind)]),
+    ) as unknown as Readonly<Record<TableKind, string>>;
   }
 
   public async resolveTableIds(): Promise<Partial<Record<TableKind, string>>> {
     await this.resolveTables();
-    return Object.fromEntries(this.#resolved) as Partial<Record<TableKind, string>>;
+    return Object.fromEntries(this.#resolved) as Partial<
+      Record<TableKind, string>
+    >;
   }
 
   public async recordEnvironmentPatch(
@@ -262,14 +408,16 @@ export class NotionWorkspaceManager {
     await this.resolveTables();
     const tables = this.configuredTablePatch();
     const key = `system/environment-patch/${sha256(this.environmentId)}`;
-    const body = canonicalize(toJsonValue({
-      environmentId: this.environmentId,
-      schema: "agent-task-manager-environment-patch-v1",
-      startingFileDigest,
-      state,
-      tables,
-      targetSchemaDigest: this.target.digest,
-    }));
+    const body = canonicalize(
+      toJsonValue({
+        environmentId: this.environmentId,
+        schema: "agent-task-manager-environment-patch-v1",
+        startingFileDigest,
+        state,
+        tables,
+        targetSchemaDigest: this.target.digest,
+      }),
+    );
     await this.pageStore().createResource({
       body,
       dependencies: [],
@@ -282,12 +430,24 @@ export class NotionWorkspaceManager {
     });
   }
 
-  public async readBootstrapSession(mode: WorkspaceMigrationPlan["mode"]): Promise<BootstrapSessionRecord | null> {
+  public async readBootstrapSession(
+    mode: WorkspaceMigrationPlan["mode"],
+  ): Promise<BootstrapSessionRecord | null> {
     await this.resolveTables();
     if (!this.#resolved.has("resources")) return null;
-    const located = await this.pageStore().findUniqueByTitle("resources", "Resource", this.bootstrapSessionKey(mode));
+    const located = await this.pageStore().findUniqueByTitle(
+      "resources",
+      "Resource",
+      this.bootstrapSessionKey(mode),
+    );
     if (located === null) return null;
-    return parseBootstrapSession(toJsonValue(JSON.parse(await this.pageStore().managedText(located.id, "Resource body"))));
+    return parseBootstrapSession(
+      toJsonValue(
+        JSON.parse(
+          await this.pageStore().managedText(located.id, "Resource body"),
+        ),
+      ),
+    );
   }
 
   public async recordBootstrapSession(
@@ -297,7 +457,8 @@ export class NotionWorkspaceManager {
     await this.resolveTables();
     const knownStepIds = new Set(plan.steps.map((step) => step.id));
     const completed = [...new Set(completedStepIds)];
-    if (completed.some((stepId) => !knownStepIds.has(stepId))) throw new Error("Bootstrap session contains an unknown completed step");
+    if (completed.some((stepId) => !knownStepIds.has(stepId)))
+      throw new Error("Bootstrap session contains an unknown completed step");
     const nextStep = plan.steps.find((step) => !completed.includes(step.id));
     const record: BootstrapSessionRecord = {
       completedStepIds: completed,
@@ -325,7 +486,12 @@ export class NotionWorkspaceManager {
       if (this.#resolved.has(kind)) continue;
       const configured = this.environment.tables[kind];
       if (configured !== null) {
-        const reader = new NotionWorkspaceReader(this.environment, this.target, this.transport, this.now);
+        const reader = new NotionWorkspaceReader(
+          this.environment,
+          this.target,
+          this.transport,
+          this.now,
+        );
         this.#resolved.set(kind, await reader.resolveDataSourceId(configured));
         continue;
       }
@@ -336,7 +502,9 @@ export class NotionWorkspaceManager {
 
   private async discoverTable(kind: TableKind): Promise<string | null> {
     if (this.environment.bootstrapParent === null) return null;
-    const parentId = normalizeNotionIdentifier(this.environment.bootstrapParent);
+    const parentId = normalizeNotionIdentifier(
+      this.environment.bootstrapParent,
+    );
     const title = tableDescriptor(this.target, kind).title;
     const results = await collectNotionPages((cursor) =>
       this.transport.request({
@@ -350,48 +518,91 @@ export class NotionWorkspaceManager {
         path: "/v1/search",
       }),
     );
-    const candidates = results.filter((source) => source.object === "data_source" && richText(source.title) === title);
+    const candidates = results.filter(
+      (source) =>
+        source.object === "data_source" && richText(source.title) === title,
+    );
     const matches: JsonObject[] = [];
     for (const source of candidates) {
-      const sourceParent = objectValue(source.parent, `${title} data source parent`);
-      const databaseId = requiredString(sourceParent.database_id, `${title} parent database id`);
-      const database = await this.transport.request({ method: "GET", path: `/v1/databases/${databaseId}` });
+      const sourceParent = objectValue(
+        source.parent,
+        `${title} data source parent`,
+      );
+      const databaseId = requiredString(
+        sourceParent.database_id,
+        `${title} parent database id`,
+      );
+      const database = await this.transport.request({
+        method: "GET",
+        path: `/v1/databases/${databaseId}`,
+      });
       if (parentIdentity(database.parent) === parentId) matches.push(source);
     }
-    if (matches.length > 1) throw new Error(`Bootstrap parent contains multiple ${title} databases`);
+    if (matches.length > 1)
+      throw new Error(`Bootstrap parent contains multiple ${title} databases`);
     const source = matches[0];
-    return source === undefined ? null : requiredString(source.id, `${title} data source id`);
+    return source === undefined
+      ? null
+      : requiredString(source.id, `${title} data source id`);
   }
 
   private async createTable(kind: TableKind): Promise<void> {
     if (this.#resolved.has(kind)) return;
-    if (this.environment.bootstrapParent === null) throw new Error("Notion bootstrap requires provider.bootstrapParent");
+    if (this.environment.bootstrapParent === null)
+      throw new Error("Notion bootstrap requires provider.bootstrapParent");
     const descriptor = tableDescriptor(this.target, kind);
     const properties = Object.fromEntries(
-      descriptor.properties.filter((property) => property.targetTable === null).map((property) => [property.physicalName, propertySchema(property, kind)]),
+      descriptor.properties
+        .filter((property) => property.targetTable === null)
+        .map((property) => [
+          property.physicalName,
+          propertySchema(property, kind),
+        ]),
     );
     const response = await this.transport.request({
       body: {
         initial_data_source: { properties },
-        parent: { page_id: normalizeNotionIdentifier(this.environment.bootstrapParent), type: "page_id" },
+        parent: {
+          page_id: normalizeNotionIdentifier(this.environment.bootstrapParent),
+          type: "page_id",
+        },
         title: richTextPayload(descriptor.title),
       },
       method: "POST",
       path: "/v1/databases",
     });
     const sources = response.data_sources;
-    if (!Array.isArray(sources) || sources.length !== 1) throw new Error(`Created ${descriptor.title} database did not expose one data source`);
-    this.#resolved.set(kind, requiredString(objectValue(requiredValue(sources[0]), "Created data source").id, "Created data source id"));
+    if (!Array.isArray(sources) || sources.length !== 1)
+      throw new Error(
+        `Created ${descriptor.title} database did not expose one data source`,
+      );
+    this.#resolved.set(
+      kind,
+      requiredString(
+        objectValue(requiredValue(sources[0]), "Created data source").id,
+        "Created data source id",
+      ),
+    );
     if (kind === "resources") await this.ensureBootstrapRoot();
   }
 
   private async addProperty(step: WorkspaceMigrationStep): Promise<void> {
     const kind = tableKind(step);
-    const name = requiredString(step.payload.physicalName, "Workspace property name");
-    const descriptor = tableDescriptor(this.target, kind).properties.find((property) => property.physicalName === name);
-    if (descriptor === undefined) throw new Error(`Unknown target property ${kind}.${name}`);
+    const name = requiredString(
+      step.payload.physicalName,
+      "Workspace property name",
+    );
+    const descriptor = tableDescriptor(this.target, kind).properties.find(
+      (property) => property.physicalName === name,
+    );
+    if (descriptor === undefined)
+      throw new Error(`Unknown target property ${kind}.${name}`);
     await this.transport.request({
-      body: { properties: { [name]: propertySchema(descriptor, kind, this.#resolved) } },
+      body: {
+        properties: {
+          [name]: propertySchema(descriptor, kind, this.#resolved),
+        },
+      },
       method: "PATCH",
       path: `/v1/data_sources/${requiredResolved(this.#resolved, kind)}`,
     });
@@ -401,53 +612,122 @@ export class NotionWorkspaceManager {
     const resources = requiredResolved(this.#resolved, "resources");
     const pages = this.pageStore();
     const key = "system/bootstrap-root-v1";
-    const body = canonicalize(toJsonValue({
-      parentIdentity: this.environment.bootstrapParent,
-      resourcesDataSourceId: resources,
-      schema: "agent-task-manager-bootstrap-root-v1",
-    }));
-    const existing = await pages.findUniqueByTitle("resources", "Resource", key);
+    const body = canonicalize(
+      toJsonValue({
+        parentIdentity: this.environment.bootstrapParent,
+        resourcesDataSourceId: resources,
+        schema: "agent-task-manager-bootstrap-root-v1",
+      }),
+    );
+    const existing = await pages.findUniqueByTitle(
+      "resources",
+      "Resource",
+      key,
+    );
     if (existing !== null) {
-      if ((await pages.managedText(existing.id, "Resource body")) !== body) throw new Error("bootstrap-root-v1 conflicts with the configured workspace");
+      if ((await pages.managedText(existing.id, "Resource body")) !== body)
+        throw new Error(
+          "bootstrap-root-v1 conflicts with the configured workspace",
+        );
       return;
     }
-    await pages.createResource({ body, dependencies: [], digest: sha256(body), idempotencyKey: key, key, kind: "system/bootstrap", state: "active", version: "v1" });
+    await pages.createResource({
+      body,
+      dependencies: [],
+      digest: sha256(body),
+      idempotencyKey: key,
+      key,
+      kind: "system/bootstrap",
+      state: "active",
+      version: "v1",
+    });
   }
 
   private async recordSchemaState(): Promise<void> {
     const key = `system/schema/${this.target.version}`;
-    const body = canonicalize(toJsonValue({ schema: "agent-task-manager-schema-state-v1", targetDigest: this.target.digest, targetVersion: this.target.version }));
-    await this.pageStore().createResource({ body, dependencies: [], digest: sha256(body), idempotencyKey: key, key, kind: "system/schema", state: "active", version: "v1" });
+    const body = canonicalize(
+      toJsonValue({
+        schema: "agent-task-manager-schema-state-v1",
+        targetDigest: this.target.digest,
+        targetVersion: this.target.version,
+      }),
+    );
+    await this.pageStore().createResource({
+      body,
+      dependencies: [],
+      digest: sha256(body),
+      idempotencyKey: key,
+      key,
+      kind: "system/schema",
+      state: "active",
+      version: "v1",
+    });
   }
 
   private async readSchemaState(): Promise<JsonObject | null> {
     const key = `system/schema/${this.target.version}`;
-    const located = await this.pageStore().findUniqueByTitle("resources", "Resource", key);
+    const located = await this.pageStore().findUniqueByTitle(
+      "resources",
+      "Resource",
+      key,
+    );
     if (located === null) return null;
-    return objectValue(toJsonValue(JSON.parse(await this.pageStore().managedText(located.id, "Resource body"))), "Schema state");
+    return objectValue(
+      toJsonValue(
+        JSON.parse(
+          await this.pageStore().managedText(located.id, "Resource body"),
+        ),
+      ),
+      "Schema state",
+    );
   }
 
-  private async readStepRecord(stepId: string): Promise<WorkspaceStepRecord | null> {
+  private async readStepRecord(
+    stepId: string,
+  ): Promise<WorkspaceStepRecord | null> {
     if (!this.#resolved.has("resources")) return null;
-    const located = await this.pageStore().findUniqueByTitle("resources", "Resource", stepReceiptKey(stepId));
+    const located = await this.pageStore().findUniqueByTitle(
+      "resources",
+      "Resource",
+      stepReceiptKey(stepId),
+    );
     if (located === null) return null;
-    return parseWorkspaceStepRecord(toJsonValue(JSON.parse(await this.pageStore().managedText(located.id, "Resource body"))));
+    return parseWorkspaceStepRecord(
+      toJsonValue(
+        JSON.parse(
+          await this.pageStore().managedText(located.id, "Resource body"),
+        ),
+      ),
+    );
   }
 
   private async writeStepRecord(record: WorkspaceStepRecord): Promise<void> {
     const key = stepReceiptKey(record.step.id);
     const body = canonicalize(toJsonValue(record));
-    await this.pageStore().createResource({ body, dependencies: [], digest: sha256(body), idempotencyKey: key, key, kind: "system/workspace-step", state: "active", version: "v1" });
+    await this.pageStore().createResource({
+      body,
+      dependencies: [],
+      digest: sha256(body),
+      idempotencyKey: key,
+      key,
+      kind: "system/workspace-step",
+      state: "active",
+      version: "v1",
+    });
   }
 
   private pageStore(): NotionPageStore {
     const fallback = "unresolved";
-    return new NotionPageStore({
-      errors: this.#resolved.get("errors") ?? fallback,
-      resources: requiredResolved(this.#resolved, "resources"),
-      subAgents: this.#resolved.get("subAgents") ?? fallback,
-      tasks: this.#resolved.get("tasks") ?? fallback,
-    }, this.transport, this.now);
+    return new NotionPageStore(
+      {
+        errors: this.#resolved.get("errors") ?? fallback,
+        resources: requiredResolved(this.#resolved, "resources"),
+        subAgents: this.#resolved.get("subAgents") ?? fallback,
+        tasks: this.#resolved.get("tasks") ?? fallback,
+      },
+      this.transport,
+      this.now,
+    );
   }
 
   private bootstrapSessionKey(mode: WorkspaceMigrationPlan["mode"]): string {
@@ -457,15 +737,29 @@ export class NotionWorkspaceManager {
   private resolvedEnvironment(): ProviderEnvironment {
     return {
       ...this.environment,
-      tables: Object.fromEntries(TABLE_KINDS.map((kind) => [kind, this.#resolved.get(kind) ?? null])) as unknown as ProviderEnvironment["tables"],
+      tables: Object.fromEntries(
+        TABLE_KINDS.map((kind) => [kind, this.#resolved.get(kind) ?? null]),
+      ) as unknown as ProviderEnvironment["tables"],
     };
   }
 }
 
-function propertySchema(property: PropertyDescriptor, table: TableKind, resolved?: ReadonlyMap<TableKind, string>): JsonObject {
+function propertySchema(
+  property: PropertyDescriptor,
+  table: TableKind,
+  resolved?: ReadonlyMap<TableKind, string>,
+): JsonObject {
   if (property.targetTable !== null) {
-    if (resolved === undefined) throw new Error(`Relation ${property.physicalName} cannot be created before table resolution`);
-    return { relation: { data_source_id: requiredResolved(resolved, property.targetTable), single_property: {} } };
+    if (resolved === undefined)
+      throw new Error(
+        `Relation ${property.physicalName} cannot be created before table resolution`,
+      );
+    return {
+      relation: {
+        data_source_id: requiredResolved(resolved, property.targetTable),
+        single_property: {},
+      },
+    };
   }
   if (property.type === "title") return { title: {} };
   if (property.type === "rich_text") return { rich_text: {} };
@@ -476,8 +770,22 @@ function propertySchema(property: PropertyDescriptor, table: TableKind, resolved
   if (property.type === "people") return { people: {} };
   if (property.type === "created_time") return { created_time: {} };
   if (property.type === "last_edited_time") return { last_edited_time: {} };
-  if (property.type === "select") return { select: { options: selectOptions(table, property.physicalName).map((name) => ({ name })) } };
-  if (property.type === "status") return { status: { options: selectOptions(table, property.physicalName).map((name) => ({ name })) } };
+  if (property.type === "select")
+    return {
+      select: {
+        options: selectOptions(table, property.physicalName).map((name) => ({
+          name,
+        })),
+      },
+    };
+  if (property.type === "status")
+    return {
+      status: {
+        options: selectOptions(table, property.physicalName).map((name) => ({
+          name,
+        })),
+      },
+    };
   throw new Error(`Unsupported Notion property type: ${property.type}`);
 }
 
@@ -486,7 +794,14 @@ function simulateWorkspaceStep(
   step: Pick<WorkspaceMigrationStep, "kind" | "payload">,
   target: WorkspaceSchemaDescriptor,
 ): WorkspaceSchemaSnapshot {
-  const kind = tableKind({ ...step, dependsOn: [], expectedPostSchemaDigest: "", expectedPreSchemaDigest: "", id: "simulation", reversibility: "additive" });
+  const kind = tableKind({
+    ...step,
+    dependsOn: [],
+    expectedPostSchemaDigest: "",
+    expectedPreSchemaDigest: "",
+    id: "simulation",
+    reversibility: "additive",
+  });
   let tables = [...structuredClone(snapshot.tables)];
   if (step.kind === "create_table") {
     if (!tables.some((table) => table.kind === kind)) {
@@ -495,33 +810,53 @@ function simulateWorkspaceStep(
         id: `planned:${kind}`,
         kind,
         managedRanges: [],
-        properties: descriptor.properties.filter((property) => property.targetTable === null).map((property) => ({
-          name: property.physicalName,
-          providerMetadata: {},
-          targetTableId: null,
-          type: property.type,
-          writable: property.writable,
-        })),
+        properties: descriptor.properties
+          .filter((property) => property.targetTable === null)
+          .map((property) => ({
+            name: property.physicalName,
+            providerMetadata: {},
+            targetTableId: null,
+            type: property.type,
+            writable: property.writable,
+          })),
         title: descriptor.title,
         version: "planned",
       });
     }
   } else if (step.kind === "add_property" || step.kind === "add_relation") {
-    const name = requiredString(step.payload.physicalName, "Workspace property name");
-    const descriptor = tableDescriptor(target, kind).properties.find((property) => property.physicalName === name);
-    if (descriptor === undefined) throw new Error(`Unknown target property ${kind}.${name}`);
-    const targetId = descriptor.targetTable === null ? null : tables.find((table) => table.kind === descriptor.targetTable)?.id;
-    if (descriptor.targetTable !== null && targetId === undefined) throw new Error(`Unresolved relation target ${descriptor.targetTable}`);
-    tables = tables.map((table) => table.kind !== kind || table.properties.some((property) => property.name === name) ? table : {
-      ...table,
-      properties: [...table.properties, {
-        name,
-        providerMetadata: {},
-        targetTableId: targetId ?? null,
-        type: descriptor.type,
-        writable: descriptor.writable,
-      }],
-    });
+    const name = requiredString(
+      step.payload.physicalName,
+      "Workspace property name",
+    );
+    const descriptor = tableDescriptor(target, kind).properties.find(
+      (property) => property.physicalName === name,
+    );
+    if (descriptor === undefined)
+      throw new Error(`Unknown target property ${kind}.${name}`);
+    const targetId =
+      descriptor.targetTable === null
+        ? null
+        : tables.find((table) => table.kind === descriptor.targetTable)?.id;
+    if (descriptor.targetTable !== null && targetId === undefined)
+      throw new Error(`Unresolved relation target ${descriptor.targetTable}`);
+    tables = tables.map((table) =>
+      table.kind !== kind ||
+      table.properties.some((property) => property.name === name)
+        ? table
+        : {
+            ...table,
+            properties: [
+              ...table.properties,
+              {
+                name,
+                providerMetadata: {},
+                targetTableId: targetId ?? null,
+                type: descriptor.type,
+                writable: descriptor.writable,
+              },
+            ],
+          },
+    );
   } else if (step.kind !== "record_schema_state") {
     throw new Error(`Unsupported simulated Notion step: ${step.kind}`);
   }
@@ -529,16 +864,36 @@ function simulateWorkspaceStep(
 }
 
 function selectOptions(table: TableKind, property: string): readonly string[] {
-  if (table === "resources" && property === "State") return ["active", "draft", "retired"];
-  if (table === "resources" && property === "Kind") return [
-    "prompt", "policy", "task-query", "json-schema", "invocation-schedule",
-    "system/bootstrap", "system/schema", "system/workspace-step", "system/environment-patch", "system/bootstrap-session",
-    "system/human-interaction-slot", "system/human-consumption", "system/external-effect-intent", "system/child-agent-node-intent",
-    "system/workspace-ownership", "system/lease", "system/intent", "system/assignment-intent", "system/assignment-budget",
-  ];
-  if (table === "errors" && property === "Severity") return ["critical", "high", "medium", "low"];
-  if (table === "errors" && property === "Status") return ["Not Fixed", "Fixing", "Fixed"];
-  if (table === "subAgents" && property === "Status") return ["Online", "Offline"];
+  if (table === "resources" && property === "State")
+    return ["active", "draft", "retired"];
+  if (table === "resources" && property === "Kind")
+    return [
+      "prompt",
+      "policy",
+      "task-query",
+      "json-schema",
+      "invocation-schedule",
+      "system/bootstrap",
+      "system/schema",
+      "system/workspace-step",
+      "system/environment-patch",
+      "system/bootstrap-session",
+      "system/human-interaction-slot",
+      "system/human-consumption",
+      "system/external-effect-intent",
+      "system/child-agent-node-intent",
+      "system/workspace-ownership",
+      "system/lease",
+      "system/intent",
+      "system/assignment-intent",
+      "system/assignment-budget",
+    ];
+  if (table === "errors" && property === "Severity")
+    return ["critical", "high", "medium", "low"];
+  if (table === "errors" && property === "Status")
+    return ["Not Fixed", "Fixing", "Fixed"];
+  if (table === "subAgents" && property === "Status")
+    return ["Online", "Offline"];
   return [];
 }
 
@@ -550,39 +905,90 @@ function tableDescriptor(target: WorkspaceSchemaDescriptor, kind: TableKind) {
 
 function tableKind(step: WorkspaceMigrationStep): TableKind {
   const kind = requiredString(step.payload.kind, "Workspace step table kind");
-  if (!TABLE_KINDS.includes(kind as TableKind)) throw new TypeError(`Invalid workspace table kind: ${kind}`);
+  if (!TABLE_KINDS.includes(kind as TableKind))
+    throw new TypeError(`Invalid workspace table kind: ${kind}`);
   return kind as TableKind;
 }
 
-function stepDigest(step: WorkspaceMigrationStep): string { return sha256(canonicalize(toJsonValue(step))); }
-function stepReceiptKey(stepId: string): string { return `system/workspace-step/${sha256(stepId)}`; }
+function stepDigest(step: WorkspaceMigrationStep): string {
+  return sha256(canonicalize(toJsonValue(step)));
+}
+function stepReceiptKey(stepId: string): string {
+  return `system/workspace-step/${sha256(stepId)}`;
+}
 
 function parseWorkspaceStepRecord(value: JsonValue): WorkspaceStepRecord {
   const object = objectValue(value, "Workspace step record");
   const expectedKeys = ["receipt", "schema", "state", "step", "stepDigest"];
-  if (Object.keys(object).sort().join("\0") !== expectedKeys.sort().join("\0")) throw new TypeError("Workspace step record has unexpected or missing fields");
-  if (object.schema !== "agent-task-manager-workspace-step-v1" || (object.state !== "pending" && object.state !== "applied")) throw new TypeError("Workspace step record schema or state is invalid");
-  const receipt = object.receipt === null ? null : parseWriteReceipt(object.receipt ?? null);
-  if ((object.state === "applied") !== (receipt !== null)) throw new TypeError("Workspace step record state and receipt disagree");
+  if (Object.keys(object).sort().join("\0") !== expectedKeys.sort().join("\0"))
+    throw new TypeError(
+      "Workspace step record has unexpected or missing fields",
+    );
+  if (
+    object.schema !== "agent-task-manager-workspace-step-v1" ||
+    (object.state !== "pending" && object.state !== "applied")
+  )
+    throw new TypeError("Workspace step record schema or state is invalid");
+  const receipt =
+    object.receipt === null ? null : parseWriteReceipt(object.receipt ?? null);
+  if ((object.state === "applied") !== (receipt !== null))
+    throw new TypeError("Workspace step record state and receipt disagree");
   const step = parseWorkspaceStep(objectValue(object.step, "Workspace step"));
   const digest = requiredString(object.stepDigest, "Workspace step digest");
-  if (digest !== stepDigest(step)) throw new TypeError("Workspace step record digest is invalid");
-  return { receipt, schema: object.schema, state: object.state, step, stepDigest: digest };
+  if (digest !== stepDigest(step))
+    throw new TypeError("Workspace step record digest is invalid");
+  return {
+    receipt,
+    schema: object.schema,
+    state: object.state,
+    step,
+    stepDigest: digest,
+  };
 }
 
 function parseWorkspaceStep(value: JsonObject): WorkspaceMigrationStep {
-  const expectedKeys = ["dependsOn", "expectedPostSchemaDigest", "expectedPreSchemaDigest", "id", "kind", "payload", "reversibility"];
-  if (Object.keys(value).sort().join("\0") !== expectedKeys.sort().join("\0")) throw new TypeError("Workspace step has unexpected or missing fields");
+  const expectedKeys = [
+    "dependsOn",
+    "expectedPostSchemaDigest",
+    "expectedPreSchemaDigest",
+    "id",
+    "kind",
+    "payload",
+    "reversibility",
+  ];
+  if (Object.keys(value).sort().join("\0") !== expectedKeys.sort().join("\0"))
+    throw new TypeError("Workspace step has unexpected or missing fields");
   const kind = requiredString(value.kind, "Workspace step kind");
-  const allowedKinds: WorkspaceMigrationStep["kind"][] = ["add_managed_range", "add_option", "add_property", "add_relation", "create_table", "record_schema_state"];
-  if (!allowedKinds.includes(kind as WorkspaceMigrationStep["kind"])) throw new TypeError("Workspace step kind is invalid");
+  const allowedKinds: WorkspaceMigrationStep["kind"][] = [
+    "add_managed_range",
+    "add_option",
+    "add_property",
+    "add_relation",
+    "create_table",
+    "record_schema_state",
+  ];
+  if (!allowedKinds.includes(kind as WorkspaceMigrationStep["kind"]))
+    throw new TypeError("Workspace step kind is invalid");
   const dependencies = value.dependsOn;
-  if (!Array.isArray(dependencies) || dependencies.some((dependency) => typeof dependency !== "string" || dependency === "")) throw new TypeError("Workspace step dependencies are invalid");
-  if (value.reversibility !== "additive" && value.reversibility !== "manual") throw new TypeError("Workspace step reversibility is invalid");
+  if (
+    !Array.isArray(dependencies) ||
+    dependencies.some(
+      (dependency) => typeof dependency !== "string" || dependency === "",
+    )
+  )
+    throw new TypeError("Workspace step dependencies are invalid");
+  if (value.reversibility !== "additive" && value.reversibility !== "manual")
+    throw new TypeError("Workspace step reversibility is invalid");
   return {
     dependsOn: dependencies as string[],
-    expectedPostSchemaDigest: requiredString(value.expectedPostSchemaDigest, "Workspace post digest"),
-    expectedPreSchemaDigest: requiredString(value.expectedPreSchemaDigest, "Workspace pre digest"),
+    expectedPostSchemaDigest: requiredString(
+      value.expectedPostSchemaDigest,
+      "Workspace post digest",
+    ),
+    expectedPreSchemaDigest: requiredString(
+      value.expectedPreSchemaDigest,
+      "Workspace pre digest",
+    ),
     id: requiredString(value.id, "Workspace step id"),
     kind: kind as WorkspaceMigrationStep["kind"],
     payload: objectValue(value.payload, "Workspace step payload"),
@@ -592,57 +998,125 @@ function parseWorkspaceStep(value: JsonObject): WorkspaceMigrationStep {
 
 function parseBootstrapSession(value: JsonValue): BootstrapSessionRecord {
   const object = objectValue(value, "Bootstrap session");
-  const expectedKeys = ["completedStepIds", "nextStepId", "plan", "schema", "state"];
-  if (Object.keys(object).sort().join("\0") !== expectedKeys.sort().join("\0")) throw new TypeError("Bootstrap session has unexpected or missing fields");
-  if (object.schema !== "agent-task-manager-bootstrap-session-v1" || (object.state !== "applying" && object.state !== "complete")) {
+  const expectedKeys = [
+    "completedStepIds",
+    "nextStepId",
+    "plan",
+    "schema",
+    "state",
+  ];
+  if (Object.keys(object).sort().join("\0") !== expectedKeys.sort().join("\0"))
+    throw new TypeError("Bootstrap session has unexpected or missing fields");
+  if (
+    object.schema !== "agent-task-manager-bootstrap-session-v1" ||
+    (object.state !== "applying" && object.state !== "complete")
+  ) {
     throw new TypeError("Bootstrap session schema or state is invalid");
   }
-  const completed = stringArray(object.completedStepIds, "Bootstrap completed steps");
+  const completed = stringArray(
+    object.completedStepIds,
+    "Bootstrap completed steps",
+  );
   const plan = parseWorkspacePlan(objectValue(object.plan, "Bootstrap plan"));
   const known = new Set(plan.steps.map((step) => step.id));
-  if (completed.some((stepId) => !known.has(stepId)) || new Set(completed).size !== completed.length) {
+  if (
+    completed.some((stepId) => !known.has(stepId)) ||
+    new Set(completed).size !== completed.length
+  ) {
     throw new TypeError("Bootstrap completed steps are invalid");
   }
   const nextStep = plan.steps.find((step) => !completed.includes(step.id));
-  const nextStepId = object.nextStepId === null ? null : requiredString(object.nextStepId, "Bootstrap next step");
-  if ((nextStep?.id ?? null) !== nextStepId || (nextStep === undefined) !== (object.state === "complete")) {
+  const nextStepId =
+    object.nextStepId === null
+      ? null
+      : requiredString(object.nextStepId, "Bootstrap next step");
+  if (
+    (nextStep?.id ?? null) !== nextStepId ||
+    (nextStep === undefined) !== (object.state === "complete")
+  ) {
     throw new TypeError("Bootstrap session progress is inconsistent");
   }
-  return { completedStepIds: completed, nextStepId, plan, schema: object.schema, state: object.state };
+  return {
+    completedStepIds: completed,
+    nextStepId,
+    plan,
+    schema: object.schema,
+    state: object.state,
+  };
 }
 
 function parseWorkspacePlan(value: JsonObject): WorkspaceMigrationPlan {
-  const expectedKeys = ["digest", "environmentId", "mode", "observedSchemaDigest", "parentIdentity", "providerIdentity", "steps", "targetSchemaDigest", "targetSchemaVersion"];
-  if (Object.keys(value).sort().join("\0") !== expectedKeys.sort().join("\0")) throw new TypeError("Workspace plan has unexpected or missing fields");
-  if (value.mode !== "bootstrap" && value.mode !== "migration") throw new TypeError("Workspace plan mode is invalid");
-  if (value.parentIdentity !== null && typeof value.parentIdentity !== "string") throw new TypeError("Workspace plan parent identity is invalid");
-  if (!Array.isArray(value.steps)) throw new TypeError("Workspace plan steps must be an array");
+  const expectedKeys = [
+    "digest",
+    "environmentId",
+    "mode",
+    "observedSchemaDigest",
+    "parentIdentity",
+    "providerIdentity",
+    "steps",
+    "targetSchemaDigest",
+    "targetSchemaVersion",
+  ];
+  if (Object.keys(value).sort().join("\0") !== expectedKeys.sort().join("\0"))
+    throw new TypeError("Workspace plan has unexpected or missing fields");
+  if (value.mode !== "bootstrap" && value.mode !== "migration")
+    throw new TypeError("Workspace plan mode is invalid");
+  if (value.parentIdentity !== null && typeof value.parentIdentity !== "string")
+    throw new TypeError("Workspace plan parent identity is invalid");
+  if (!Array.isArray(value.steps))
+    throw new TypeError("Workspace plan steps must be an array");
   const plan = finalizeMigrationPlan({
-    environmentId: requiredString(value.environmentId, "Workspace plan environment"),
+    environmentId: requiredString(
+      value.environmentId,
+      "Workspace plan environment",
+    ),
     mode: value.mode,
-    observedSchemaDigest: requiredString(value.observedSchemaDigest, "Workspace plan observed digest"),
+    observedSchemaDigest: requiredString(
+      value.observedSchemaDigest,
+      "Workspace plan observed digest",
+    ),
     parentIdentity: value.parentIdentity,
-    providerIdentity: requiredString(value.providerIdentity, "Workspace plan provider identity"),
-    steps: value.steps.map((step) => parseWorkspaceStep(objectValue(step, "Workspace plan step"))),
-    targetSchemaDigest: requiredString(value.targetSchemaDigest, "Workspace plan target digest"),
-    targetSchemaVersion: requiredString(value.targetSchemaVersion, "Workspace plan target version"),
+    providerIdentity: requiredString(
+      value.providerIdentity,
+      "Workspace plan provider identity",
+    ),
+    steps: value.steps.map((step) =>
+      parseWorkspaceStep(objectValue(step, "Workspace plan step")),
+    ),
+    targetSchemaDigest: requiredString(
+      value.targetSchemaDigest,
+      "Workspace plan target digest",
+    ),
+    targetSchemaVersion: requiredString(
+      value.targetSchemaVersion,
+      "Workspace plan target version",
+    ),
   });
-  if (plan.digest !== requiredString(value.digest, "Workspace plan digest")) throw new TypeError("Workspace plan digest is invalid");
+  if (plan.digest !== requiredString(value.digest, "Workspace plan digest"))
+    throw new TypeError("Workspace plan digest is invalid");
   return plan;
 }
 
 function stringArray(value: JsonValue | undefined, label: string): string[] {
-  if (!Array.isArray(value) || value.some((item) => typeof item !== "string" || item === "")) throw new TypeError(`${label} must be non-empty strings`);
+  if (
+    !Array.isArray(value) ||
+    value.some((item) => typeof item !== "string" || item === "")
+  )
+    throw new TypeError(`${label} must be non-empty strings`);
   return value as string[];
 }
 
-function richTextPayload(text: string): JsonValue[] { return [{ text: { content: text }, type: "text" }]; }
+function richTextPayload(text: string): JsonValue[] {
+  return [{ text: { content: text }, type: "text" }];
+}
 function richText(value: JsonValue | undefined): string {
   if (!Array.isArray(value)) return "";
-  return value.map((item) => {
-    const object = objectValue(item, "Rich text item");
-    return typeof object.plain_text === "string" ? object.plain_text : "";
-  }).join("");
+  return value
+    .map((item) => {
+      const object = objectValue(item, "Rich text item");
+      return typeof object.plain_text === "string" ? object.plain_text : "";
+    })
+    .join("");
 }
 
 function parentIdentity(value: JsonValue | undefined): string | null {
@@ -652,19 +1126,36 @@ function parentIdentity(value: JsonValue | undefined): string | null {
   return typeof id === "string" ? normalizeNotionIdentifier(id) : null;
 }
 
-function requiredResolved(values: ReadonlyMap<TableKind, string>, kind: TableKind): string {
+function requiredResolved(
+  values: ReadonlyMap<TableKind, string>,
+  kind: TableKind,
+): string {
   const value = values.get(kind);
-  if (value === undefined) throw new Error(`Notion ${kind} table is unresolved`);
+  if (value === undefined)
+    throw new Error(`Notion ${kind} table is unresolved`);
   return value;
 }
 
-function requiredDraft<T>(value: T | undefined): T { if (value === undefined) throw new Error("Migration draft is missing"); return value; }
-function requiredValue(value: JsonValue | undefined): JsonValue { if (value === undefined) throw new TypeError("Expected value is missing"); return value; }
+function requiredDraft<T>(value: T | undefined): T {
+  if (value === undefined) throw new Error("Migration draft is missing");
+  return value;
+}
+function requiredValue(value: JsonValue | undefined): JsonValue {
+  if (value === undefined) throw new TypeError("Expected value is missing");
+  return value;
+}
 function objectValue(value: JsonValue | undefined, label: string): JsonObject {
-  if (value === null || value === undefined || typeof value !== "object" || Array.isArray(value)) throw new TypeError(`${label} must be an object`);
+  if (
+    value === null ||
+    value === undefined ||
+    typeof value !== "object" ||
+    Array.isArray(value)
+  )
+    throw new TypeError(`${label} must be an object`);
   return value;
 }
 function requiredString(value: JsonValue | undefined, label: string): string {
-  if (typeof value !== "string" || value === "") throw new TypeError(`${label} must be a non-empty string`);
+  if (typeof value !== "string" || value === "")
+    throw new TypeError(`${label} must be a non-empty string`);
   return value;
 }

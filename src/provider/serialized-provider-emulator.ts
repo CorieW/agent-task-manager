@@ -64,8 +64,12 @@ export class SerializedProviderEmulator implements SeedableAgentTaskProvider {
     return crossBoundary(await this.backing.getCapabilities());
   }
 
-  public async validateEnvironment(environment: ProviderEnvironment): Promise<ValidationReport> {
-    return crossBoundary(await this.backing.validateEnvironment(crossBoundary(environment)));
+  public async validateEnvironment(
+    environment: ProviderEnvironment,
+  ): Promise<ValidationReport> {
+    return crossBoundary(
+      await this.backing.validateEnvironment(crossBoundary(environment)),
+    );
   }
 
   public async validateTables(): Promise<TableValidationReport> {
@@ -76,68 +80,120 @@ export class SerializedProviderEmulator implements SeedableAgentTaskProvider {
     return crossBoundary(await this.backing.inspectWorkspaceSchema());
   }
 
-  public async planWorkspaceChanges(request: WorkspaceSchemaRequest): Promise<WorkspaceMigrationPlan> {
-    return crossBoundary(await this.backing.planWorkspaceChanges(crossBoundary(request)));
+  public async planWorkspaceChanges(
+    request: WorkspaceSchemaRequest,
+  ): Promise<WorkspaceMigrationPlan> {
+    return crossBoundary(
+      await this.backing.planWorkspaceChanges(crossBoundary(request)),
+    );
   }
 
-  public async applyWorkspaceStep(step: WorkspaceMigrationStep): Promise<WriteReceipt> {
-    return crossBoundary(await this.backing.applyWorkspaceStep(crossBoundary(step)));
+  public async applyWorkspaceStep(
+    step: WorkspaceMigrationStep,
+  ): Promise<WriteReceipt> {
+    return crossBoundary(
+      await this.backing.applyWorkspaceStep(crossBoundary(step)),
+    );
   }
 
-  public async reconcileWorkspaceStep(stepId: string): Promise<ReconciliationResult> {
-    return crossBoundary(await this.backing.reconcileWorkspaceStep(crossBoundary(stepId)));
+  public async reconcileWorkspaceStep(
+    stepId: string,
+  ): Promise<ReconciliationResult> {
+    return crossBoundary(
+      await this.backing.reconcileWorkspaceStep(crossBoundary(stepId)),
+    );
   }
 
-  public async listSubAgentDefinitions(): Promise<readonly SubAgentDefinition[]> {
+  public async listSubAgentDefinitions(): Promise<
+    readonly SubAgentDefinition[]
+  > {
     return crossBoundary(await this.backing.listSubAgentDefinitions());
   }
 
   public async getSubAgentDefinition(id: string): Promise<SubAgentDefinition> {
-    return crossBoundary(await this.backing.getSubAgentDefinition(crossBoundary(id)));
+    return crossBoundary(
+      await this.backing.getSubAgentDefinition(crossBoundary(id)),
+    );
   }
 
   public async getSubAgentActivity(id: string): Promise<SubAgentActivity> {
-    return crossBoundary(await this.backing.getSubAgentActivity(crossBoundary(id)));
+    return crossBoundary(
+      await this.backing.getSubAgentActivity(crossBoundary(id)),
+    );
   }
 
   public async getLeaseProjection(id: string): Promise<LeaseProjection> {
-    return crossBoundary(await this.backing.getLeaseProjection(crossBoundary(id)));
+    return crossBoundary(
+      await this.backing.getLeaseProjection(crossBoundary(id)),
+    );
   }
 
-  public async getLeaseSnapshot(leaseId: string): Promise<LeaseSnapshot | null> {
-    return crossBoundary(await this.backing.getLeaseSnapshot(crossBoundary(leaseId)));
+  public async getLeaseSnapshot(
+    leaseId: string,
+  ): Promise<LeaseSnapshot | null> {
+    return crossBoundary(
+      await this.backing.getLeaseSnapshot(crossBoundary(leaseId)),
+    );
   }
 
-  public async reconcileSubAgentActivity(subAgentId: string, idempotencyKey: string): Promise<ReconciliationResult> {
-    return crossBoundary(await this.backing.reconcileSubAgentActivity(crossBoundary(subAgentId), crossBoundary(idempotencyKey)));
+  public async reconcileSubAgentActivity(
+    subAgentId: string,
+    idempotencyKey: string,
+  ): Promise<ReconciliationResult> {
+    return crossBoundary(
+      await this.backing.reconcileSubAgentActivity(
+        crossBoundary(subAgentId),
+        crossBoundary(idempotencyKey),
+      ),
+    );
   }
 
   public async listTaskStatusOptions(): Promise<readonly string[]> {
     return crossBoundary(await this.backing.listTaskStatusOptions());
   }
 
-  public async updateSubAgentActivity(change: ActivityMutation): Promise<WriteReceipt> {
-    return crossBoundary(await this.backing.updateSubAgentActivity(crossBoundary(change)));
+  public async updateSubAgentActivity(
+    change: ActivityMutation,
+  ): Promise<WriteReceipt> {
+    return crossBoundary(
+      await this.backing.updateSubAgentActivity(crossBoundary(change)),
+    );
   }
 
-  public async listTaskSummaries(query: TaskQuery): Promise<readonly TaskSummary[]> {
-    return crossBoundary(await this.backing.listTaskSummaries(crossBoundary(query)));
+  public async listTaskSummaries(
+    query: TaskQuery,
+  ): Promise<readonly TaskSummary[]> {
+    return crossBoundary(
+      await this.backing.listTaskSummaries(crossBoundary(query)),
+    );
   }
 
   public async getTaskSnapshot(taskId: string): Promise<TaskSnapshot> {
-    return crossBoundary(await this.backing.getTaskSnapshot(crossBoundary(taskId)));
+    return crossBoundary(
+      await this.backing.getTaskSnapshot(crossBoundary(taskId)),
+    );
   }
 
-  public async applyTaskMutation(mutation: ConditionalTaskMutation): Promise<WriteReceipt> {
-    return crossBoundary(await this.backing.applyTaskMutation(crossBoundary(mutation)));
+  public async applyTaskMutation(
+    mutation: ConditionalTaskMutation,
+  ): Promise<WriteReceipt> {
+    return crossBoundary(
+      await this.backing.applyTaskMutation(crossBoundary(mutation)),
+    );
   }
 
-  public async getResources(refs: readonly ResourceRef[]): Promise<readonly ResourceRecord[]> {
+  public async getResources(
+    refs: readonly ResourceRef[],
+  ): Promise<readonly ResourceRecord[]> {
     return crossBoundary(await this.backing.getResources(crossBoundary(refs)));
   }
 
-  public async getOptionalResource(key: string): Promise<ResourceRecord | null> {
-    return crossBoundary(await this.backing.getOptionalResource(crossBoundary(key)));
+  public async getOptionalResource(
+    key: string,
+  ): Promise<ResourceRecord | null> {
+    return crossBoundary(
+      await this.backing.getOptionalResource(crossBoundary(key)),
+    );
   }
 
   public async putResource(record: ResourceMutation): Promise<WriteReceipt> {
@@ -145,7 +201,9 @@ export class SerializedProviderEmulator implements SeedableAgentTaskProvider {
   }
 
   public async acquireLease(request: LeaseRequest): Promise<LeaseResult> {
-    return crossBoundary(await this.backing.acquireLease(crossBoundary(request)));
+    return crossBoundary(
+      await this.backing.acquireLease(crossBoundary(request)),
+    );
   }
 
   public async renewLease(request: LeaseRenewal): Promise<LeaseResult> {
@@ -153,14 +211,24 @@ export class SerializedProviderEmulator implements SeedableAgentTaskProvider {
   }
 
   public async releaseLease(request: LeaseRelease): Promise<WriteReceipt> {
-    return crossBoundary(await this.backing.releaseLease(crossBoundary(request)));
+    return crossBoundary(
+      await this.backing.releaseLease(crossBoundary(request)),
+    );
   }
 
-  public async createOrUpdateError(error: ErrorMutation): Promise<WriteReceipt> {
-    return crossBoundary(await this.backing.createOrUpdateError(crossBoundary(error)));
+  public async createOrUpdateError(
+    error: ErrorMutation,
+  ): Promise<WriteReceipt> {
+    return crossBoundary(
+      await this.backing.createOrUpdateError(crossBoundary(error)),
+    );
   }
 
-  public async reconcileIntent(intentId: string): Promise<ReconciliationResult> {
-    return crossBoundary(await this.backing.reconcileIntent(crossBoundary(intentId)));
+  public async reconcileIntent(
+    intentId: string,
+  ): Promise<ReconciliationResult> {
+    return crossBoundary(
+      await this.backing.reconcileIntent(crossBoundary(intentId)),
+    );
   }
 }

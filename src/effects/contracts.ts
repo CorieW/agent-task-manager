@@ -1,7 +1,8 @@
 /** Defines provider-persisted external-effect intents, observations, and receipts. */
 import type { JsonObject } from "../domain/json.js";
 
-export type ExternalEffectState = "applied" | "failed" | "indeterminate" | "not_applied" | "pending";
+export type ExternalEffectState =
+  "applied" | "failed" | "indeterminate" | "not_applied" | "pending";
 
 export interface ExternalEffectSource {
   readonly contextDigest: string;
@@ -46,13 +47,24 @@ export interface ExternalEffectHandler {
   readonly id: string;
   readonly kind: string;
   readonly version: string;
-  apply(request: ExternalEffectRequest, control: ExternalEffectControl): Promise<ExternalEffectObservation>;
-  reconcile(request: ExternalEffectRequest, control: ExternalEffectControl): Promise<ExternalEffectObservation>;
+  apply(
+    request: ExternalEffectRequest,
+    control: ExternalEffectControl,
+  ): Promise<ExternalEffectObservation>;
+  reconcile(
+    request: ExternalEffectRequest,
+    control: ExternalEffectControl,
+  ): Promise<ExternalEffectObservation>;
   validate(payload: JsonObject): void;
 }
-export interface ExternalEffectControl { readonly deadlineAt: number; readonly signal: AbortSignal; }
+export interface ExternalEffectControl {
+  readonly deadlineAt: number;
+  readonly signal: AbortSignal;
+}
 
-export interface ExternalEffectAuthorityVerifier { verify(request: ExternalEffectRequest): Promise<void>; }
+export interface ExternalEffectAuthorityVerifier {
+  verify(request: ExternalEffectRequest): Promise<void>;
+}
 
 export interface ExternalEffectExecution {
   readonly receipt: ExternalEffectReceipt | null;

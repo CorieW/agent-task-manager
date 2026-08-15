@@ -43,13 +43,20 @@ export class NotionHttpTransport implements NotionTransport {
   readonly #timeoutMilliseconds: number;
 
   public constructor(options: NotionHttpTransportOptions) {
-    if (options.token.trim() === "") throw new TypeError("Notion token must not be empty");
+    if (options.token.trim() === "")
+      throw new TypeError("Notion token must not be empty");
     this.#apiVersion = options.apiVersion ?? NOTION_API_VERSION;
-    this.#baseUrl = (options.baseUrl ?? "https://api.notion.com").replace(/\/$/u, "");
+    this.#baseUrl = (options.baseUrl ?? "https://api.notion.com").replace(
+      /\/$/u,
+      "",
+    );
     this.#fetch = options.fetch ?? fetch;
     this.#token = options.token;
     this.#timeoutMilliseconds = options.timeoutMilliseconds ?? 30_000;
-    if (!Number.isSafeInteger(this.#timeoutMilliseconds) || this.#timeoutMilliseconds < 1) {
+    if (
+      !Number.isSafeInteger(this.#timeoutMilliseconds) ||
+      this.#timeoutMilliseconds < 1
+    ) {
       throw new RangeError("Notion request timeout must be a positive integer");
     }
   }
@@ -68,9 +75,13 @@ export class NotionHttpTransport implements NotionTransport {
         "Notion-Version": this.#apiVersion,
       },
       method: request.method,
-      signal: request.signal === undefined
-        ? AbortSignal.timeout(this.#timeoutMilliseconds)
-        : AbortSignal.any([request.signal, AbortSignal.timeout(this.#timeoutMilliseconds)]),
+      signal:
+        request.signal === undefined
+          ? AbortSignal.timeout(this.#timeoutMilliseconds)
+          : AbortSignal.any([
+              request.signal,
+              AbortSignal.timeout(this.#timeoutMilliseconds),
+            ]),
     };
     if (request.body !== undefined) init.body = JSON.stringify(request.body);
     let response: Response;
@@ -79,20 +90,28 @@ export class NotionHttpTransport implements NotionTransport {
     } catch (error) {
       if (init.signal?.aborted === true) {
         throw new NotionApiError(
-          request.signal?.aborted === true ? "Notion request was aborted" : "Notion request timed out",
+          request.signal?.aborted === true
+            ? "Notion request was aborted"
+            : "Notion request timed out",
           0,
-          request.signal?.aborted === true ? "request_aborted" : "request_timeout",
+          request.signal?.aborted === true
+            ? "request_aborted"
+            : "request_timeout",
           null,
         );
       }
       throw error;
     }
-    const raw: unknown = await response.json().catch(() => ({ message: "Non-JSON Notion response" }));
+    const raw: unknown = await response
+      .json()
+      .catch(() => ({ message: "Non-JSON Notion response" }));
     const value = toJsonValue(raw);
     const object = asObject(value, "Notion response");
     if (!response.ok) {
       throw new NotionApiError(
-        typeof object.message === "string" ? object.message : `Notion request failed (${response.status})`,
+        typeof object.message === "string"
+          ? object.message
+          : `Notion request failed (${response.status})`,
         response.status,
         typeof object.code === "string" ? object.code : null,
         parseRetryAfter(response.headers.get("retry-after")),
@@ -116,13 +135,19 @@ export async function collectNotionPages<T extends JsonObject>(
   const seen = new Set<string>();
   let cursor: string | null = null;
   do {
-    if (cursor !== null && seen.has(cursor)) throw new Error("Notion pagination cursor repeated");
+    if (cursor !== null && seen.has(cursor))
+      throw new Error("Notion pagination cursor repeated");
     if (cursor !== null) seen.add(cursor);
     const page: NotionPage<T> = parseNotionPage<T>(await fetchPage(cursor));
     results.push(...page.results);
-    if (results.length > maxResults) throw new Error(`Notion pagination exceeded the ${maxResults} record scan limit`);
+    if (results.length > maxResults)
+      throw new Error(
+        `Notion pagination exceeded the ${maxResults} record scan limit`,
+      );
     if (page.has_more && page.next_cursor === null) {
-      throw new Error("Notion pagination has_more response omitted next_cursor");
+      throw new Error(
+        "Notion pagination has_more response omitted next_cursor",
+      );
     }
     cursor = page.has_more ? page.next_cursor : null;
   } while (cursor !== null);
@@ -136,9 +161,13 @@ export function asObject(value: JsonValue, label: string): JsonObject {
   return value;
 }
 
-function parseNotionPage<T extends JsonObject>(value: JsonObject): NotionPage<T> {
-  if (!Array.isArray(value.results)) throw new TypeError("Notion list response omitted results");
-  if (typeof value.has_more !== "boolean") throw new TypeError("Notion list response omitted has_more");
+function parseNotionPage<T extends JsonObject>(
+  value: JsonObject,
+): NotionPage<T> {
+  if (!Array.isArray(value.results))
+    throw new TypeError("Notion list response omitted results");
+  if (typeof value.has_more !== "boolean")
+    throw new TypeError("Notion list response omitted has_more");
   const nextCursor = value.next_cursor;
   if (nextCursor !== null && typeof nextCursor !== "string") {
     throw new TypeError("Notion list response has invalid next_cursor");
@@ -146,7 +175,9 @@ function parseNotionPage<T extends JsonObject>(value: JsonObject): NotionPage<T>
   return {
     has_more: value.has_more,
     next_cursor: nextCursor,
-    results: value.results.map((result, index) => asObject(result, `Notion result ${index}`) as T),
+    results: value.results.map(
+      (result, index) => asObject(result, `Notion result ${index}`) as T,
+    ),
   };
 }
 

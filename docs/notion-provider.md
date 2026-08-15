@@ -10,12 +10,12 @@ Extra properties are tolerated. A missing compatible property can be added
 only by a digest-authorized workspace apply; incompatible or destructive drift
 fails closed.
 
-| Table | Required properties |
-| --- | --- |
-| Tasks | `Task` title; provider-defined `Status` select; adapter-internal `Manager Mutation` rich text; self-relation `Dependencies`; optional numeric `Priority` |
-| Sub-agents | `Name` title; `Enabled` checkbox; numeric `Revision`; `Model` rich text; `Status` select; `Working On` Tasks relation; `Last Run` last-edited time |
-| Errors | `Error` title; `Error Key` rich text; `Severity` and `Status` selects; `Task` and `Sub-agent` relations; optional `Run ID` |
-| Resources | `Resource` title; `Kind` and `State` selects; `Version`, `Digest`, and `Dependencies` rich text |
+| Table      | Required properties                                                                                                                                      |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tasks      | `Task` title; provider-defined `Status` select; adapter-internal `Manager Mutation` rich text; self-relation `Dependencies`; optional numeric `Priority` |
+| Sub-agents | `Name` title; `Enabled` checkbox; numeric `Revision`; `Model` rich text; `Status` select; `Working On` Tasks relation; `Last Run` last-edited time       |
+| Errors     | `Error` title; `Error Key` rich text; `Severity` and `Status` selects; `Task` and `Sub-agent` relations; optional `Run ID`                               |
+| Resources  | `Resource` title; `Kind` and `State` selects; `Version`, `Digest`, and `Dependencies` rich text                                                          |
 
 Project-specific columns are additive and remain provider data rather than core
 role logic. The Perfect Project v4 workspace additionally uses Task governance

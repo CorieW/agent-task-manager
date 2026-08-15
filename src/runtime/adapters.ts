@@ -18,14 +18,22 @@ export interface ModelTransportSession {
 
 export interface ModelTransportAdapter {
   readonly id: string;
-  prepare(input: { readonly model: string; readonly reasoning: string; readonly runId: string; readonly signal: AbortSignal }): Promise<ModelTransportSession>;
+  prepare(input: {
+    readonly model: string;
+    readonly reasoning: string;
+    readonly runId: string;
+    readonly signal: AbortSignal;
+  }): Promise<ModelTransportSession>;
 }
 
 export interface ToolIsolationPolicy {
   readonly allowedEnvironmentNames: readonly string[];
   readonly allowedReadRoots: readonly string[];
   readonly allowedWriteRoots: readonly string[];
-  readonly network: { readonly allowedOrigins: readonly string[]; readonly mode: "allowlist" | "none" };
+  readonly network: {
+    readonly allowedOrigins: readonly string[];
+    readonly mode: "allowlist" | "none";
+  };
   readonly runId: string;
 }
 
@@ -45,7 +53,10 @@ export interface ToolIsolationSession {
 
 export interface ToolIsolationAdapter {
   readonly id: string;
-  prepare(policy: ToolIsolationPolicy, signal: AbortSignal): Promise<ToolIsolationSession>;
+  prepare(
+    policy: ToolIsolationPolicy,
+    signal: AbortSignal,
+  ): Promise<ToolIsolationSession>;
 }
 
 export interface AgentRunnerIdentity {
@@ -90,13 +101,17 @@ export class RuntimeAdapterRegistry<T extends { readonly id: string }> {
   readonly #values = new Map<string, T>();
   public register(value: T): void {
     if (value.id === "") throw new TypeError("Runtime adapter ID is required");
-    if (this.#values.has(value.id)) throw new Error(`Runtime adapter is already registered: ${value.id}`);
+    if (this.#values.has(value.id))
+      throw new Error(`Runtime adapter is already registered: ${value.id}`);
     this.#values.set(value.id, value);
   }
   public get(id: string): T {
     const value = this.#values.get(id);
-    if (value === undefined) throw new Error(`Runtime adapter is unavailable: ${id}`);
+    if (value === undefined)
+      throw new Error(`Runtime adapter is unavailable: ${id}`);
     return value;
   }
-  public list(): readonly string[] { return [...this.#values.keys()].sort(); }
+  public list(): readonly string[] {
+    return [...this.#values.keys()].sort();
+  }
 }

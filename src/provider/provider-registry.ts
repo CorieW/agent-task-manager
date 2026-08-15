@@ -2,14 +2,18 @@
 import type { ProviderEnvironment } from "../domain/provider.js";
 import type { AgentTaskProvider } from "./agent-task-provider.js";
 
-export type ProviderFactory = (environment: ProviderEnvironment) => AgentTaskProvider;
+export type ProviderFactory = (
+  environment: ProviderEnvironment,
+) => AgentTaskProvider;
 
 export class ProviderRegistry {
   readonly #factories = new Map<string, ProviderFactory>();
 
   public register(type: string, factory: ProviderFactory): void {
-    if (type.trim() === "") throw new TypeError("Provider type cannot be empty");
-    if (this.#factories.has(type)) throw new Error(`Provider already registered: ${type}`);
+    if (type.trim() === "")
+      throw new TypeError("Provider type cannot be empty");
+    if (this.#factories.has(type))
+      throw new Error(`Provider already registered: ${type}`);
     this.#factories.set(type, factory);
   }
 

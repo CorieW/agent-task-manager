@@ -8,8 +8,14 @@ export function routeOutcome(input: {
   readonly validStatuses: readonly string[];
 }): string {
   const configured = input.definition.transitions[input.outcome];
-  if (configured === undefined) throw new Error(`Definition has no transition for outcome ${input.outcome}`);
+  if (configured === undefined)
+    throw new Error(
+      `Definition has no transition for outcome ${input.outcome}`,
+    );
   if (configured === "$current") return input.currentStatus;
-  if (!input.validStatuses.includes(configured)) throw new Error(`Transition target is not a valid Task status: ${configured}`);
+  if (!input.validStatuses.includes(configured))
+    throw new Error(
+      `Transition target is not a valid Task status: ${configured}`,
+    );
   return configured;
 }

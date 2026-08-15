@@ -5,9 +5,17 @@ import test from "node:test";
 import { sha256 } from "../src/core/digest.js";
 import type { JsonObject } from "../src/domain/json.js";
 import { NotionRecordReader } from "../src/provider/notion/notion-record-codec.js";
-import type { NotionRequest, NotionTransport } from "../src/provider/notion/notion-transport.js";
+import type {
+  NotionRequest,
+  NotionTransport,
+} from "../src/provider/notion/notion-transport.js";
 
-const TABLES = { errors: "errors", resources: "resources", subAgents: "agents", tasks: "tasks" };
+const TABLES = {
+  errors: "errors",
+  resources: "resources",
+  subAgents: "agents",
+  tasks: "tasks",
+};
 
 class RecordsTransport implements NotionTransport {
   public async request(request: NotionRequest): Promise<JsonObject> {
@@ -21,28 +29,53 @@ class RecordsTransport implements NotionTransport {
       return { has_more: false, next_cursor: null, results: [resourcePage()] };
     }
     if (request.path === "/v1/pages/task-1") return taskPage();
-    if (request.path === "/v1/pages/outside-task") return { ...taskPage(), id: "outside-task", parent: { data_source_id: "other" } };
+    if (request.path === "/v1/pages/outside-task")
+      return {
+        ...taskPage(),
+        id: "outside-task",
+        parent: { data_source_id: "other" },
+      };
     if (request.path === "/v1/pages/agent-1") return agentPage();
     if (request.path === "/v1/pages/task-1/properties/blocked") {
       return request.query?.start_cursor === null
-        ? { has_more: true, next_cursor: "two", results: [{ relation: { id: "dep-1" } }] }
-        : { has_more: false, next_cursor: null, results: [{ relation: { id: "dep-2" } }] };
+        ? {
+            has_more: true,
+            next_cursor: "two",
+            results: [{ relation: { id: "dep-1" } }],
+          }
+        : {
+            has_more: false,
+            next_cursor: null,
+            results: [{ relation: { id: "dep-2" } }],
+          };
     }
-    if (request.path === "/v1/blocks/task-1/children") return blocks([{ paragraph: rich("Task details"), type: "paragraph" }]);
-    if (request.path === "/v1/blocks/agent-1/children") return blocks(managed("Sub-agent definition", JSON.stringify(definition())));
-    if (request.path === "/v1/blocks/resource-1/children") return blocks(managed("Resource body", "resource text"));
+    if (request.path === "/v1/blocks/task-1/children")
+      return blocks([{ paragraph: rich("Task details"), type: "paragraph" }]);
+    if (request.path === "/v1/blocks/agent-1/children")
+      return blocks(
+        managed("Sub-agent definition", JSON.stringify(definition())),
+      );
+    if (request.path === "/v1/blocks/resource-1/children")
+      return blocks(managed("Resource body", "resource text"));
     throw new Error(`Unexpected request ${request.method} ${request.path}`);
   }
 }
 
 test("decodes task summaries and exhausts relation property pagination", async () => {
   const reader = new NotionRecordReader(TABLES, new RecordsTransport());
-  const summaries = await reader.listTaskSummaries({ cursor: null, limit: 10, predicate: { status: "Todo" } });
+  const summaries = await reader.listTaskSummaries({
+    cursor: null,
+    limit: 10,
+    predicate: { status: "Todo" },
+  });
   assert.equal(summaries.length, 1);
   const task = await reader.getTaskSnapshot("task-1");
   assert.deepEqual(task.dependencies, ["dep-1", "dep-2"]);
   assert.equal(task.body, "Task details");
-  await assert.rejects(reader.getTaskSnapshot("outside-task"), /configured table/);
+  await assert.rejects(
+    reader.getTaskSnapshot("outside-task"),
+    /configured table/,
+  );
 });
 
 test("loads strict Sub-agent definitions from their managed range", async () => {
@@ -51,13 +84,22 @@ test("loads strict Sub-agent definitions from their managed range", async () => 
   assert.equal(agent?.name, "Coordinator");
   assert.equal(agent?.selection.mode, "coordinator");
   assert.deepEqual(agent?.promptResources, ["prompt/coordinator"]);
-  assert.equal((await reader.getSubAgentDefinition("coordinator")).id, "coordinator");
+  assert.equal(
+    (await reader.getSubAgentDefinition("coordinator")).id,
+    "coordinator",
+  );
   assert.equal(await reader.getSubAgentPageId("coordinator"), "agent-1");
 });
 
 test("verifies Resources against their content digest", async () => {
   const reader = new NotionRecordReader(TABLES, new RecordsTransport());
-  const [resource] = await reader.getResources([{ digest: sha256("resource text"), key: "prompt/coordinator", version: "v1" }]);
+  const [resource] = await reader.getResources([
+    {
+      digest: sha256("resource text"),
+      key: "prompt/coordinator",
+      version: "v1",
+    },
+  ]);
   assert.equal(resource?.body, "resource text");
 });
 
@@ -69,10 +111,19 @@ function taskPage(): JsonObject {
     object: "page",
     parent: { data_source_id: "tasks", type: "data_source_id" },
     properties: {
-      Dependencies: { has_more: true, id: "blocked", relation: [{ id: "dep-inline" }], type: "relation" },
+      Dependencies: {
+        has_more: true,
+        id: "blocked",
+        relation: [{ id: "dep-inline" }],
+        type: "relation",
+      },
       Priority: { id: "priority", number: 1, type: "number" },
       Status: { id: "status", status: { name: "Todo" }, type: "status" },
-      Task: { id: "title", title: [{ plain_text: "First task" }], type: "title" },
+      Task: {
+        id: "title",
+        title: [{ plain_text: "First task" }],
+        type: "title",
+      },
     },
   };
 }
@@ -85,8 +136,16 @@ function agentPage(): JsonObject {
     parent: { data_source_id: "agents", type: "data_source_id" },
     properties: {
       Enabled: { checkbox: true, id: "enabled", type: "checkbox" },
-      Model: { id: "model", rich_text: [{ plain_text: "gpt-5.6-sol" }], type: "rich_text" },
-      Name: { id: "title", title: [{ plain_text: "Coordinator" }], type: "title" },
+      Model: {
+        id: "model",
+        rich_text: [{ plain_text: "gpt-5.6-sol" }],
+        type: "rich_text",
+      },
+      Name: {
+        id: "title",
+        title: [{ plain_text: "Coordinator" }],
+        type: "title",
+      },
       Revision: { id: "revision", number: 1, type: "number" },
     },
   };
@@ -99,11 +158,23 @@ function resourcePage(): JsonObject {
     object: "page",
     properties: {
       Dependencies: { id: "dependencies", rich_text: [], type: "rich_text" },
-      Digest: { id: "digest", rich_text: [{ plain_text: sha256("resource text") }], type: "rich_text" },
+      Digest: {
+        id: "digest",
+        rich_text: [{ plain_text: sha256("resource text") }],
+        type: "rich_text",
+      },
       Kind: { id: "kind", select: { name: "prompt" }, type: "select" },
-      Resource: { id: "title", title: [{ plain_text: "prompt/coordinator" }], type: "title" },
+      Resource: {
+        id: "title",
+        title: [{ plain_text: "prompt/coordinator" }],
+        type: "title",
+      },
       State: { id: "state", select: { name: "active" }, type: "select" },
-      Version: { id: "version", rich_text: [{ plain_text: "v1" }], type: "rich_text" },
+      Version: {
+        id: "version",
+        rich_text: [{ plain_text: "v1" }],
+        type: "rich_text",
+      },
     },
   };
 }

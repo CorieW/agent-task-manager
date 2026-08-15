@@ -1,7 +1,11 @@
 /** Owns deterministic Notion page lookup, managed-content writes, and post-verification. */
 import { digestJson, sha256 } from "../../core/digest.js";
 import { taskPropertiesWithStatus } from "../../core/task-properties.js";
-import { toJsonValue, type JsonObject, type JsonValue } from "../../domain/json.js";
+import {
+  toJsonValue,
+  type JsonObject,
+  type JsonValue,
+} from "../../domain/json.js";
 import type {
   ActivityMutation,
   ConditionalTaskMutation,
@@ -9,9 +13,15 @@ import type {
   ResourceMutation,
 } from "../../domain/records.js";
 import type { TableKind, WriteReceipt } from "../../domain/provider.js";
-import { NOTION_TASK_MUTATION_CAPTION_PREFIX, NOTION_TASK_MUTATION_PROPERTY } from "./notion-schema.js";
+import {
+  NOTION_TASK_MUTATION_CAPTION_PREFIX,
+  NOTION_TASK_MUTATION_PROPERTY,
+} from "./notion-schema.js";
 import { activeTaskBodyGeneration } from "./notion-task-body-generation.js";
-import { collectNotionPages, type NotionTransport } from "./notion-transport.js";
+import {
+  collectNotionPages,
+  type NotionTransport,
+} from "./notion-transport.js";
 
 export interface NotionMutableTableIds {
   readonly errors: string;
@@ -44,8 +54,12 @@ export class NotionPageStore {
     property: string,
     value: string,
   ): Promise<LocatedPage | null> {
-    const pages = await this.filteredPages(table, { property, title: { equals: value } });
-    if (pages.length > 1) throw new Error(`${table}.${property}=${value} is not unique`);
+    const pages = await this.filteredPages(table, {
+      property,
+      title: { equals: value },
+    });
+    if (pages.length > 1)
+      throw new Error(`${table}.${property}=${value} is not unique`);
     const page = pages[0];
     return page === undefined ? null : located(page);
   }
@@ -55,19 +69,34 @@ export class NotionPageStore {
     property: string,
     value: string,
   ): Promise<LocatedPage | null> {
-    const pages = await this.filteredPages(table, { property, rich_text: { equals: value } });
-    if (pages.length > 1) throw new Error(`${table}.${property}=${value} is not unique`);
+    const pages = await this.filteredPages(table, {
+      property,
+      rich_text: { equals: value },
+    });
+    if (pages.length > 1)
+      throw new Error(`${table}.${property}=${value} is not unique`);
     const page = pages[0];
     return page === undefined ? null : located(page);
   }
 
-  public async listBySelect(table: TableKind, property: string, value: string): Promise<readonly LocatedPage[]> {
-    const pages = await this.filteredPages(table, { property, select: { equals: value } });
+  public async listBySelect(
+    table: TableKind,
+    property: string,
+    value: string,
+  ): Promise<readonly LocatedPage[]> {
+    const pages = await this.filteredPages(table, {
+      property,
+      select: { equals: value },
+    });
     return pages.map((page) => located(page));
   }
 
   public async createResource(record: ResourceMutation): Promise<WriteReceipt> {
-    const existing = await this.findUniqueByTitle("resources", "Resource", record.key);
+    const existing = await this.findUniqueByTitle(
+      "resources",
+      "Resource",
+      record.key,
+    );
     if (existing !== null) return this.updateResource(existing, record);
     const created = await this.createManagedPage(
       "resources",
@@ -78,7 +107,10 @@ export class NotionPageStore {
     return this.receipt("resources", created, record.idempotencyKey);
   }
 
-  public async updateResource(existing: LocatedPage, record: ResourceMutation): Promise<WriteReceipt> {
+  public async updateResource(
+    existing: LocatedPage,
+    record: ResourceMutation,
+  ): Promise<WriteReceipt> {
     await this.transport.request({
       body: { properties: resourceProperties(record) },
       method: "PATCH",
@@ -91,8 +123,14 @@ export class NotionPageStore {
     return this.receipt("resources", verified, record.idempotencyKey);
   }
 
-  public async createOrUpdateError(error: ErrorMutation): Promise<WriteReceipt> {
-    const existing = await this.findUniqueByRichText("errors", "Error Key", error.errorKey);
+  public async createOrUpdateError(
+    error: ErrorMutation,
+  ): Promise<WriteReceipt> {
+    const existing = await this.findUniqueByRichText(
+      "errors",
+      "Error Key",
+      error.errorKey,
+    );
     const properties = errorProperties(error);
     let locatedPage: LocatedPage;
     if (existing === null) {
@@ -109,35 +147,64 @@ export class NotionPageStore {
         method: "PATCH",
         path: `/v1/pages/${existing.id}`,
       });
-      await this.replaceManagedText(existing.id, "Error Description", error.description);
-      await this.replaceManagedText(existing.id, "Error Resolution", error.resolution);
+      await this.replaceManagedText(
+        existing.id,
+        "Error Description",
+        error.description,
+      );
+      await this.replaceManagedText(
+        existing.id,
+        "Error Resolution",
+        error.resolution,
+      );
       locatedPage = await this.getPage(existing.id);
     }
     verifyPropertyText(locatedPage.page, "Error Key", error.errorKey);
     return this.receipt("errors", locatedPage, error.idempotencyKey);
   }
 
-  public async errorTargetReceipt(error: ErrorMutation): Promise<WriteReceipt | null> {
-    const existing = await this.findUniqueByRichText("errors", "Error Key", error.errorKey);
+  public async errorTargetReceipt(
+    error: ErrorMutation,
+  ): Promise<WriteReceipt | null> {
+    const existing = await this.findUniqueByRichText(
+      "errors",
+      "Error Key",
+      error.errorKey,
+    );
     if (existing === null) return null;
     const current = await this.getPage(existing.id);
-    const exact = propertyText(current.page, "Error") === error.title
-      && propertyText(current.page, "Error Key") === error.errorKey
-      && propertyOption(current.page, "Severity") === error.severity
-      && propertyOption(current.page, "Status") === error.status
-      && propertyText(current.page, "Run ID") === (error.relatedRunId ?? "")
-      && sameSet(await this.relationIds(current.page, "Sub-agent"), error.relatedSubAgentId === null ? [] : [error.relatedSubAgentId])
-      && sameSet(await this.relationIds(current.page, "Task"), error.relatedTaskId === null ? [] : [error.relatedTaskId])
-      && await this.managedText(current.id, "Error Description") === normalizeText(error.description)
-      && await this.managedText(current.id, "Error Resolution") === normalizeText(error.resolution);
-    if (!exact) throw new Error(`Pending Error intent conflicts with newer state: ${error.errorKey}`);
+    const exact =
+      propertyText(current.page, "Error") === error.title &&
+      propertyText(current.page, "Error Key") === error.errorKey &&
+      propertyOption(current.page, "Severity") === error.severity &&
+      propertyOption(current.page, "Status") === error.status &&
+      propertyText(current.page, "Run ID") === (error.relatedRunId ?? "") &&
+      sameSet(
+        await this.relationIds(current.page, "Sub-agent"),
+        error.relatedSubAgentId === null ? [] : [error.relatedSubAgentId],
+      ) &&
+      sameSet(
+        await this.relationIds(current.page, "Task"),
+        error.relatedTaskId === null ? [] : [error.relatedTaskId],
+      ) &&
+      (await this.managedText(current.id, "Error Description")) ===
+        normalizeText(error.description) &&
+      (await this.managedText(current.id, "Error Resolution")) ===
+        normalizeText(error.resolution);
+    if (!exact)
+      throw new Error(
+        `Pending Error intent conflicts with newer state: ${error.errorKey}`,
+      );
     return this.receipt("errors", current, error.idempotencyKey);
   }
 
-  public async updateSubAgentActivity(change: ActivityMutation): Promise<WriteReceipt> {
+  public async updateSubAgentActivity(
+    change: ActivityMutation,
+  ): Promise<WriteReceipt> {
     const current = await this.getPage(change.subAgentId);
     const currentTaskIds = await this.relationIds(current.page, "Working On");
-    if (!sameSet(currentTaskIds, change.expectedTaskIds)) throw new Error("Sub-agent Working On conflict");
+    if (!sameSet(currentTaskIds, change.expectedTaskIds))
+      throw new Error("Sub-agent Working On conflict");
     const currentStatus = propertyOption(current.page, "Status");
     const expectedStatus = activityStatus(change.expectedRunLeaseIds);
     if (currentStatus !== expectedStatus) {
@@ -153,11 +220,15 @@ export class NotionPageStore {
     );
   }
 
-  public async getSubAgentActivity(subAgentId: string): Promise<NotionAgentActivity> {
+  public async getSubAgentActivity(
+    subAgentId: string,
+  ): Promise<NotionAgentActivity> {
     const current = await this.getPage(subAgentId);
     return {
       status: propertyOption(current.page, "Status") ?? "",
-      taskIds: normalizedSet(await this.relationIds(current.page, "Working On")),
+      taskIds: normalizedSet(
+        await this.relationIds(current.page, "Working On"),
+      ),
       version: current.version,
     };
   }
@@ -171,14 +242,22 @@ export class NotionPageStore {
     idempotencyKey: string,
   ): Promise<WriteReceipt> {
     const current = await this.getPage(subAgentId);
-    if (propertyOption(current.page, "Status") !== expectedStatus || !sameSet(await this.relationIds(current.page, "Working On"), expectedTaskIds)) {
+    if (
+      propertyOption(current.page, "Status") !== expectedStatus ||
+      !sameSet(
+        await this.relationIds(current.page, "Working On"),
+        expectedTaskIds,
+      )
+    ) {
       throw new Error("Sub-agent activity changed before reconciliation");
     }
     await this.transport.request({
       body: {
         properties: {
           Status: { select: { name: nextStatus } },
-          "Working On": { relation: normalizedSet(nextTaskIds).map((id) => ({ id })) },
+          "Working On": {
+            relation: normalizedSet(nextTaskIds).map((id) => ({ id })),
+          },
         },
       },
       method: "PATCH",
@@ -189,27 +268,46 @@ export class NotionPageStore {
     if (status !== nextStatus) {
       throw new Error("Sub-agent Status post-verification failed");
     }
-    if (!sameSet(await this.relationIds(verified.page, "Working On"), nextTaskIds)) {
+    if (
+      !sameSet(await this.relationIds(verified.page, "Working On"), nextTaskIds)
+    ) {
       throw new Error("Sub-agent Working On post-verification failed");
     }
     return this.receipt("subAgents", verified, idempotencyKey);
   }
 
-  public async applyTaskMutation(mutation: ConditionalTaskMutation): Promise<WriteReceipt> {
+  public async applyTaskMutation(
+    mutation: ConditionalTaskMutation,
+  ): Promise<WriteReceipt> {
     const current = await this.getPage(mutation.taskId);
     assertPageParent(current.page, this.tables.tasks, "Task");
-    if (current.version !== mutation.expectedVersion) throw new Error("Task version conflict");
+    if (current.version !== mutation.expectedVersion)
+      throw new Error("Task version conflict");
     const currentStatus = propertyOption(current.page, "Status");
     if (currentStatus === null) throw new Error("Task Status is missing");
     const mutationDigest = digestJson(toJsonValue(mutation));
     const targetProperties = {
-      ...taskPropertiesWithStatus(mutation.nextProperties, mutation.nextStatus ?? currentStatus),
+      ...taskPropertiesWithStatus(
+        mutation.nextProperties,
+        mutation.nextStatus ?? currentStatus,
+      ),
       [NOTION_TASK_MUTATION_PROPERTY]: mutationDigest,
     };
-    const nextProperties = encodeGenericProperties(targetProperties, current.page);
+    const nextProperties = encodeGenericProperties(
+      targetProperties,
+      current.page,
+    );
     if (mutation.nextBody !== null) {
-      await this.appendTaskBodyGeneration(mutation.taskId, mutation.nextBody, mutationDigest);
-      if ((await this.readManagedTaskBody(mutation.taskId)) !== normalizeText(mutation.nextBody)) throw new Error("Task body post-verification failed");
+      await this.appendTaskBodyGeneration(
+        mutation.taskId,
+        mutation.nextBody,
+        mutationDigest,
+      );
+      if (
+        (await this.readManagedTaskBody(mutation.taskId)) !==
+        normalizeText(mutation.nextBody)
+      )
+        throw new Error("Task body post-verification failed");
     }
     await this.transport.request({
       body: { properties: nextProperties },
@@ -217,43 +315,81 @@ export class NotionPageStore {
       path: `/v1/pages/${mutation.taskId}`,
     });
     const verified = await this.getPage(mutation.taskId);
-    if (verified.version === current.version) throw new Error("Task write did not advance last_edited_time");
+    if (verified.version === current.version)
+      throw new Error("Task write did not advance last_edited_time");
     for (const [name, expected] of Object.entries(targetProperties)) {
       if (!propertyMatches(verified.page, name, expected)) {
         throw new Error(`Task property ${name} post-verification failed`);
       }
     }
-    if (mutation.nextStatus !== null && propertyOption(verified.page, "Status") !== mutation.nextStatus) throw new Error("Task Status post-verification failed");
+    if (
+      mutation.nextStatus !== null &&
+      propertyOption(verified.page, "Status") !== mutation.nextStatus
+    )
+      throw new Error("Task Status post-verification failed");
     return this.receipt("tasks", verified, mutation.idempotencyKey);
   }
 
-  public async taskReceipt(taskId: string, idempotencyKey: string): Promise<WriteReceipt> {
+  public async taskReceipt(
+    taskId: string,
+    idempotencyKey: string,
+  ): Promise<WriteReceipt> {
     const current = await this.getPage(taskId);
     assertPageParent(current.page, this.tables.tasks, "Task");
     return this.receipt("tasks", current, idempotencyKey);
   }
 
-  public async completeMarkedTaskProperties(mutation: ConditionalTaskMutation): Promise<WriteReceipt> {
+  public async completeMarkedTaskProperties(
+    mutation: ConditionalTaskMutation,
+  ): Promise<WriteReceipt> {
     const current = await this.getPage(mutation.taskId);
     assertPageParent(current.page, this.tables.tasks, "Task");
     const mutationDigest = digestJson(toJsonValue(mutation));
-    if (await this.taskBodyGenerationMarker(mutation.taskId) !== mutationDigest || mutation.nextBody === null || await this.readManagedTaskBody(mutation.taskId) !== normalizeText(mutation.nextBody)) throw new Error("Task body generation does not authorize property completion");
+    if (
+      (await this.taskBodyGenerationMarker(mutation.taskId)) !==
+        mutationDigest ||
+      mutation.nextBody === null ||
+      (await this.readManagedTaskBody(mutation.taskId)) !==
+        normalizeText(mutation.nextBody)
+    )
+      throw new Error(
+        "Task body generation does not authorize property completion",
+      );
     for (const [name, expected] of Object.entries(mutation.nextProperties)) {
       if (name === NOTION_TASK_MUTATION_PROPERTY) continue;
-      if (!propertyMatches(current.page, name, expected)) throw new Error(`Task source property ${name} changed before recovery`);
+      if (!propertyMatches(current.page, name, expected))
+        throw new Error(`Task source property ${name} changed before recovery`);
     }
     const sourceStatus = propertyOption(current.page, "Status");
     if (sourceStatus === null) throw new Error("Task Status is missing");
-    const targetProperties = { ...taskPropertiesWithStatus(mutation.nextProperties, mutation.nextStatus ?? sourceStatus), [NOTION_TASK_MUTATION_PROPERTY]: mutationDigest };
-    await this.transport.request({ body: { properties: encodeGenericProperties(targetProperties, current.page) }, method: "PATCH", path: `/v1/pages/${mutation.taskId}` });
+    const targetProperties = {
+      ...taskPropertiesWithStatus(
+        mutation.nextProperties,
+        mutation.nextStatus ?? sourceStatus,
+      ),
+      [NOTION_TASK_MUTATION_PROPERTY]: mutationDigest,
+    };
+    await this.transport.request({
+      body: {
+        properties: encodeGenericProperties(targetProperties, current.page),
+      },
+      method: "PATCH",
+      path: `/v1/pages/${mutation.taskId}`,
+    });
     const verified = await this.getPage(mutation.taskId);
-    for (const [name, expected] of Object.entries(targetProperties)) if (!propertyMatches(verified.page, name, expected)) throw new Error(`Task property ${name} post-verification failed`);
+    for (const [name, expected] of Object.entries(targetProperties))
+      if (!propertyMatches(verified.page, name, expected))
+        throw new Error(`Task property ${name} post-verification failed`);
     return this.receipt("tasks", verified, mutation.idempotencyKey);
   }
 
   public async getPage(pageId: string): Promise<LocatedPage> {
-    const page = await this.transport.request({ method: "GET", path: `/v1/pages/${pageId}` });
-    if (page.object !== "page") throw new TypeError(`${pageId} is not a Notion page`);
+    const page = await this.transport.request({
+      method: "GET",
+      path: `/v1/pages/${pageId}`,
+    });
+    if (page.object !== "page")
+      throw new TypeError(`${pageId} is not a Notion page`);
     return located(page);
   }
 
@@ -267,12 +403,20 @@ export class NotionPageStore {
     properties: JsonObject,
     heading: string,
     text: string,
-    additional: readonly { readonly heading: string; readonly text: string }[] = [],
+    additional: readonly {
+      readonly heading: string;
+      readonly text: string;
+    }[] = [],
   ): Promise<LocatedPage> {
     const children = [managedHeading(heading), managedCode(text)];
-    for (const section of additional) children.push(managedHeading(section.heading), managedCode(section.text));
+    for (const section of additional)
+      children.push(managedHeading(section.heading), managedCode(section.text));
     const response = await this.transport.request({
-      body: { children, parent: { data_source_id: this.tables[table] }, properties },
+      body: {
+        children,
+        parent: { data_source_id: this.tables[table] },
+        properties,
+      },
       method: "POST",
       path: "/v1/pages",
     });
@@ -284,10 +428,18 @@ export class NotionPageStore {
     return verified;
   }
 
-  private async replaceManagedText(pageId: string, heading: string, text: string): Promise<void> {
+  private async replaceManagedText(
+    pageId: string,
+    heading: string,
+    text: string,
+  ): Promise<void> {
     const section = await this.findManagedSection(pageId, heading);
-    const type = requiredString(section.content.type, "Managed content block type");
-    if (type !== "code") throw new Error(`Managed ## ${heading} content is not a code block`);
+    const type = requiredString(
+      section.content.type,
+      "Managed content block type",
+    );
+    if (type !== "code")
+      throw new Error(`Managed ## ${heading} content is not a code block`);
     await this.transport.request({
       body: { code: codeValue(text) },
       method: "PATCH",
@@ -298,9 +450,21 @@ export class NotionPageStore {
     }
   }
 
-  private async appendTaskBodyGeneration(pageId: string, text: string, mutationDigest: string): Promise<void> {
+  private async appendTaskBodyGeneration(
+    pageId: string,
+    text: string,
+    mutationDigest: string,
+  ): Promise<void> {
     await this.transport.request({
-      body: { children: [managedCode(text, "markdown", `${NOTION_TASK_MUTATION_CAPTION_PREFIX}${mutationDigest}`)] },
+      body: {
+        children: [
+          managedCode(
+            text,
+            "markdown",
+            `${NOTION_TASK_MUTATION_CAPTION_PREFIX}${mutationDigest}`,
+          ),
+        ],
+      },
       method: "PATCH",
       path: `/v1/blocks/${pageId}/children`,
     });
@@ -316,40 +480,72 @@ export class NotionPageStore {
     return code.language === "markdown" ? blockText(active) : null;
   }
 
-  private async taskBodyGenerationMarker(pageId: string): Promise<string | null> {
-    return activeTaskBodyGeneration(await this.childBlocks(pageId))?.digest ?? null;
+  private async taskBodyGenerationMarker(
+    pageId: string,
+  ): Promise<string | null> {
+    return (
+      activeTaskBodyGeneration(await this.childBlocks(pageId))?.digest ?? null
+    );
   }
 
-  private async relationIds(page: JsonObject, propertyName: string): Promise<readonly string[]> {
+  private async relationIds(
+    page: JsonObject,
+    propertyName: string,
+  ): Promise<readonly string[]> {
     const property = pageProperty(page, propertyName);
     if (property.has_more !== true) return normalizedSet(relationIds(property));
     const pageId = requiredString(page.id, "Page id");
-    const propertyId = requiredString(property.id, `${propertyName} property id`);
-    const items = await collectNotionPages((cursor) => this.transport.request({
-      method: "GET",
-      path: `/v1/pages/${pageId}/properties/${encodeURIComponent(propertyId)}`,
-      query: { page_size: 100, start_cursor: cursor },
-    }));
+    const propertyId = requiredString(
+      property.id,
+      `${propertyName} property id`,
+    );
+    const items = await collectNotionPages((cursor) =>
+      this.transport.request({
+        method: "GET",
+        path: `/v1/pages/${pageId}/properties/${encodeURIComponent(propertyId)}`,
+        query: { page_size: 100, start_cursor: cursor },
+      }),
+    );
     return normalizedSet(items.flatMap((item) => relationIds(item)));
   }
 
-  private async findManagedSection(pageId: string, heading: string): Promise<{ readonly content: JsonObject }> {
+  private async findManagedSection(
+    pageId: string,
+    heading: string,
+  ): Promise<{ readonly content: JsonObject }> {
     const blocks = await this.childBlocks(pageId);
-    const matches = blocks.map((block, index) => ({ block, index })).filter(({ block }) => block.type === "heading_2" && blockText(block) === heading);
-    if (matches.length !== 1) throw new Error(`Page ${pageId} must contain exactly one ## ${heading}`);
+    const matches = blocks
+      .map((block, index) => ({ block, index }))
+      .filter(
+        ({ block }) =>
+          block.type === "heading_2" && blockText(block) === heading,
+      );
+    if (matches.length !== 1)
+      throw new Error(`Page ${pageId} must contain exactly one ## ${heading}`);
     const match = matches[0];
-    if (match === undefined) throw new Error(`Page ${pageId} managed heading is missing`);
+    if (match === undefined)
+      throw new Error(`Page ${pageId} managed heading is missing`);
     const content = blocks[match.index + 1];
-    if (content === undefined || content.type !== "code") throw new Error(`## ${heading} must be followed by a code block`);
+    if (content === undefined || content.type !== "code")
+      throw new Error(`## ${heading} must be followed by a code block`);
     return { content };
   }
 
-  private async filteredPages(table: TableKind, filter: JsonObject): Promise<readonly JsonObject[]> {
-    return collectNotionPages((cursor) => this.transport.request({
-      body: { filter, page_size: 100, ...(cursor === null ? {} : { start_cursor: cursor }) },
-      method: "POST",
-      path: `/v1/data_sources/${this.tables[table]}/query`,
-    }));
+  private async filteredPages(
+    table: TableKind,
+    filter: JsonObject,
+  ): Promise<readonly JsonObject[]> {
+    return collectNotionPages((cursor) =>
+      this.transport.request({
+        body: {
+          filter,
+          page_size: 100,
+          ...(cursor === null ? {} : { start_cursor: cursor }),
+        },
+        method: "POST",
+        path: `/v1/data_sources/${this.tables[table]}/query`,
+      }),
+    );
   }
 
   private async childBlocks(pageId: string): Promise<readonly JsonObject[]> {
@@ -362,7 +558,11 @@ export class NotionPageStore {
     );
   }
 
-  private receipt(table: TableKind, page: LocatedPage, idempotencyKey: string): WriteReceipt {
+  private receipt(
+    table: TableKind,
+    page: LocatedPage,
+    idempotencyKey: string,
+  ): WriteReceipt {
     return {
       idempotencyKey,
       observedVersion: page.version,
@@ -390,72 +590,157 @@ function errorProperties(error: ErrorMutation): JsonObject {
     "Run ID": richTextProperty(error.relatedRunId ?? ""),
     Severity: selectProperty(error.severity),
     Status: selectProperty(error.status),
-    "Sub-agent": relationProperty(error.relatedSubAgentId === null ? [] : [error.relatedSubAgentId]),
-    Task: relationProperty(error.relatedTaskId === null ? [] : [error.relatedTaskId]),
+    "Sub-agent": relationProperty(
+      error.relatedSubAgentId === null ? [] : [error.relatedSubAgentId],
+    ),
+    Task: relationProperty(
+      error.relatedTaskId === null ? [] : [error.relatedTaskId],
+    ),
   };
 }
 
-function encodeGenericProperties(properties: JsonObject, page: JsonObject): JsonObject {
-  return Object.fromEntries(Object.entries(properties).map(([name, value]) => {
-    const current = pageProperty(page, name);
-    return [name, encodeProperty(value, requiredString(current.type, `${name} type`))];
-  }));
+function encodeGenericProperties(
+  properties: JsonObject,
+  page: JsonObject,
+): JsonObject {
+  return Object.fromEntries(
+    Object.entries(properties).map(([name, value]) => {
+      const current = pageProperty(page, name);
+      return [
+        name,
+        encodeProperty(value, requiredString(current.type, `${name} type`)),
+      ];
+    }),
+  );
 }
 
 function encodeProperty(value: JsonValue, type: string): JsonObject {
-  if (type === "checkbox" && typeof value === "boolean") return { checkbox: value };
-  if (type === "number" && (typeof value === "number" || value === null)) return { number: value };
-  if (type === "title" && typeof value === "string") return titleProperty(value);
-  if (type === "rich_text" && typeof value === "string") return richTextProperty(value);
-  if ((type === "select" || type === "status") && (typeof value === "string" || value === null)) {
+  if (type === "checkbox" && typeof value === "boolean")
+    return { checkbox: value };
+  if (type === "number" && (typeof value === "number" || value === null))
+    return { number: value };
+  if (type === "title" && typeof value === "string")
+    return titleProperty(value);
+  if (type === "rich_text" && typeof value === "string")
+    return richTextProperty(value);
+  if (
+    (type === "select" || type === "status") &&
+    (typeof value === "string" || value === null)
+  ) {
     return { [type]: value === null ? null : { name: value } };
   }
-  if (type === "url" && (typeof value === "string" || value === null)) return { url: value };
-  if (type === "relation" && Array.isArray(value) && value.every((item) => typeof item === "string")) return relationProperty(value as string[]);
-  if (type === "date" && (value === null || (typeof value === "object" && !Array.isArray(value)))) return { date: value };
-  throw new TypeError(`Task mutation value is invalid for Notion property type ${type}`);
+  if (type === "url" && (typeof value === "string" || value === null))
+    return { url: value };
+  if (
+    type === "relation" &&
+    Array.isArray(value) &&
+    value.every((item) => typeof item === "string")
+  )
+    return relationProperty(value as string[]);
+  if (
+    type === "date" &&
+    (value === null || (typeof value === "object" && !Array.isArray(value)))
+  )
+    return { date: value };
+  throw new TypeError(
+    `Task mutation value is invalid for Notion property type ${type}`,
+  );
 }
 
-function propertyMatches(page: JsonObject, name: string, expected: JsonValue): boolean {
+function propertyMatches(
+  page: JsonObject,
+  name: string,
+  expected: JsonValue,
+): boolean {
   const property = pageProperty(page, name);
   const type = property.type;
   if (type === "checkbox") return property.checkbox === expected;
   if (type === "number") return property.number === expected;
-  if (type === "rich_text" || type === "title") return propertyText(page, name) === expected;
-  if (type === "select" || type === "status") return propertyOption(page, name) === expected;
-  if (type === "relation" && Array.isArray(expected)) return sameSet(relationIds(property), expected.filter((item): item is string => typeof item === "string"));
+  if (type === "rich_text" || type === "title")
+    return propertyText(page, name) === expected;
+  if (type === "select" || type === "status")
+    return propertyOption(page, name) === expected;
+  if (type === "relation" && Array.isArray(expected))
+    return sameSet(
+      relationIds(property),
+      expected.filter((item): item is string => typeof item === "string"),
+    );
   return false;
 }
 
 function located(page: JsonObject): LocatedPage {
   const id = requiredString(page.id, "Page id");
-  return { id, page, version: requiredString(page.last_edited_time, `Page ${id} last_edited_time`) };
+  return {
+    id,
+    page,
+    version: requiredString(
+      page.last_edited_time,
+      `Page ${id} last_edited_time`,
+    ),
+  };
 }
 
-function assertPageParent(page: JsonObject, tableId: string, label: string): void {
+function assertPageParent(
+  page: JsonObject,
+  tableId: string,
+  label: string,
+): void {
   const parent = objectValue(page.parent, `${label} parent`);
-  if (typeof parent.data_source_id !== "string" || compactIdentifier(parent.data_source_id) !== compactIdentifier(tableId)) {
+  if (
+    typeof parent.data_source_id !== "string" ||
+    compactIdentifier(parent.data_source_id) !== compactIdentifier(tableId)
+  ) {
     throw new Error(`${label} does not belong to its configured table`);
   }
 }
 
-function compactIdentifier(value: string): string { return value.replaceAll("-", "").toLowerCase(); }
+function compactIdentifier(value: string): string {
+  return value.replaceAll("-", "").toLowerCase();
+}
 
-function titleProperty(text: string): JsonObject { return { title: richText(text) }; }
-function richTextProperty(text: string): JsonObject { return { rich_text: richText(text) }; }
-function selectProperty(name: string): JsonObject { return { select: { name } }; }
-function relationProperty(ids: readonly string[]): JsonObject { return { relation: normalizedSet(ids).map((id) => ({ id })) }; }
+function titleProperty(text: string): JsonObject {
+  return { title: richText(text) };
+}
+function richTextProperty(text: string): JsonObject {
+  return { rich_text: richText(text) };
+}
+function selectProperty(name: string): JsonObject {
+  return { select: { name } };
+}
+function relationProperty(ids: readonly string[]): JsonObject {
+  return { relation: normalizedSet(ids).map((id) => ({ id })) };
+}
 
 function managedHeading(text: string): JsonObject {
-  return { heading_2: { rich_text: richText(text) }, object: "block", type: "heading_2" };
+  return {
+    heading_2: { rich_text: richText(text) },
+    object: "block",
+    type: "heading_2",
+  };
 }
 
-function managedCode(text: string, language = "json", caption: string | null = null): JsonObject {
-  return { code: codeValue(text, language, caption), object: "block", type: "code" };
+function managedCode(
+  text: string,
+  language = "json",
+  caption: string | null = null,
+): JsonObject {
+  return {
+    code: codeValue(text, language, caption),
+    object: "block",
+    type: "code",
+  };
 }
 
-function codeValue(text: string, language = "json", caption: string | null = null): JsonObject {
-  return { ...(caption === null ? {} : { caption: richText(caption) }), language, rich_text: richText(normalizeText(text)) };
+function codeValue(
+  text: string,
+  language = "json",
+  caption: string | null = null,
+): JsonObject {
+  return {
+    ...(caption === null ? {} : { caption: richText(caption) }),
+    language,
+    rich_text: richText(normalizeText(text)),
+  };
 }
 
 function richText(text: string): JsonValue[] {
@@ -463,7 +748,10 @@ function richText(text: string): JsonValue[] {
   if (normalized === "") return [];
   const chunks: JsonValue[] = [];
   for (let index = 0; index < normalized.length; index += 2000) {
-    chunks.push({ text: { content: normalized.slice(index, index + 2000) }, type: "text" });
+    chunks.push({
+      text: { content: normalized.slice(index, index + 2000) },
+      type: "text",
+    });
   }
   return chunks;
 }
@@ -484,24 +772,44 @@ function propertyOption(page: JsonObject, name: string): string | null {
   const type = requiredString(property.type, `${name} type`);
   const value = property[type];
   if (value === null || value === undefined) return null;
-  return requiredString(objectValue(value, `${name} option`).name, `${name} option name`);
+  return requiredString(
+    objectValue(value, `${name} option`).name,
+    `${name} option name`,
+  );
 }
 
 function richTextValue(value: JsonValue | undefined): string {
   if (!Array.isArray(value)) return "";
-  return value.map((item) => {
-    const object = objectValue(item, "Rich text item");
-    if (typeof object.plain_text === "string") return object.plain_text;
-    return requiredString(objectValue(object.text, "Rich text value").content, "Rich text content");
-  }).join("").normalize("NFC");
+  return value
+    .map((item) => {
+      const object = objectValue(item, "Rich text item");
+      if (typeof object.plain_text === "string") return object.plain_text;
+      return requiredString(
+        objectValue(object.text, "Rich text value").content,
+        "Rich text content",
+      );
+    })
+    .join("")
+    .normalize("NFC");
 }
 
 function relationIds(property: JsonObject): readonly string[] {
   if (Array.isArray(property.relation)) {
-    return property.relation.map((item) => requiredString(objectValue(item, "Relation item").id, "Relation id"));
+    return property.relation.map((item) =>
+      requiredString(objectValue(item, "Relation item").id, "Relation id"),
+    );
   }
-  if (property.relation !== null && property.relation !== undefined && typeof property.relation === "object") {
-    return [requiredString(objectValue(property.relation, "Relation item").id, "Relation id")];
+  if (
+    property.relation !== null &&
+    property.relation !== undefined &&
+    typeof property.relation === "object"
+  ) {
+    return [
+      requiredString(
+        objectValue(property.relation, "Relation item").id,
+        "Relation id",
+      ),
+    ];
   }
   return [];
 }
@@ -511,28 +819,43 @@ function pageProperty(page: JsonObject, name: string): JsonObject {
   return objectValue(properties[name], `Property ${name}`);
 }
 
-function verifyPropertyText(page: JsonObject, name: string, expected: string): void {
-  if (propertyText(page, name) !== expected) throw new Error(`${name} post-verification failed`);
+function verifyPropertyText(
+  page: JsonObject,
+  name: string,
+  expected: string,
+): void {
+  if (propertyText(page, name) !== expected)
+    throw new Error(`${name} post-verification failed`);
 }
 
-function normalizedSet(values: readonly string[]): readonly string[] { return [...new Set(values)].sort(); }
-function sameSet(left: readonly string[], right: readonly string[]): boolean { return normalizedSet(left).join("\0") === normalizedSet(right).join("\0"); }
+function normalizedSet(values: readonly string[]): readonly string[] {
+  return [...new Set(values)].sort();
+}
+function sameSet(left: readonly string[], right: readonly string[]): boolean {
+  return normalizedSet(left).join("\0") === normalizedSet(right).join("\0");
+}
 function activityStatus(runLeaseIds: readonly string[]): "Offline" | "Online" {
   return runLeaseIds.length === 0 ? "Offline" : "Online";
 }
-function normalizeText(text: string): string { return text.replace(/\r\n?/gu, "\n").normalize("NFC"); }
+function normalizeText(text: string): string {
+  return text.replace(/\r\n?/gu, "\n").normalize("NFC");
+}
 
 function objectValue(value: JsonValue | undefined, label: string): JsonObject {
   const checked = toJsonValue(value);
-  if (checked === null || typeof checked !== "object" || Array.isArray(checked)) throw new TypeError(`${label} must be an object`);
+  if (checked === null || typeof checked !== "object" || Array.isArray(checked))
+    throw new TypeError(`${label} must be an object`);
   return checked;
 }
 
 function requiredString(value: JsonValue | undefined, label: string): string {
-  if (typeof value !== "string" || value === "") throw new TypeError(`${label} must be a non-empty string`);
+  if (typeof value !== "string" || value === "")
+    throw new TypeError(`${label} must be a non-empty string`);
   return value;
 }
 
-export function resourceMutationDigest(record: Omit<ResourceMutation, "idempotencyKey">): string {
+export function resourceMutationDigest(
+  record: Omit<ResourceMutation, "idempotencyKey">,
+): string {
   return sha256(JSON.stringify(toJsonValue(record)));
 }

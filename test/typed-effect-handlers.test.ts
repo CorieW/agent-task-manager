@@ -2,28 +2,121 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createChildAgentWaveHandler, createGitCommitHandler, createGitPushHandler, type ExternalEffectObservation, type ReconcilableEffectAdapter } from "../src/index.js";
+import {
+  createChildAgentWaveHandler,
+  createGitCommitHandler,
+  createGitPushHandler,
+  type ExternalEffectObservation,
+  type ReconcilableEffectAdapter,
+} from "../src/index.js";
 
-const observation: ExternalEffectObservation = { evidence: {}, externalIdentity: {}, state: "not_applied" };
-function adapter<T>(): ReconcilableEffectAdapter<T> { return { id: "adapter", version: "1", async apply() { return observation; }, async reconcile() { return observation; } }; }
+const observation: ExternalEffectObservation = {
+  evidence: {},
+  externalIdentity: {},
+  state: "not_applied",
+};
+function adapter<T>(): ReconcilableEffectAdapter<T> {
+  return {
+    id: "adapter",
+    version: "1",
+    async apply() {
+      return observation;
+    },
+    async reconcile() {
+      return observation;
+    },
+  };
+}
 
 test("validates immutable Git commit and push preconditions", () => {
   const commit = createGitCommitHandler(adapter());
-  commit.validate({ expectedHead: "a".repeat(40), message: "feat: add broker", paths: ["src/file.ts"], repositoryId: "repo", workspaceKey: "work-1" });
-  assert.throws(() => commit.validate({ expectedHead: "main", message: "bad", paths: ["../secret"], repositoryId: "repo", workspaceKey: "work-1" }), /immutable revision|repository-relative/);
+  commit.validate({
+    expectedHead: "a".repeat(40),
+    message: "feat: add broker",
+    paths: ["src/file.ts"],
+    repositoryId: "repo",
+    workspaceKey: "work-1",
+  });
+  assert.throws(
+    () =>
+      commit.validate({
+        expectedHead: "main",
+        message: "bad",
+        paths: ["../secret"],
+        repositoryId: "repo",
+        workspaceKey: "work-1",
+      }),
+    /immutable revision|repository-relative/,
+  );
   const push = createGitPushHandler(adapter());
-  push.validate({ branch: "feat/broker", expectedLocalHead: "b".repeat(40), expectedRemoteHead: null, remote: "origin", repositoryId: "repo", workspaceKey: "work-1" });
-  assert.throws(() => push.validate({ branch: "../bad", expectedLocalHead: "b".repeat(40), expectedRemoteHead: null, remote: "origin", repositoryId: "repo", workspaceKey: "work-1" }), /branch is invalid/);
+  push.validate({
+    branch: "feat/broker",
+    expectedLocalHead: "b".repeat(40),
+    expectedRemoteHead: null,
+    remote: "origin",
+    repositoryId: "repo",
+    workspaceKey: "work-1",
+  });
+  assert.throws(
+    () =>
+      push.validate({
+        branch: "../bad",
+        expectedLocalHead: "b".repeat(40),
+        expectedRemoteHead: null,
+        remote: "origin",
+        repositoryId: "repo",
+        workspaceKey: "work-1",
+      }),
+    /branch is invalid/,
+  );
 });
 
 test("requires a closed acyclic child-agent wave", () => {
   const wave = createChildAgentWaveHandler(adapter());
-  wave.validate({ maxConcurrency: 2, nodes: [
-    { contextDigest: "a".repeat(64), contextResource: "context/a", contextVersion: "v1", definitionId: "reviewer", dependsOn: [], nodeKey: "a" },
-    { contextDigest: "b".repeat(64), contextResource: "context/b", contextVersion: "v1", definitionId: "reviewer", dependsOn: ["a"], nodeKey: "b" },
-  ] });
-  assert.throws(() => wave.validate({ maxConcurrency: 2, nodes: [
-    { contextDigest: "a".repeat(64), contextResource: "context/a", contextVersion: "v1", definitionId: "reviewer", dependsOn: ["b"], nodeKey: "a" },
-    { contextDigest: "b".repeat(64), contextResource: "context/b", contextVersion: "v1", definitionId: "reviewer", dependsOn: ["a"], nodeKey: "b" },
-  ] }), /cycle/);
+  wave.validate({
+    maxConcurrency: 2,
+    nodes: [
+      {
+        contextDigest: "a".repeat(64),
+        contextResource: "context/a",
+        contextVersion: "v1",
+        definitionId: "reviewer",
+        dependsOn: [],
+        nodeKey: "a",
+      },
+      {
+        contextDigest: "b".repeat(64),
+        contextResource: "context/b",
+        contextVersion: "v1",
+        definitionId: "reviewer",
+        dependsOn: ["a"],
+        nodeKey: "b",
+      },
+    ],
+  });
+  assert.throws(
+    () =>
+      wave.validate({
+        maxConcurrency: 2,
+        nodes: [
+          {
+            contextDigest: "a".repeat(64),
+            contextResource: "context/a",
+            contextVersion: "v1",
+            definitionId: "reviewer",
+            dependsOn: ["b"],
+            nodeKey: "a",
+          },
+          {
+            contextDigest: "b".repeat(64),
+            contextResource: "context/b",
+            contextVersion: "v1",
+            definitionId: "reviewer",
+            dependsOn: ["a"],
+            nodeKey: "b",
+          },
+        ],
+      }),
+    /cycle/,
+  );
 });

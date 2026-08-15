@@ -48,7 +48,9 @@ const target: WorkspaceSchemaDescriptor = {
   version: "1",
 };
 
-function definition(overrides: Partial<SubAgentDefinition> = {}): SubAgentDefinition {
+function definition(
+  overrides: Partial<SubAgentDefinition> = {},
+): SubAgentDefinition {
   return {
     allowedIntents: [],
     capabilities: [],
@@ -105,9 +107,16 @@ test("typed selection results are closed, digested, and authority checked", () =
   });
   const parsed = parseTaskSelectionResult(JSON.parse(JSON.stringify(result)));
   assert.deepEqual(parsed, result);
-  assert.doesNotThrow(() => assertSelectionAuthority(parsed, selector, selector));
+  assert.doesNotThrow(() =>
+    assertSelectionAuthority(parsed, selector, selector),
+  );
   assert.throws(
-    () => assertSelectionAuthority({ ...parsed, mode: "explicit" }, selector, selector),
+    () =>
+      assertSelectionAuthority(
+        { ...parsed, mode: "explicit" },
+        selector,
+        selector,
+      ),
     /mode/,
   );
   assert.throws(
@@ -134,7 +143,10 @@ test("invocation scheduling is deterministic and capacity-aware", () => {
     limit: 2,
     source: "manual",
   });
-  assert.deepEqual(scheduled.map((item) => item.id), ["high-a", "high-b"]);
+  assert.deepEqual(
+    scheduled.map((item) => item.id),
+    ["high-a", "high-b"],
+  );
 });
 
 test("foundation dry run plans and schedules without writes", async () => {
@@ -157,7 +169,10 @@ test("foundation dry run plans and schedules without writes", async () => {
   assert.deepEqual(report.scheduledSubAgentIds, ["planner"]);
   assert.ok((report.migrationPlan?.steps.length ?? 0) > 0);
   assert.deepEqual(after, before);
-  assert.equal((await provider.reconcileIntent("dry-run")).state, "not_applied");
+  assert.equal(
+    (await provider.reconcileIntent("dry-run")).state,
+    "not_applied",
+  );
 });
 
 test("foundation dry run honors capacity and does not plan ready workspaces", async () => {
@@ -168,7 +183,8 @@ test("foundation dry run honors capacity and does not plan ready workspaces", as
     observed: await bootstrap.inspectWorkspaceSchema(),
     target,
   });
-  for (const step of initialPlan.steps) await bootstrap.applyWorkspaceStep(step);
+  for (const step of initialPlan.steps)
+    await bootstrap.applyWorkspaceStep(step);
   bootstrap.seedDefinition(definition());
   const report = await runFoundationDryRun({
     activeRuns: { planner: 1 },
@@ -186,15 +202,20 @@ test("foundation dry run honors capacity and does not plan ready workspaces", as
 });
 
 test("pagination and idempotency primitives are deterministic", () => {
-  assert.deepEqual(pageAfter(["b", "a", "c"], { cursor: "a", limit: 2 }, (item) => item), [
-    "b",
-    "c",
-  ]);
+  assert.deepEqual(
+    pageAfter(["b", "a", "c"], { cursor: "a", limit: 2 }, (item) => item),
+    ["b", "c"],
+  );
   const ledger = new IdempotencyLedger();
-  assert.deepEqual(ledger.write("key", "operation", { value: 1 }, { receipt: 1 }), {
+  assert.deepEqual(
+    ledger.write("key", "operation", { value: 1 }, { receipt: 1 }),
+    {
+      receipt: 1,
+    },
+  );
+  assert.deepEqual(ledger.read("key", "operation", { value: 1 }), {
     receipt: 1,
   });
-  assert.deepEqual(ledger.read("key", "operation", { value: 1 }), { receipt: 1 });
   assert.throws(() => ledger.read("key", "operation", { value: 2 }), /reused/);
   assert.throws(
     () => ledger.read("key", "operation", { value: undefined } as never),

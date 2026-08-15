@@ -14,16 +14,22 @@ export function scheduleInvocations(
   request: InvocationScheduleRequest,
 ): readonly SubAgentDefinition[] {
   if (!Number.isInteger(request.limit) || request.limit < 1) {
-    throw new RangeError("Invocation schedule limit must be a positive integer");
+    throw new RangeError(
+      "Invocation schedule limit must be a positive integer",
+    );
   }
   const issues = validateDefinitionSet(request.definitions);
-  if (issues.length > 0) throw new Error(`Sub-agent definitions are invalid:\n${issues.map((issue) => `${issue.path}: ${issue.message}`).join("\n")}`);
+  if (issues.length > 0)
+    throw new Error(
+      `Sub-agent definitions are invalid:\n${issues.map((issue) => `${issue.path}: ${issue.message}`).join("\n")}`,
+    );
   return request.definitions
     .filter(
       (definition) =>
         definition.enabled &&
         definition.invocation.mode === request.source &&
-        (request.source !== "scheduled" || request.dueScheduledDefinitionIds.includes(definition.id)) &&
+        (request.source !== "scheduled" ||
+          request.dueScheduledDefinitionIds.includes(definition.id)) &&
         (request.activeRuns[definition.id] ?? 0) < definition.maxConcurrency,
     )
     .sort(

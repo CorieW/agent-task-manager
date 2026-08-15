@@ -1,15 +1,17 @@
 /** Defines provider capabilities, environments, validation, write receipts, and reconciliation results. */
 import type { JsonObject, JsonValue } from "./json.js";
 
-export const TABLE_KINDS = ["tasks", "subAgents", "errors", "resources"] as const;
+export const TABLE_KINDS = [
+  "tasks",
+  "subAgents",
+  "errors",
+  "resources",
+] as const;
 
 export type TableKind = (typeof TABLE_KINDS)[number];
 
 export type ConditionalWriteStrength =
-  | "advisory"
-  | "atomic"
-  | "optimistic"
-  | "unavailable";
+  "advisory" | "atomic" | "optimistic" | "unavailable";
 
 export interface ProviderCapabilities {
   readonly archive: boolean;
@@ -45,10 +47,7 @@ export interface WriteReceipt {
 }
 
 export type ReconciliationState =
-  | "applied"
-  | "failed"
-  | "indeterminate"
-  | "not_applied";
+  "applied" | "failed" | "indeterminate" | "not_applied";
 
 export interface ReconciliationResult {
   readonly evidence: JsonObject;

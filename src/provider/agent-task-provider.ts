@@ -43,10 +43,14 @@ import type {
  */
 export interface AgentTaskProvider {
   getCapabilities(): Promise<ProviderCapabilities>;
-  validateEnvironment(environment: ProviderEnvironment): Promise<ValidationReport>;
+  validateEnvironment(
+    environment: ProviderEnvironment,
+  ): Promise<ValidationReport>;
   validateTables(): Promise<TableValidationReport>;
   inspectWorkspaceSchema(): Promise<WorkspaceSchemaSnapshot>;
-  planWorkspaceChanges(request: WorkspaceSchemaRequest): Promise<WorkspaceMigrationPlan>;
+  planWorkspaceChanges(
+    request: WorkspaceSchemaRequest,
+  ): Promise<WorkspaceMigrationPlan>;
   applyWorkspaceStep(step: WorkspaceMigrationStep): Promise<WriteReceipt>;
   reconcileWorkspaceStep(stepId: string): Promise<ReconciliationResult>;
 
@@ -55,7 +59,10 @@ export interface AgentTaskProvider {
   getSubAgentActivity(id: string): Promise<SubAgentActivity>;
   getLeaseProjection(id: string): Promise<LeaseProjection>;
   getLeaseSnapshot(leaseId: string): Promise<LeaseSnapshot | null>;
-  reconcileSubAgentActivity(subAgentId: string, idempotencyKey: string): Promise<ReconciliationResult>;
+  reconcileSubAgentActivity(
+    subAgentId: string,
+    idempotencyKey: string,
+  ): Promise<ReconciliationResult>;
   listTaskStatusOptions(): Promise<readonly string[]>;
   updateSubAgentActivity(change: ActivityMutation): Promise<WriteReceipt>;
 
@@ -63,7 +70,9 @@ export interface AgentTaskProvider {
   getTaskSnapshot(taskId: string): Promise<TaskSnapshot>;
   applyTaskMutation(mutation: ConditionalTaskMutation): Promise<WriteReceipt>;
 
-  getResources(refs: readonly ResourceRef[]): Promise<readonly ResourceRecord[]>;
+  getResources(
+    refs: readonly ResourceRef[],
+  ): Promise<readonly ResourceRecord[]>;
   getOptionalResource(key: string): Promise<ResourceRecord | null>;
   putResource(record: ResourceMutation): Promise<WriteReceipt>;
 

@@ -19,6 +19,8 @@ export function assertAuthorizedPlan(
   const { digest: _digest, ...core } = plan;
   const recomputed = finalizeMigrationPlan(core).digest;
   if (recomputed !== plan.digest || plan.digest !== expectedDigest) {
-    throw new Error("Workspace migration plan digest does not match authorization");
+    throw new Error(
+      "Workspace migration plan digest does not match authorization",
+    );
   }
 }

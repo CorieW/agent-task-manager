@@ -7,8 +7,15 @@ import type {
   WorkspaceState,
 } from "../domain/schema.js";
 
-function workspaceState(differences: readonly SchemaDifference[]): WorkspaceState {
-  if (differences.some((difference) => difference.kind === "incompatible" || difference.kind === "destructive")) {
+function workspaceState(
+  differences: readonly SchemaDifference[],
+): WorkspaceState {
+  if (
+    differences.some(
+      (difference) =>
+        difference.kind === "incompatible" || difference.kind === "destructive",
+    )
+  ) {
     return "blocked_incompatible";
   }
   if (differences.some((difference) => difference.kind === "missing_table")) {
@@ -27,7 +34,9 @@ export function compareWorkspaceSchema(
   const differences: SchemaDifference[] = [];
 
   for (const expectedTable of target.tables) {
-    const candidates = observed.tables.filter((table) => table.kind === expectedTable.kind);
+    const candidates = observed.tables.filter(
+      (table) => table.kind === expectedTable.kind,
+    );
     if (candidates.length === 0) {
       differences.push({
         code: "missing_table",
@@ -70,8 +79,9 @@ export function compareWorkspaceSchema(
         property.writable !== expectedProperty.writable ||
         (expectedProperty.targetTable === null
           ? property.targetTableId !== null
-          : observed.tables.find((table) => table.kind === expectedProperty.targetTable)?.id !==
-            property.targetTableId)
+          : observed.tables.find(
+              (table) => table.kind === expectedProperty.targetTable,
+            )?.id !== property.targetTableId)
       ) {
         differences.push({
           code: "incompatible_property",
