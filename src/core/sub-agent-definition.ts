@@ -8,11 +8,10 @@ import type {
 } from "../domain/records.js";
 
 const DEFINITION_KEYS = [
-  "allowedIntents", "capabilities", "concurrency", "contextBudgetBytes", "deadlineSeconds",
-  "enabled", "inputResourceSelectors", "invocation", "invocationPriority", "maxAssignmentDepth",
-  "model", "name", "prohibitedCapabilities", "promptResources", "reasoning",
-  "requiredProviderCapabilities", "retry", "revision", "runnerProfile", "selection", "transitions",
-  "workResultSchemaResource",
+  "allowedIntents", "capabilities", "contextBudgetBytes", "deadlineSeconds", "enabled", "id",
+  "inputResourceSelectors", "invocation", "maxAssignmentDepth", "maxAssignmentsPerRun", "maxConcurrency",
+  "model", "name", "outputSchema", "priority", "prohibitedCapabilities", "promptResources", "reasoning",
+  "requiredProviderCapabilities", "retry", "revision", "runnerProfile", "schema", "selection", "transitions",
 ] as const;
 
 export interface DefinitionValidationIssue {
@@ -23,23 +22,24 @@ export interface DefinitionValidationIssue {
 
 export function parseSubAgentDefinitionManifest(
   value: JsonObject,
-  id: string,
 ): SubAgentDefinition {
   assertExactKeys(value, DEFINITION_KEYS, "Sub-agent definition");
   const definition: SubAgentDefinition = {
     allowedIntents: uniqueStrings(value.allowedIntents, "allowedIntents"),
     capabilities: uniqueStrings(value.capabilities, "capabilities"),
-    concurrency: positiveInteger(value.concurrency, "concurrency"),
+    maxConcurrency: positiveInteger(value.maxConcurrency, "maxConcurrency"),
+    maxAssignmentsPerRun: positiveInteger(value.maxAssignmentsPerRun, "maxAssignmentsPerRun"),
     contextBudgetBytes: positiveInteger(value.contextBudgetBytes, "contextBudgetBytes"),
     deadlineSeconds: positiveInteger(value.deadlineSeconds, "deadlineSeconds"),
     enabled: booleanValue(value.enabled, "enabled"),
-    id: requiredString(id, "id"),
+    id: requiredString(value.id, "id"),
     inputResourceSelectors: uniqueStrings(value.inputResourceSelectors, "inputResourceSelectors"),
     invocation: parseInvocation(objectValue(value.invocation, "invocation")),
-    invocationPriority: integer(value.invocationPriority, "invocationPriority"),
+    priority: integer(value.priority, "priority"),
     maxAssignmentDepth: nonNegativeInteger(value.maxAssignmentDepth, "maxAssignmentDepth"),
     model: requiredString(value.model, "model"),
     name: requiredString(value.name, "name"),
+    outputSchema: requiredString(value.outputSchema, "outputSchema"),
     prohibitedCapabilities: uniqueStrings(value.prohibitedCapabilities, "prohibitedCapabilities"),
     promptResources: uniqueStrings(value.promptResources, "promptResources"),
     reasoning: requiredString(value.reasoning, "reasoning"),
@@ -47,9 +47,9 @@ export function parseSubAgentDefinitionManifest(
     retry: parseRetry(objectValue(value.retry, "retry")),
     revision: positiveInteger(value.revision, "revision"),
     runnerProfile: requiredString(value.runnerProfile, "runnerProfile"),
+    schema: schemaValue(value.schema),
     selection: parseSelection(objectValue(value.selection, "selection")),
     transitions: stringMap(objectValue(value.transitions, "transitions"), "transitions"),
-    workResultSchemaResource: requiredString(value.workResultSchemaResource, "workResultSchemaResource"),
   };
   const issues = validateSubAgentDefinition(definition);
   if (issues.length > 0) throw new TypeError(issues.map((issue) => `${issue.path}: ${issue.message}`).join("\n"));
@@ -111,7 +111,7 @@ function parseInvocation(value: JsonObject): InvocationPolicy {
 }
 
 function parseSelection(value: JsonObject): SelectionPolicy {
-  assertExactKeys(value, ["acceptsAssignmentsFrom", "maxCandidateSummaries", "mode", "resultSchemaResource", "taskQueryResource"], "selection");
+  assertExactKeys(value, ["acceptsAssignmentsFrom", "maxCandidateSummaries", "mode", "resultSchema", "taskQueryResource"], "selection");
   if (value.mode !== "coordinator" && value.mode !== "explicit" && value.mode !== "self") throw new TypeError("selection.mode is invalid");
   const sources = uniqueStrings(value.acceptsAssignmentsFrom, "selection.acceptsAssignmentsFrom");
   if (sources.some((source) => source !== "coordinator" && source !== "explicit" && source !== "self")) throw new TypeError("selection.acceptsAssignmentsFrom contains an invalid source");
@@ -119,7 +119,7 @@ function parseSelection(value: JsonObject): SelectionPolicy {
     acceptsAssignmentsFrom: sources as SelectionPolicy["acceptsAssignmentsFrom"],
     maxCandidateSummaries: positiveInteger(value.maxCandidateSummaries, "selection.maxCandidateSummaries"),
     mode: value.mode,
-    resultSchemaResource: requiredString(value.resultSchemaResource, "selection.resultSchemaResource"),
+    resultSchema: requiredString(value.resultSchema, "selection.resultSchema"),
     taskQueryResource: value.taskQueryResource === null ? null : requiredString(value.taskQueryResource, "selection.taskQueryResource"),
   };
 }
@@ -168,5 +168,9 @@ function nonNegativeInteger(value: JsonValue | undefined, label: string): number
 }
 function booleanValue(value: JsonValue | undefined, label: string): boolean {
   if (typeof value !== "boolean") throw new TypeError(`${label} must be boolean`);
+  return value;
+}
+function schemaValue(value: JsonValue | undefined): "sub-agent-definition-v1" {
+  if (value !== "sub-agent-definition-v1") throw new TypeError("Sub-agent definition schema is invalid");
   return value;
 }

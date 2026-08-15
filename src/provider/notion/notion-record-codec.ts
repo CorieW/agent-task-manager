@@ -29,15 +29,28 @@ export class NotionRecordReader {
   public async listSubAgentDefinitions(): Promise<readonly SubAgentDefinition[]> {
     const pages = await this.queryDataSource(this.tables.subAgents);
     const definitions = await Promise.all(pages.map((page) => this.subAgentDefinition(page)));
+    if (new Set(definitions.map((definition) => definition.id)).size !== definitions.length) throw new Error("Sub-agent definition IDs must be unique");
     return definitions.sort((left, right) => left.id.localeCompare(right.id));
   }
 
   public async getSubAgentDefinition(id: string): Promise<SubAgentDefinition> {
-    return this.subAgentDefinition(await this.getPage(id));
+    const matches = (await this.listSubAgentDefinitions()).filter((definition) => definition.id === id);
+    if (matches.length !== 1) throw new Error(`Sub-agent definition ${id} must resolve to exactly one row`);
+    return requiredDefinition(matches[0], id);
+  }
+
+  public async getSubAgentPageId(id: string): Promise<string> {
+    const pages = await this.queryDataSource(this.tables.subAgents);
+    const matches: string[] = [];
+    for (const page of pages) {
+      if ((await this.subAgentDefinition(page)).id === id) matches.push(requiredString(page.id, "Sub-agent page id"));
+    }
+    if (matches.length !== 1) throw new Error(`Sub-agent definition ${id} must resolve to exactly one row`);
+    return requiredString(matches[0], "Sub-agent page id");
   }
 
   public async listTaskSummaries(query: TaskQuery): Promise<readonly TaskSummary[]> {
-    const pages = await this.queryDataSource(this.tables.tasks);
+    const pages = await this.queryDataSource(this.tables.tasks, taskPredicateFilter(query.predicate), 1_000);
     const summaries = pages.map((page) => this.taskSummary(page));
     for (const key of Object.keys(query.predicate)) {
       if (!TASK_SUMMARY_KEYS.has(key)) throw new Error(`Unsupported task predicate: ${key}`);
@@ -62,7 +75,7 @@ export class NotionRecordReader {
   }
 
   public async getTaskSnapshot(taskId: string): Promise<TaskSnapshot> {
-    const page = await this.getPage(taskId);
+    const page = await this.getPageInTable(taskId, this.tables.tasks, "Task");
     const summary = this.taskSummary(page);
     const properties = objectValue(page.properties, "Task properties");
     const dependencies = await this.relationIds(page, "Blocked By");
@@ -99,13 +112,26 @@ export class NotionRecordReader {
     return records;
   }
 
-  public async queryDataSource(id: string): Promise<readonly JsonObject[]> {
+  public async getOptionalResource(key: string): Promise<ResourceRecord | null> {
+    const pages = await this.queryDataSource(this.tables.resources, {
+      property: "Resource",
+      title: { equals: key },
+    });
+    if (pages.length > 1) throw new Error(`Resource ${key} must resolve to at most one row`);
+    const page = pages[0];
+    return page === undefined ? null : this.resourceRecord(page);
+  }
+
+  public async queryDataSource(id: string, filter?: JsonObject, maxRecords = 1_000): Promise<readonly JsonObject[]> {
     return collectNotionPages((cursor) =>
       this.transport.request({
-        body: cursor === null ? { page_size: 100 } : { page_size: 100, start_cursor: cursor },
+        body: cursor === null
+          ? { ...(filter === undefined ? {} : { filter }), page_size: 100 }
+          : { ...(filter === undefined ? {} : { filter }), page_size: 100, start_cursor: cursor },
         method: "POST",
         path: `/v1/data_sources/${id}/query`,
       }),
+      maxRecords,
     );
   }
 
@@ -123,15 +149,17 @@ export class NotionRecordReader {
   }
 
   private async subAgentDefinition(page: JsonObject): Promise<SubAgentDefinition> {
-    const id = requiredString(page.id, "Sub-agent page id");
-    const manifest = await this.managedJson(id, "Sub-agent definition");
-    const definition = parseSubAgentDefinitionManifest(manifest, id);
+    assertPageParent(page, this.tables.subAgents, "Sub-agent");
+    if (page.archived === true || page.in_trash === true) throw new Error("Sub-agent definition is archived");
+    const pageId = requiredString(page.id, "Sub-agent page id");
+    const manifest = await this.managedJson(pageId, "Sub-agent definition");
+    const definition = parseSubAgentDefinitionManifest(manifest);
     const name = propertyText(page, "Name");
     const enabled = propertyBoolean(page, "Enabled");
     const revision = propertyNumber(page, "Revision");
     const model = propertyText(page, "Model");
     if (definition.name !== name || definition.enabled !== enabled || definition.revision !== revision || definition.model !== model) {
-      throw new Error(`Sub-agent ${id} manifest does not match its authoritative properties`);
+      throw new Error(`Sub-agent ${definition.id} manifest does not match its authoritative properties`);
     }
     return definition;
   }
@@ -207,9 +235,10 @@ export class NotionRecordReader {
     return [...new Set(items.flatMap((item) => relationValues(item)))].sort();
   }
 
-  private async getPage(id: string): Promise<JsonObject> {
+  private async getPageInTable(id: string, tableId: string, label: string): Promise<JsonObject> {
     const page = await this.transport.request({ method: "GET", path: `/v1/pages/${id}` });
     if (page.object !== "page") throw new TypeError(`${id} is not a Notion page`);
+    assertPageParent(page, tableId, label);
     return page;
   }
 
@@ -252,6 +281,15 @@ export class NotionRecordReader {
 }
 
 const TASK_SUMMARY_KEYS = new Set(["archived", "id", "priority", "status", "title", "version"]);
+
+function taskPredicateFilter(predicate: JsonObject): JsonObject | undefined {
+  const filters: JsonObject[] = [];
+  if (typeof predicate.status === "string") filters.push({ property: "Status", select: { equals: predicate.status } });
+  if (typeof predicate.title === "string") filters.push({ property: "Task", title: { equals: predicate.title } });
+  if (typeof predicate.priority === "number") filters.push({ number: { equals: predicate.priority }, property: "Priority" });
+  if (filters.length === 0) return undefined;
+  return filters.length === 1 ? filters[0] : { and: filters };
+}
 
 
 function decodeProperties(properties: JsonObject): JsonObject {
@@ -386,6 +424,19 @@ function requiredObject(value: JsonObject | undefined, label: string): JsonObjec
   if (value === undefined) throw new TypeError(`${label} is missing`);
   return value;
 }
+
+function requiredDefinition(value: SubAgentDefinition | undefined, id: string): SubAgentDefinition {
+  if (value === undefined) throw new Error(`Sub-agent definition is missing: ${id}`);
+  return value;
+}
+
+function assertPageParent(page: JsonObject, tableId: string, label: string): void {
+  const parent = objectValue(page.parent, `${label} parent`);
+  const observed = parent.data_source_id;
+  if (typeof observed !== "string" || compactIdentifier(observed) !== compactIdentifier(tableId)) throw new Error(`${label} does not belong to its configured table`);
+}
+
+function compactIdentifier(value: string): string { return value.replaceAll("-", "").toLowerCase(); }
 
 function objectValue(value: JsonValue | undefined, label: string): JsonObject {
   if (value === null || value === undefined || typeof value !== "object" || Array.isArray(value)) throw new TypeError(`${label} must be an object`);

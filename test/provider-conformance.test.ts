@@ -213,14 +213,15 @@ test("sub-agent activity is conditionally replaced", async () => {
   provider.seedDefinition({
     allowedIntents: [],
     capabilities: [],
-    concurrency: 1,
+    maxConcurrency: 1,
+    maxAssignmentsPerRun: 1,
     contextBudgetBytes: 100_000,
     deadlineSeconds: 300,
     enabled: true,
     id: "worker",
     inputResourceSelectors: [],
     invocation: { mode: "manual", scheduleResource: null },
-    invocationPriority: 1,
+    priority: 1,
     maxAssignmentDepth: 1,
     model: "model",
     name: "Worker",
@@ -231,28 +232,37 @@ test("sub-agent activity is conditionally replaced", async () => {
     revision: 1,
     retry: { maxAttempts: 1, noVerdict: "block" },
     runnerProfile: "default",
+    schema: "sub-agent-definition-v1",
     selection: {
       acceptsAssignmentsFrom: ["self"],
       maxCandidateSummaries: 1,
       mode: "self",
-      resultSchemaResource: "selection",
+      resultSchema: "selection",
       taskQueryResource: "query",
     },
     transitions: { succeeded: "$current" },
-    workResultSchemaResource: "result",
+    outputSchema: "result",
+  });
+  const run = await provider.acquireLease({
+    expiresAt: "2099-01-01T00:00:00.000Z", idempotencyKey: "activity-run", ownerId: "activity-owner",
+    scope: "agent_run", subAgentId: "worker", taskId: null,
+  });
+  const task = await provider.acquireLease({
+    expiresAt: "2099-01-01T00:00:00.000Z", idempotencyKey: "activity-task", ownerId: "activity-owner",
+    scope: "task_assignment", subAgentId: "worker", taskId: "task-1",
   });
   const first = {
     expectedRunLeaseIds: [],
     expectedTaskIds: [],
     idempotencyKey: "activity-1",
-    nextRunLeaseIds: ["run-1"],
+    nextRunLeaseIds: [run.leaseId!],
     nextTaskIds: ["task-1"],
     subAgentId: "worker",
   };
   assert.deepEqual(await provider.updateSubAgentActivity(first), await provider.updateSubAgentActivity(first));
   await assert.rejects(
     provider.updateSubAgentActivity({ ...first, idempotencyKey: "activity-2" }),
-    /version conflict/,
+    /version conflict|active lease projection/,
   );
 });
 

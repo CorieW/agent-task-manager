@@ -123,7 +123,8 @@ export class NotionProvider implements AgentTaskProvider {
   }
 
   public async getSubAgentActivity(id: string): Promise<SubAgentActivity> {
-    const observed = await (await this.runtime()).pages.getSubAgentActivity(id);
+    const runtime = await this.runtime();
+    const observed = await runtime.pages.getSubAgentActivity(await runtime.reader.getSubAgentPageId(id));
     if (observed.status !== "Online" && observed.status !== "Offline") throw new Error(`Sub-agent activity Status is invalid: ${observed.status}`);
     return { status: observed.status, taskIds: observed.taskIds, version: observed.version };
   }
@@ -147,7 +148,7 @@ export class NotionProvider implements AgentTaskProvider {
       if (!sameSet(activeRuns, change.nextRunLeaseIds) || !sameSet(activeTasks, change.nextTaskIds)) {
         throw new Error("Sub-agent activity must equal the provider's active lease projection");
       }
-      const receipt = await runtime.pages.updateSubAgentActivity(change);
+      const receipt = await runtime.pages.updateSubAgentActivity({ ...change, subAgentId: await runtime.reader.getSubAgentPageId(change.subAgentId) });
       await runtime.state.completeIntent(change.idempotencyKey, "agent_activity", change, receipt);
       return receipt;
     });
@@ -169,6 +170,10 @@ export class NotionProvider implements AgentTaskProvider {
     return (await this.runtime()).reader.getResources(refs);
   }
 
+  public async getOptionalResource(key: string): Promise<ResourceRecord | null> {
+    return (await this.runtime()).reader.getOptionalResource(key);
+  }
+
   public async putResource(record: ResourceMutation): Promise<WriteReceipt> {
     if (record.key.startsWith("system/")) throw new Error("system/ Resource keys are reserved by Agent Task Manager");
     return this.executeReceiptIntent(record.idempotencyKey, "resource", record, (runtime) => runtime.pages.createResource(record));
@@ -187,7 +192,10 @@ export class NotionProvider implements AgentTaskProvider {
   }
 
   public async createOrUpdateError(error: ErrorMutation): Promise<WriteReceipt> {
-    return this.executeReceiptIntent(error.idempotencyKey, "error", error, (runtime) => runtime.pages.createOrUpdateError(error));
+    return this.executeReceiptIntent(error.idempotencyKey, "error", error, async (runtime) => runtime.pages.createOrUpdateError({
+      ...error,
+      relatedSubAgentId: error.relatedSubAgentId === null ? null : await runtime.reader.getSubAgentPageId(error.relatedSubAgentId),
+    }));
   }
 
   public async reconcileIntent(intentId: string): Promise<ReconciliationResult> {
@@ -206,7 +214,8 @@ export class NotionProvider implements AgentTaskProvider {
     const projection = await runtime.state.activeProjection(subAgentId);
     const activeRunLeaseIds = projection.runLeaseIds;
     const activeTaskIds = projection.taskIds;
-    const observed = await runtime.pages.getSubAgentActivity(subAgentId);
+    const subAgentPageId = await runtime.reader.getSubAgentPageId(subAgentId);
+    const observed = await runtime.pages.getSubAgentActivity(subAgentPageId);
     const expectedStatus = activeRunLeaseIds.length === 0 ? "Offline" : "Online";
     if (observed.status === expectedStatus && sameSet(observed.taskIds, activeTaskIds)) {
       return {
@@ -216,7 +225,7 @@ export class NotionProvider implements AgentTaskProvider {
     }
     const basis = { activeRunLeaseIds, activeTaskIds, expectedStatus, observed, subAgentId };
     const receipt = await runtime.state.runExclusive(() => runtime.pages.setSubAgentActivity(
-      subAgentId,
+      subAgentPageId,
       observed.status,
       observed.taskIds,
       expectedStatus,

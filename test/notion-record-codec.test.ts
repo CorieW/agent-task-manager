@@ -21,6 +21,7 @@ class RecordsTransport implements NotionTransport {
       return { has_more: false, next_cursor: null, results: [resourcePage()] };
     }
     if (request.path === "/v1/pages/task-1") return taskPage();
+    if (request.path === "/v1/pages/outside-task") return { ...taskPage(), id: "outside-task", parent: { data_source_id: "other" } };
     if (request.path === "/v1/pages/agent-1") return agentPage();
     if (request.path === "/v1/pages/task-1/properties/blocked") {
       return request.query?.start_cursor === null
@@ -41,6 +42,7 @@ test("decodes task summaries and exhausts relation property pagination", async (
   const task = await reader.getTaskSnapshot("task-1");
   assert.deepEqual(task.dependencies, ["dep-1", "dep-2"]);
   assert.equal(task.body, "Task details");
+  await assert.rejects(reader.getTaskSnapshot("outside-task"), /configured table/);
 });
 
 test("loads strict Sub-agent definitions from their managed range", async () => {
@@ -49,6 +51,8 @@ test("loads strict Sub-agent definitions from their managed range", async () => 
   assert.equal(agent?.name, "Coordinator");
   assert.equal(agent?.selection.mode, "coordinator");
   assert.deepEqual(agent?.promptResources, ["prompt/coordinator"]);
+  assert.equal((await reader.getSubAgentDefinition("coordinator")).id, "coordinator");
+  assert.equal(await reader.getSubAgentPageId("coordinator"), "agent-1");
 });
 
 test("verifies Resources against their content digest", async () => {
@@ -63,6 +67,7 @@ function taskPage(): JsonObject {
     id: "task-1",
     last_edited_time: "2026-01-01T00:00:00.000Z",
     object: "page",
+    parent: { data_source_id: "tasks", type: "data_source_id" },
     properties: {
       "Blocked By": { has_more: true, id: "blocked", relation: [{ id: "dep-inline" }], type: "relation" },
       Priority: { id: "priority", number: 1, type: "number" },
@@ -77,6 +82,7 @@ function agentPage(): JsonObject {
     id: "agent-1",
     last_edited_time: "2026-01-01T00:00:00.000Z",
     object: "page",
+    parent: { data_source_id: "agents", type: "data_source_id" },
     properties: {
       Enabled: { checkbox: true, id: "enabled", type: "checkbox" },
       Model: { id: "model", rich_text: [{ plain_text: "gpt-5.6-sol" }], type: "rich_text" },
@@ -106,13 +112,15 @@ function definition(): JsonObject {
   return {
     allowedIntents: ["task.update"],
     capabilities: ["dispatch.coordinate"],
-    concurrency: 1,
+    maxConcurrency: 1,
+    maxAssignmentsPerRun: 1,
     contextBudgetBytes: 100000,
     deadlineSeconds: 300,
     enabled: true,
+    id: "coordinator",
     inputResourceSelectors: [],
     invocation: { mode: "manual", scheduleResource: null },
-    invocationPriority: 1,
+    priority: 1,
     maxAssignmentDepth: 2,
     model: "gpt-5.6-sol",
     name: "Coordinator",
@@ -123,15 +131,16 @@ function definition(): JsonObject {
     revision: 1,
     retry: { maxAttempts: 1, noVerdict: "block" },
     runnerProfile: "default",
+    schema: "sub-agent-definition-v1",
     selection: {
       acceptsAssignmentsFrom: ["coordinator"],
       maxCandidateSummaries: 10,
       mode: "coordinator",
-      resultSchemaResource: "schema/result",
+      resultSchema: "schema/result",
       taskQueryResource: "query/coordinator",
     },
     transitions: { succeeded: "Done" },
-    workResultSchemaResource: "schema/work",
+    outputSchema: "schema/work",
   };
 }
 

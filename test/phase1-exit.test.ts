@@ -52,14 +52,15 @@ function definition(overrides: Partial<SubAgentDefinition> = {}): SubAgentDefini
   return {
     allowedIntents: [],
     capabilities: [],
-    concurrency: 1,
+    maxConcurrency: 1,
+    maxAssignmentsPerRun: 1,
     contextBudgetBytes: 100_000,
     deadlineSeconds: 300,
     enabled: true,
     id: "planner",
     inputResourceSelectors: [],
     invocation: { mode: "manual", scheduleResource: null },
-    invocationPriority: 10,
+    priority: 10,
     maxAssignmentDepth: 1,
     model: "model",
     name: "Planner",
@@ -70,15 +71,16 @@ function definition(overrides: Partial<SubAgentDefinition> = {}): SubAgentDefini
     revision: 1,
     retry: { maxAttempts: 1, noVerdict: "block" },
     runnerProfile: "default",
+    schema: "sub-agent-definition-v1",
     selection: {
       acceptsAssignmentsFrom: ["self"],
       maxCandidateSummaries: 10,
       mode: "self",
-      resultSchemaResource: "schema/task-selection-result-v1",
+      resultSchema: "schema/task-selection-result-v1",
       taskQueryResource: "query/planner",
     },
     transitions: { succeeded: "$current" },
-    workResultSchemaResource: "schema/planner-result-v1",
+    outputSchema: "schema/planner-result-v1",
     ...overrides,
   };
 }
@@ -121,13 +123,15 @@ test("invocation scheduling is deterministic and capacity-aware", () => {
   const scheduled = scheduleInvocations({
     activeRuns: { busy: 1 },
     definitions: [
-      definition({ id: "low", invocationPriority: 1 }),
-      definition({ id: "high-b", invocationPriority: 5 }),
-      definition({ id: "high-a", invocationPriority: 5 }),
-      definition({ id: "busy", invocationPriority: 99 }),
-      definition({ enabled: false, id: "disabled", invocationPriority: 100 }),
+      definition({ id: "low", priority: 1 }),
+      definition({ id: "high-b", priority: 5 }),
+      definition({ id: "high-a", priority: 5 }),
+      definition({ id: "busy", priority: 99 }),
+      definition({ enabled: false, id: "disabled", priority: 100 }),
     ],
+    dueScheduledDefinitionIds: [],
     limit: 2,
+    source: "manual",
   });
   assert.deepEqual(scheduled.map((item) => item.id), ["high-a", "high-b"]);
 });
@@ -138,9 +142,11 @@ test("foundation dry run plans and schedules without writes", async () => {
   const before = await provider.inspectWorkspaceSchema();
   const report = await runFoundationDryRun({
     activeRuns: {},
+    dueScheduledDefinitionIds: [],
     environment,
     environmentId: "phase-1",
     provider,
+    invocationSource: "manual",
     scheduleLimit: 1,
     target,
   });
@@ -165,9 +171,11 @@ test("foundation dry run honors capacity and does not plan ready workspaces", as
   bootstrap.seedDefinition(definition());
   const report = await runFoundationDryRun({
     activeRuns: { planner: 1 },
+    dueScheduledDefinitionIds: [],
     environment,
     environmentId: "phase-1",
     provider: bootstrap,
+    invocationSource: "manual",
     scheduleLimit: 1,
     target,
   });

@@ -3,6 +3,8 @@ import { digestJson } from "./digest.js";
 import { toJsonValue, type JsonObject, type JsonValue } from "../domain/json.js";
 import type { SubAgentDefinition, TaskQuery, TaskSummary } from "../domain/records.js";
 
+const TASK_QUERY_FIELDS = new Set(["archived", "id", "priority", "status", "title", "version"]);
+
 export interface TaskQueryContract {
   readonly dependencySatisfiedStatuses: readonly string[];
   readonly limit: number;
@@ -23,10 +25,17 @@ export function parseTaskQueryContract(body: string): TaskQueryContract {
   if (value.schema !== "task-query-v1") throw new TypeError("Task query schema is invalid");
   if (!Number.isSafeInteger(value.limit) || (value.limit as number) < 1 || (value.limit as number) > 100) throw new TypeError("Task query limit must be from 1 to 100");
   const statuses = stringArray(value.dependencySatisfiedStatuses, "dependencySatisfiedStatuses");
+  const predicate = objectValue(value.predicate, "Task query predicate");
+  for (const [key, expected] of Object.entries(predicate)) {
+    if (!TASK_QUERY_FIELDS.has(key)) throw new TypeError(`Task query predicate field is unsupported: ${key}`);
+    if (expected !== null && typeof expected !== "boolean" && typeof expected !== "number" && typeof expected !== "string") {
+      throw new TypeError(`Task query predicate ${key} must be a scalar`);
+    }
+  }
   return {
     dependencySatisfiedStatuses: statuses,
     limit: value.limit as number,
-    predicate: objectValue(value.predicate, "Task query predicate"),
+    predicate,
     schema: value.schema,
   };
 }

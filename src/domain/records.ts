@@ -25,7 +25,7 @@ export interface SelectionPolicy {
   readonly acceptsAssignmentsFrom: readonly ("coordinator" | "explicit" | "self")[];
   readonly maxCandidateSummaries: number;
   readonly mode: "coordinator" | "explicit" | "self";
-  readonly resultSchemaResource: string;
+  readonly resultSchema: string;
   readonly taskQueryResource: string | null;
 }
 
@@ -42,14 +42,15 @@ export interface RetryPolicy {
 export interface SubAgentDefinition {
   readonly allowedIntents: readonly string[];
   readonly capabilities: readonly string[];
-  readonly concurrency: number;
+  readonly maxConcurrency: number;
+  readonly maxAssignmentsPerRun: number;
   readonly contextBudgetBytes: number;
   readonly deadlineSeconds: number;
   readonly enabled: boolean;
   readonly id: string;
   readonly inputResourceSelectors: readonly string[];
   readonly invocation: InvocationPolicy;
-  readonly invocationPriority: number;
+  readonly priority: number;
   readonly maxAssignmentDepth: number;
   readonly model: string;
   readonly name: string;
@@ -60,9 +61,10 @@ export interface SubAgentDefinition {
   readonly revision: number;
   readonly retry: RetryPolicy;
   readonly runnerProfile: string;
+  readonly schema: "sub-agent-definition-v1";
   readonly selection: SelectionPolicy;
   readonly transitions: Readonly<Record<string, string>>;
-  readonly workResultSchemaResource: string;
+  readonly outputSchema: string;
 }
 
 export interface SubAgentActivity {

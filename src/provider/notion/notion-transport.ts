@@ -110,6 +110,7 @@ export interface NotionPage<T extends JsonObject> {
 
 export async function collectNotionPages<T extends JsonObject>(
   fetchPage: (cursor: string | null) => Promise<JsonObject>,
+  maxResults = Number.POSITIVE_INFINITY,
 ): Promise<readonly T[]> {
   const results: T[] = [];
   const seen = new Set<string>();
@@ -119,6 +120,7 @@ export async function collectNotionPages<T extends JsonObject>(
     if (cursor !== null) seen.add(cursor);
     const page: NotionPage<T> = parseNotionPage<T>(await fetchPage(cursor));
     results.push(...page.results);
+    if (results.length > maxResults) throw new Error(`Notion pagination exceeded the ${maxResults} record scan limit`);
     if (page.has_more && page.next_cursor === null) {
       throw new Error("Notion pagination has_more response omitted next_cursor");
     }

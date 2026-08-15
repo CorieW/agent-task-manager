@@ -52,6 +52,7 @@ export interface AgentTaskProvider {
   applyTaskMutation(mutation: ConditionalTaskMutation): Promise<WriteReceipt>;
 
   getResources(refs: readonly ResourceRef[]): Promise<readonly ResourceRecord[]>;
+  getOptionalResource(key: string): Promise<ResourceRecord | null>;
   putResource(record: ResourceMutation): Promise<WriteReceipt>;
 
   acquireLease(request: LeaseRequest): Promise<LeaseResult>;

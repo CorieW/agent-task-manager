@@ -29,18 +29,18 @@ const environment: ProviderEnvironment = {
 const target: WorkspaceSchemaDescriptor = { digest: "target", providerType: "memory", tables: [], version: "v1" };
 
 test("parses a complete role contract and rejects semantic capability conflicts", () => {
-  const parsed = parseSubAgentDefinitionManifest(manifest(), "security-auditor");
+  const parsed = parseSubAgentDefinitionManifest(manifest());
   assert.equal(parsed.name, "Security Auditor");
   assert.equal(parsed.invocation.mode, "manual");
   assert.throws(
-    () => parseSubAgentDefinitionManifest({ ...manifest(), prohibitedCapabilities: ["repository.read"] }, "broken"),
+    () => parseSubAgentDefinitionManifest({ ...manifest(), prohibitedCapabilities: ["repository.read"] }),
     /both granted and prohibited/,
   );
 });
 
 test("resolves an active immutable Resource graph and closed output schemas", async () => {
   const provider = new InMemoryProvider(environment, target);
-  const definition = parseSubAgentDefinitionManifest(manifest(), "security-auditor");
+  const definition = parseSubAgentDefinitionManifest(manifest());
   provider.seedDefinition(definition);
   for (const resource of resources()) await provider.putResource(resource);
   provider.seedTaskStatusOptions(["Testing", "Needs Human Resolution"]);
@@ -53,25 +53,31 @@ test("resolves an active immutable Resource graph and closed output schemas", as
   const [activated] = await activateDefinitions({
     installedCapabilities: ["repository.read"],
     installedIntents: ["error.upsert", "task.status.transition"],
+    installedRunnerProfiles: [definition.runnerProfile],
     provider,
+    supportedModels: { [definition.model]: [definition.reasoning] },
   });
   assert.equal(activated?.resolved.definition.id, "security-auditor");
 });
 
 test("blocks activation when a provider-defined route has no Task status", async () => {
   const provider = new InMemoryProvider(environment, target);
-  const definition = parseSubAgentDefinitionManifest(manifest(), "security-auditor");
+  const definition = parseSubAgentDefinitionManifest(manifest());
   provider.seedDefinition(definition);
   for (const resource of resources()) await provider.putResource(resource);
   provider.seedTaskStatusOptions(["Testing"]);
   await assert.rejects(
-    activateDefinitions({ installedCapabilities: ["repository.read"], installedIntents: definition.allowedIntents, provider }),
+    activateDefinitions({
+      installedCapabilities: ["repository.read"], installedIntents: definition.allowedIntents,
+      installedRunnerProfiles: [definition.runnerProfile], provider,
+      supportedModels: { [definition.model]: [definition.reasoning] },
+    }),
     /Needs Human Resolution/,
   );
 });
 
 test("builds bounded candidate sets, least-privilege grants, and data-defined routes", () => {
-  const definition = parseSubAgentDefinitionManifest(manifest(), "security-auditor");
+  const definition = parseSubAgentDefinitionManifest(manifest());
   const query = parseTaskQueryContract(taskQueryBody());
   assert.deepEqual(taskQueryForDefinition(query, definition), { cursor: null, limit: 5, predicate: { status: "Security Review" } });
   const candidateSet = finalizeCandidateSet(query, [
@@ -94,13 +100,14 @@ test("builds bounded candidate sets, least-privilege grants, and data-defined ro
 });
 
 test("supports arbitrary provider-defined role names without core changes", () => {
-  const security = parseSubAgentDefinitionManifest(manifest(), "security-auditor");
+  const security = parseSubAgentDefinitionManifest(manifest());
   const localization = parseSubAgentDefinitionManifest({
     ...manifest(),
+    id: "localization-curator",
     name: "Localization Curator",
     promptResources: ["prompt/localization"],
     transitions: { partial: "$current", succeeded: "Editorial QA" },
-  }, "localization-curator");
+  });
   assert.deepEqual([security.id, localization.id], ["security-auditor", "localization-curator"]);
 });
 
@@ -108,13 +115,15 @@ function manifest(): JsonObject {
   return {
     allowedIntents: ["task.status.transition", "error.upsert"],
     capabilities: ["repository.read"],
-    concurrency: 1,
+    maxConcurrency: 1,
+    maxAssignmentsPerRun: 1,
     contextBudgetBytes: 100000,
     deadlineSeconds: 600,
     enabled: true,
+    id: "security-auditor",
     inputResourceSelectors: [],
     invocation: { mode: "manual", scheduleResource: null },
-    invocationPriority: 40,
+    priority: 40,
     maxAssignmentDepth: 2,
     model: "gpt-5.6-sol",
     name: "Security Auditor",
@@ -125,15 +134,16 @@ function manifest(): JsonObject {
     retry: { maxAttempts: 2, noVerdict: "retry" },
     revision: 3,
     runnerProfile: "codex-readonly",
+    schema: "sub-agent-definition-v1",
     selection: {
       acceptsAssignmentsFrom: ["self", "coordinator", "explicit"],
       maxCandidateSummaries: 25,
       mode: "self",
-      resultSchemaResource: "schema/selection",
+      resultSchema: "schema/selection",
       taskQueryResource: "query/security",
     },
     transitions: { blocked: "Needs Human Resolution", partial: "$current", succeeded: "Testing" },
-    workResultSchemaResource: "schema/work",
+    outputSchema: "schema/work",
   };
 }
 

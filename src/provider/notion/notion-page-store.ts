@@ -177,6 +177,7 @@ export class NotionPageStore {
 
   public async applyTaskMutation(mutation: ConditionalTaskMutation): Promise<WriteReceipt> {
     const current = await this.getPage(mutation.taskId);
+    assertPageParent(current.page, this.tables.tasks, "Task");
     if (current.version !== mutation.expectedVersion) throw new Error("Task version conflict");
     await this.transport.request({
       body: { properties: encodeGenericProperties(mutation.nextProperties, current.page) },
@@ -379,6 +380,15 @@ function located(page: JsonObject): LocatedPage {
   const id = requiredString(page.id, "Page id");
   return { id, page, version: requiredString(page.last_edited_time, `Page ${id} last_edited_time`) };
 }
+
+function assertPageParent(page: JsonObject, tableId: string, label: string): void {
+  const parent = objectValue(page.parent, `${label} parent`);
+  if (typeof parent.data_source_id !== "string" || compactIdentifier(parent.data_source_id) !== compactIdentifier(tableId)) {
+    throw new Error(`${label} does not belong to its configured table`);
+  }
+}
+
+function compactIdentifier(value: string): string { return value.replaceAll("-", "").toLowerCase(); }
 
 function titleProperty(text: string): JsonObject { return { title: richText(text) }; }
 function richTextProperty(text: string): JsonObject { return { rich_text: richText(text) }; }

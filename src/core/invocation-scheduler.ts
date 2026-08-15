@@ -5,7 +5,9 @@ import { validateDefinitionSet } from "./sub-agent-definition.js";
 export interface InvocationScheduleRequest {
   readonly activeRuns: Readonly<Record<string, number>>;
   readonly definitions: readonly SubAgentDefinition[];
+  readonly dueScheduledDefinitionIds: readonly string[];
   readonly limit: number;
+  readonly source: "event" | "manual" | "scheduled";
 }
 
 export function scheduleInvocations(
@@ -20,11 +22,13 @@ export function scheduleInvocations(
     .filter(
       (definition) =>
         definition.enabled &&
-        (request.activeRuns[definition.id] ?? 0) < definition.concurrency,
+        definition.invocation.mode === request.source &&
+        (request.source !== "scheduled" || request.dueScheduledDefinitionIds.includes(definition.id)) &&
+        (request.activeRuns[definition.id] ?? 0) < definition.maxConcurrency,
     )
     .sort(
       (left, right) =>
-        right.invocationPriority - left.invocationPriority || left.id.localeCompare(right.id),
+        right.priority - left.priority || left.id.localeCompare(right.id),
     )
     .slice(0, request.limit)
     .map((definition) => structuredClone(definition));

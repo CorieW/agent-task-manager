@@ -22,7 +22,9 @@ export async function runFoundationDryRun(input: {
   readonly environment: ProviderEnvironment;
   readonly environmentId: string;
   readonly activeRuns: Readonly<Record<string, number>>;
+  readonly dueScheduledDefinitionIds: readonly string[];
   readonly provider: AgentTaskProvider;
+  readonly invocationSource: "event" | "manual" | "scheduled";
   readonly scheduleLimit: number;
   readonly target: WorkspaceSchemaDescriptor;
 }): Promise<FoundationDryRunReport> {
@@ -44,7 +46,9 @@ export async function runFoundationDryRun(input: {
   const scheduled = scheduleInvocations({
     activeRuns: input.activeRuns,
     definitions,
+    dueScheduledDefinitionIds: input.dueScheduledDefinitionIds,
     limit: input.scheduleLimit,
+    source: input.invocationSource,
   });
   const core = {
     environmentValid: environmentReport.valid,

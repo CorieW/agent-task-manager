@@ -408,6 +408,10 @@ export class InMemoryProvider implements AgentTaskProvider {
     ) {
       throw new Error("Sub-agent activity version conflict");
     }
+    const projection = await this.getLeaseProjection(change.subAgentId);
+    if (!this.sameSet(projection.runLeaseIds, change.nextRunLeaseIds) || !this.sameSet(projection.taskIds, change.nextTaskIds)) {
+      throw new Error("Sub-agent activity must equal the provider's active lease projection");
+    }
     this.#activities.set(change.subAgentId, {
       runLeaseIds: this.normalizedSet(change.nextRunLeaseIds),
       taskIds: this.normalizedSet(change.nextTaskIds),
@@ -474,6 +478,11 @@ export class InMemoryProvider implements AgentTaskProvider {
       }
       return clone(resource);
     });
+  }
+
+  public async getOptionalResource(key: string): Promise<ResourceRecord | null> {
+    const resource = this.#resources.get(key);
+    return resource === undefined ? null : clone(resource);
   }
 
   public async putResource(record: ResourceMutation): Promise<WriteReceipt> {
