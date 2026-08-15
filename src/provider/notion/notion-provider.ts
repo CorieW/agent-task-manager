@@ -295,7 +295,7 @@ export class NotionProvider implements AgentTaskProvider {
 
   private async repairPendingTaskIntent(runtime: RuntimeServices, mutation: ConditionalTaskMutation): Promise<WriteReceipt> {
     const current = await runtime.reader.getTaskSnapshot(mutation.taskId);
-    if (current.properties[NOTION_TASK_MUTATION_PROPERTY] === digestJson(toJsonValue(mutation)) && taskMatchesTarget(current, mutation)) {
+    if (await runtime.reader.getTaskMutationMarker(mutation.taskId) === digestJson(toJsonValue(mutation)) && taskMatchesTarget(current, mutation)) {
       const receipt = await runtime.pages.taskReceipt(mutation.taskId, mutation.idempotencyKey);
       await runtime.state.completeIntent(mutation.idempotencyKey, "task", mutation, receipt);
       return receipt;

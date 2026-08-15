@@ -140,7 +140,7 @@ workspace apply, while incompatible or destructive drift fails closed.
 
 | Table | Required properties |
 | --- | --- |
-| Tasks | `Task` title; `Status` select; machine-owned `Manager Mutation` rich text; optional managed `Priority` number, self-relation `Blocked By`, and `Issue / PR` URL |
+| Tasks | `Task` title; `Status` select; adapter-internal `Manager Mutation` rich text; optional managed `Priority` number, self-relation `Blocked By`, and `Issue / PR` URL |
 | Sub-agents | `Name` title; `Enabled` checkbox; `Revision`, `Model` rich text; `Status` select; `Working On` Tasks relation; `Last Run` last-edited time |
 | Errors | `Error` title; `Error Key` rich text; `Severity` select; `Task` and `Sub-agent` relations; optional `Run ID` rich text |
 | Resources | `Resource` title; `Kind`, `State` select; `Version`, `Digest`, `Dependencies` rich text |

@@ -12,6 +12,7 @@ import type {
   TaskSummary,
 } from "../../domain/records.js";
 import { collectNotionPages, type NotionTransport } from "./notion-transport.js";
+import { NOTION_TASK_MUTATION_PROPERTY } from "./notion-schema.js";
 
 export interface NotionTableIds {
   readonly errors: string;
@@ -83,8 +84,13 @@ export class NotionRecordReader {
       ...summary,
       body: await this.readPageMarkdown(taskId),
       dependencies,
-      properties: decodeProperties(properties),
+      properties: decodeProperties(properties, [NOTION_TASK_MUTATION_PROPERTY]),
     };
+  }
+
+  public async getTaskMutationMarker(taskId: string): Promise<string> {
+    const page = await this.getPageInTable(taskId, this.tables.tasks, "Task");
+    return propertyText(page, NOTION_TASK_MUTATION_PROPERTY);
   }
 
   public async getResources(refs: readonly ResourceRef[]): Promise<readonly ResourceRecord[]> {
@@ -292,9 +298,10 @@ function taskPredicateFilter(predicate: JsonObject): JsonObject | undefined {
 }
 
 
-function decodeProperties(properties: JsonObject): JsonObject {
+function decodeProperties(properties: JsonObject, excluded: readonly string[] = []): JsonObject {
+  const excludedNames = new Set(excluded);
   return Object.fromEntries(
-    Object.entries(properties).map(([name, raw]) => {
+    Object.entries(properties).filter(([name]) => !excludedNames.has(name)).map(([name, raw]) => {
       const property = objectValue(raw, `Property ${name}`);
       const type = requiredString(property.type, `Property ${name} type`);
       const value = property[type];

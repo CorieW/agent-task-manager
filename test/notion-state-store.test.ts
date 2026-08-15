@@ -69,6 +69,7 @@ test("repairs only the exact marked pending Notion Task mutation", async () => {
   const pages = new NotionPageStore(NOTION_TABLES, transport, now); const state = new NotionStateStore(pages, new SingleHostMutex(`state-${randomUUID()}`), now);
   const provider = new NotionProvider({ environment: notionEnvironment(), environmentId: `recovery-${randomUUID()}`, now, transport });
   const task = await provider.getTaskSnapshot("task-1");
+  assert.equal(Object.hasOwn(task.properties, "Manager Mutation"), false);
   const mutation = { expectedVersion: task.version, idempotencyKey: "task-interrupted", nextBody: null, nextProperties: task.properties, nextStatus: "Done", taskId: task.id };
   await state.beginIntent(mutation.idempotencyKey, "task", mutation); await pages.applyTaskMutation(mutation);
   assert.equal((await provider.applyTaskMutation(mutation)).providerRecord.id, task.id);
