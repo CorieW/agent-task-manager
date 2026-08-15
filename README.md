@@ -39,3 +39,48 @@ Configuration describes the environment only. Keep credentials in environment
 variables or an external secret store and put only variable names or secret
 references in `provider.connection`. The real default configuration file is
 ignored by Git and must never contain committed credentials.
+
+## Foundation API
+
+The package root exports the provider-neutral contracts and Phase 1 execution
+primitives:
+
+- `AgentTaskProvider`, `ProviderRegistry`, and `InMemoryProvider` define and
+  exercise provider behavior without provider-specific types in core code.
+- `runFoundationDryRun` validates one provider-reported schema snapshot, builds
+  an additive plan only when actionable, and schedules definitions without
+  writing. Callers must supply authoritative active-run counts.
+- `finalizeTaskSelectionResult`, `parseTaskSelectionResult`, and
+  `assertSelectionAuthority` create and validate closed, digest-bound selection
+  results. A selector result must use the selector definition's configured mode.
+- `scheduleInvocations` orders enabled definitions by invocation priority and
+  stable ID while respecting per-definition concurrency.
+- `pageAfter` implements exclusive, deterministic string cursors with a bounded
+  limit. Cursors identify the final key returned by the preceding page.
+- `IdempotencyLedger` replays one result for the same operation, key, and valid
+  JSON payload; a changed payload or non-JSON input is rejected.
+
+```ts
+import {
+  InMemoryProvider,
+  runFoundationDryRun,
+  type ProviderEnvironment,
+  type WorkspaceSchemaDescriptor,
+} from "agent-task-manager";
+
+declare const environment: ProviderEnvironment;
+declare const target: WorkspaceSchemaDescriptor;
+
+const provider = new InMemoryProvider(environment, target);
+const report = await runFoundationDryRun({
+  activeRuns: {},
+  environment,
+  environmentId: "local-demo",
+  provider,
+  scheduleLimit: 1,
+  target,
+});
+```
+
+The dry run is currently a library API, not a CLI command. It may read provider
+state but does not apply schema steps, mutate Tasks, or acquire leases.
