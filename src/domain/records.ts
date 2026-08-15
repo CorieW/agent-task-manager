@@ -147,8 +147,20 @@ export interface LeaseRenewal {
 }
 
 export interface LeaseRelease {
+  readonly expectedVersion: string | null;
   readonly leaseId: string;
   readonly ownerId: string;
+}
+
+export interface LeaseSnapshot {
+  readonly expiresAt: string;
+  readonly leaseId: string;
+  readonly ownerId: string;
+  readonly released: boolean;
+  readonly scope: LeaseRequest["scope"];
+  readonly subAgentId: string;
+  readonly taskId: string | null;
+  readonly version: string;
 }
 
 export interface LeaseResult {

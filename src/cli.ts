@@ -11,7 +11,7 @@ import { sha256 } from "./core/digest.js";
 import { assertAuthorizedPlan } from "./core/migration-plan.js";
 import { toJsonValue, type JsonObject, type JsonValue } from "./domain/json.js";
 import type { TableKind } from "./domain/provider.js";
-import { inspectHumanRecovery, inspectSubAgentActivity, reconcileActivity, reconcileHumanResponse, reconcileLease } from "./human/inspection.js";
+import { inspectHumanRecovery, inspectLease, inspectSubAgentActivity, reconcileActivity, reconcileHumanResponse, reconcileLease } from "./human/inspection.js";
 import { NotionProvider } from "./provider/notion/notion-provider.js";
 import { createNotionWorkspaceSchema } from "./provider/notion/notion-schema.js";
 import { NotionHttpTransport } from "./provider/notion/notion-transport.js";
@@ -24,10 +24,10 @@ Usage:
   agent-task-manager init --apply --expected-plan-digest <sha256> [--write-environment] [--config <path>]
   agent-task-manager migrate --plan [--json] [--config <path>]
   agent-task-manager migrate --apply --expected-plan-digest <sha256> [--write-environment] [--config <path>]
-  agent-task-manager inspect (--task <task-id> | --sub-agent <definition-id>) [--json] [--config <path>]
+  agent-task-manager inspect (--task <task-id> | --sub-agent <definition-id> | --lease <lease-id>) [--json] [--config <path>]
   agent-task-manager reconcile activity --sub-agent <definition-id> [--json] [--config <path>]
   agent-task-manager reconcile human --task <task-id> --slot <sha256> [--json] [--config <path>]
-  agent-task-manager reconcile lease --lease <lease-id> --owner <owner-id> [--json] [--config <path>]
+  agent-task-manager reconcile lease --lease <lease-id> --owner <owner-id> --expected-version <sha256> [--json] [--config <path>]
   agent-task-manager providers
 
 Planning and validation are read-only. Schema apply is human-only and requires
@@ -113,13 +113,20 @@ export async function main(args: readonly string[] = process.argv.slice(2)): Pro
     const provider = notionProvider(config);
     const hasTask = args.includes("--task");
     const hasSubAgent = args.includes("--sub-agent");
-    if (hasTask === hasSubAgent) throw new Error("inspect requires exactly one of --task or --sub-agent");
+    const hasLease = args.includes("--lease");
+    if ([hasTask, hasSubAgent, hasLease].filter(Boolean).length !== 1) throw new Error("inspect requires exactly one of --task, --sub-agent, or --lease");
     const inspection = hasTask
       ? await inspectHumanRecovery(provider, option(args, "--task"))
-      : await inspectSubAgentActivity(provider, option(args, "--sub-agent"));
-    const summary = "slots" in inspection
+      : hasSubAgent
+        ? await inspectSubAgentActivity(provider, option(args, "--sub-agent"))
+        : await inspectLease(provider, option(args, "--lease"));
+    const summary = inspection === null
+      ? "Lease was not found."
+      : "slots" in inspection
       ? `Task ${inspection.taskId} is ${inspection.status}; ${inspection.slots.length} human slot(s).`
-      : `Sub-agent ${inspection.subAgentId} activity inspected.`;
+      : "subAgentId" in inspection && "activity" in inspection
+        ? `Sub-agent ${inspection.subAgentId} activity inspected.`
+        : `Lease ${inspection.leaseId} inspected.`;
     const output = args.includes("--json") ? canonicalize(toJsonValue(inspection)) : summary;
     process.stdout.write(`${output}\n`);
     return 0;
@@ -134,7 +141,7 @@ export async function main(args: readonly string[] = process.argv.slice(2)): Pro
       : operation === "human"
         ? await reconcileHumanResponse(provider, option(args, "--task"), option(args, "--slot"))
         : operation === "lease"
-          ? await reconcileLease(provider, option(args, "--lease"), option(args, "--owner"))
+          ? await reconcileLease(provider, option(args, "--lease"), option(args, "--owner"), option(args, "--expected-version"))
           : (() => { throw new Error("reconcile requires activity, human, or lease"); })();
     const output = args.includes("--json")
       ? canonicalize(toJsonValue(result))

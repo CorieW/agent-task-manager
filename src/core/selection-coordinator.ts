@@ -272,7 +272,7 @@ async function acquireAndProject(input: {
     scope: "task_assignment", subAgentId: input.target.id, taskId: input.taskId,
   });
   if (!taskLease.acquired || taskLease.leaseId === null) {
-    if (input.existingRunLeaseId === null) await input.provider.releaseLease({ leaseId: runLeaseId, ownerId: input.ownerId });
+    if (input.existingRunLeaseId === null) await input.provider.releaseLease({ expectedVersion: null, leaseId: runLeaseId, ownerId: input.ownerId });
     await writeAssignmentIntent(input.provider, intentKey, input, { runLeaseId: null, state: "compensated", taskLeaseId: null });
     throw new Error(`Selected Task lease conflicts with ${taskLease.conflictingLeaseId ?? "an unknown lease"}`);
   }
@@ -280,8 +280,8 @@ async function acquireAndProject(input: {
   const afterProjection = await input.provider.getLeaseProjection(input.target.id);
   if (!afterProjection.runLeaseIds.includes(runLeaseId)) throw new Error("Target run lease is not active");
   if (afterProjection.runLeaseIds.length > input.target.maxConcurrency) {
-    if (input.existingRunLeaseId === null) await input.provider.releaseLease({ leaseId: runLeaseId, ownerId: input.ownerId });
-    await input.provider.releaseLease({ leaseId: taskLease.leaseId, ownerId: input.ownerId });
+    if (input.existingRunLeaseId === null) await input.provider.releaseLease({ expectedVersion: null, leaseId: runLeaseId, ownerId: input.ownerId });
+    await input.provider.releaseLease({ expectedVersion: null, leaseId: taskLease.leaseId, ownerId: input.ownerId });
     throw new Error("Selection exceeds target concurrency");
   }
   const currentActivity = await input.provider.getSubAgentActivity(input.target.id);
@@ -402,7 +402,7 @@ async function releaseAndProjectSelector(
   const beforeProjection = await provider.getLeaseProjection(subAgentId);
   const beforeActivity = await provider.getSubAgentActivity(subAgentId);
   verifyActivity(beforeActivity, beforeProjection);
-  await provider.releaseLease({ leaseId, ownerId });
+  await provider.releaseLease({ expectedVersion: null, leaseId, ownerId });
   const afterProjection = await provider.getLeaseProjection(subAgentId);
   if (!activityMatches(beforeActivity, afterProjection)) {
     await provider.updateSubAgentActivity({

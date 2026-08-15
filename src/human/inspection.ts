@@ -1,6 +1,7 @@
 // Provides read-only human/lease inspection and explicit provider reconciliation entry points.
 import { digestJson } from "../core/digest.js";
 import { toJsonValue } from "../domain/json.js";
+import type { LeaseSnapshot } from "../domain/records.js";
 import type { ReconciliationResult, WriteReceipt } from "../domain/provider.js";
 import type { AgentTaskProvider } from "../provider/agent-task-provider.js";
 import type { HumanConsumptionRecord, HumanInteractionSlot } from "./contracts.js";
@@ -26,6 +27,7 @@ export interface HumanRecoveryInspection {
 export interface SubAgentActivityInspection {
   readonly activity: Awaited<ReturnType<AgentTaskProvider["getSubAgentActivity"]>>;
   readonly leaseProjection: Awaited<ReturnType<AgentTaskProvider["getLeaseProjection"]>>;
+  readonly leases: readonly LeaseSnapshot[];
   readonly subAgentId: string;
 }
 
@@ -64,9 +66,18 @@ export async function reconcileActivity(provider: AgentTaskProvider, subAgentId:
 }
 
 export async function inspectSubAgentActivity(provider: AgentTaskProvider, subAgentId: string): Promise<SubAgentActivityInspection> {
-  return { activity: await provider.getSubAgentActivity(subAgentId), leaseProjection: await provider.getLeaseProjection(subAgentId), subAgentId };
+  const activity = await provider.getSubAgentActivity(subAgentId);
+  const leaseProjection = await provider.getLeaseProjection(subAgentId);
+  const ids = [...new Set([...leaseProjection.runLeaseIds, ...leaseProjection.taskLeaseIds])].sort();
+  const leases = await Promise.all(ids.map((leaseId) => provider.getLeaseSnapshot(leaseId)));
+  if (leases.some((lease) => lease === null)) throw new Error("Lease changed during activity inspection");
+  return { activity, leaseProjection, leases: leases as LeaseSnapshot[], subAgentId };
 }
 
-export async function reconcileLease(provider: AgentTaskProvider, leaseId: string, ownerId: string): Promise<WriteReceipt> {
-  return provider.releaseLease({ leaseId, ownerId });
+export async function inspectLease(provider: AgentTaskProvider, leaseId: string): Promise<LeaseSnapshot | null> {
+  return provider.getLeaseSnapshot(leaseId);
+}
+
+export async function reconcileLease(provider: AgentTaskProvider, leaseId: string, ownerId: string, expectedVersion: string): Promise<WriteReceipt> {
+  return provider.releaseLease({ expectedVersion, leaseId, ownerId });
 }

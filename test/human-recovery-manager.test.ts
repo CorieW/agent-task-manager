@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { HumanRecoveryManager, InMemoryProvider, inspectHumanRecovery, parseHumanInteractionSlots, parseSubAgentDefinitionManifest, reconcileActivity, renderHumanInteractionSlot, type JsonObject, type ProviderEnvironment, type WorkspaceSchemaDescriptor } from "../src/index.js";
+import { HumanRecoveryManager, InMemoryProvider, inspectHumanRecovery, parseHumanInteractionSlots, parseSubAgentDefinitionManifest, reconcileActivity, renderHumanInteractionSlot, type ConditionalTaskMutation, type JsonObject, type ProviderEnvironment, type WriteReceipt, type WorkspaceSchemaDescriptor } from "../src/index.js";
 
 const environment: ProviderEnvironment = { bootstrapParent: null, connection: {}, tables: { errors: "e", resources: "r", subAgents: "a", tasks: "t" }, type: "memory" };
 const target: WorkspaceSchemaDescriptor = { digest: "target", providerType: "memory", tables: [], version: "v1" };
@@ -49,6 +49,26 @@ test("does not adopt a target status that changed before consumption", async () 
   await assert.rejects(manager.consume("task-1", requested.slot.slotId), /waiting status/u);
 });
 
+test("does not adopt a coincidental target status after consumption becomes pending", async () => {
+  const provider = interrupted(); const manager = new HumanRecoveryManager(provider);
+  const requested = await manager.request({ createdAt: "2026-08-15T10:00:00.000Z", error: null, generation: 1, kind: "review", prompt: "Approve.", requestedBy: "worker", routes: { approve: "Testing" }, sourceErrorKey: null, taskId: "task-1", waitingStatus: "Human Review" });
+  let task = await provider.getTaskSnapshot("task-1"); const edited = { ...requested.slot, response: { action: "approve", text: "Approved." } };
+  await provider.applyTaskMutation({ expectedVersion: task.version, idempotencyKey: "human-edit-before-interrupt", nextBody: task.body.replace(renderHumanInteractionSlot(requested.slot), renderHumanInteractionSlot(edited)), nextProperties: task.properties, nextStatus: null, taskId: task.id });
+  await assert.rejects(manager.consume("task-1", requested.slot.slotId), /simulated interruption/u);
+  task = await provider.getTaskSnapshot("task-1");
+  await provider.applyTaskMutation({ expectedVersion: task.version, idempotencyKey: "coincidental-target", nextBody: null, nextProperties: task.properties, nextStatus: "Testing", taskId: task.id });
+  await assert.rejects(manager.consume("task-1", requested.slot.slotId), /version conflict/u);
+});
+
+test("rejects Task archival during a human wait", async () => {
+  const provider = prepared(); const manager = new HumanRecoveryManager(provider);
+  const requested = await manager.request({ createdAt: "2026-08-15T10:00:00.000Z", error: null, generation: 1, kind: "answer", prompt: "Resume?", requestedBy: "worker", routes: { resume: "Coding" }, sourceErrorKey: null, taskId: "task-1", waitingStatus: "Human Review" });
+  let task = await provider.getTaskSnapshot("task-1"); const edited = { ...requested.slot, response: { action: "resume", text: "Resume." } };
+  await provider.applyTaskMutation({ expectedVersion: task.version, idempotencyKey: "human-edit-before-archive", nextBody: task.body.replace(renderHumanInteractionSlot(requested.slot), renderHumanInteractionSlot(edited)), nextProperties: task.properties, nextStatus: null, taskId: task.id });
+  task = await provider.getTaskSnapshot("task-1"); provider.seedTask({ ...task, archived: true, version: "archived-v1" });
+  await assert.rejects(manager.consume("task-1", requested.slot.slotId), /archive state/u);
+});
+
 test("reconciles stale Status and Working On from provider-backed leases", async () => {
   let now = new Date("2026-08-15T10:00:00.000Z");
   const provider = new InMemoryProvider(environment, target, undefined, () => now);
@@ -66,6 +86,18 @@ test("reconciles stale Status and Working On from provider-backed leases", async
 
 function prepared(): InMemoryProvider {
   const provider = new InMemoryProvider(environment, target); provider.seedTaskStatusOptions(["Coding", "Human Review", "Needs Human Resolution", "Testing", "Todo"]); provider.seedTask({ archived: false, body: "Task context", dependencies: [], id: "task-1", priority: 1, properties: { Status: "Todo", custom: "preserved" }, status: "Todo", title: "Task", version: "v1" }); return provider;
+}
+
+function interrupted(): InterruptingProvider {
+  const provider = new InterruptingProvider(environment, target); provider.seedTaskStatusOptions(["Coding", "Human Review", "Needs Human Resolution", "Testing", "Todo"]); provider.seedTask({ archived: false, body: "Task context", dependencies: [], id: "task-1", priority: 1, properties: { Status: "Todo", custom: "preserved" }, status: "Todo", title: "Task", version: "v1" }); return provider;
+}
+
+class InterruptingProvider extends InMemoryProvider {
+  #interrupt = true;
+  public override async applyTaskMutation(mutation: ConditionalTaskMutation): Promise<WriteReceipt> {
+    if (this.#interrupt && mutation.idempotencyKey.startsWith("human-consume:")) { this.#interrupt = false; throw new Error("simulated interruption"); }
+    return super.applyTaskMutation(mutation);
+  }
 }
 
 function definitionManifest(): JsonObject {

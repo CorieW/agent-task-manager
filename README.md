@@ -102,9 +102,10 @@ node dist/src/cli.js migrate --plan --json [--config <path>]
 node dist/src/cli.js migrate --apply --expected-plan-digest <sha256> [--write-environment] [--config <path>]
 node dist/src/cli.js inspect --task <task-id> --json [--config <path>]
 node dist/src/cli.js inspect --sub-agent <definition-id> --json [--config <path>]
+node dist/src/cli.js inspect --lease <lease-id> --json [--config <path>]
 node dist/src/cli.js reconcile activity --sub-agent <definition-id> --json [--config <path>]
 node dist/src/cli.js reconcile human --task <task-id> --slot <sha256> --json [--config <path>]
-node dist/src/cli.js reconcile lease --lease <lease-id> --owner <owner-id> --json [--config <path>]
+node dist/src/cli.js reconcile lease --lease <lease-id> --owner <owner-id> --expected-version <sha256> --json [--config <path>]
 ```
 
 Apply writes provider-backed step intents and receipts before and after each
@@ -121,12 +122,13 @@ environment until a provider-backed distributed run lock is implemented.
 `inspect` is read-only. The three `reconcile` forms perform only the named
 provider-backed repair: activity derives `Status` and `Working On` from live
 leases, human reconciliation consumes one already-completed slot, and lease
-reconciliation releases one exact lease/owner pair. None of these commands
+reconciliation releases one exact lease/owner/version tuple. None of these commands
 discovers work or dispatches a sub-agent.
 The Phase 6 recovery CLI currently supports Notion environments. Other
 providers use the provider-neutral library APIs until CLI provider-registry
-wiring is added. Lease release requires the exact lease and owner identities;
-it never guesses that a live lease is stale.
+wiring is added. Inspect the lease first: release requires its exact lease,
+owner, and version identities, so a concurrent renewal fails the compare-and-set
+instead of revoking live work. The manager never guesses that a lease is stale.
 
 ## Managed Notion schema
 
@@ -234,7 +236,14 @@ catalog supplied for that selection turn.
 
 ## Human interaction and recovery
 
-`HumanRecoveryManager` is the workflow helper for requesting or consuming human
+`OutcomeTransitionBroker` is the workflow boundary for applying a role result.
+It resolves the target through the provider-defined transition map. A standardized
+`blocked` outcome is rejected unless it carries a complete resolution request;
+the broker then uses `HumanRecoveryManager` to persist the stable Error, immutable
+blank slot baseline, and visible slot before changing Task Status. Non-blocked
+outcomes cannot smuggle a resolution request through the same interface.
+
+`HumanRecoveryManager` is the lower-level workflow helper for requesting or consuming human
 authority. It supports provider-neutral `answer`, `resolution`, `review`, and
 `testing` slots. Callers supply the provider-defined waiting status and an
 action-to-status route map; the manager does not hardcode role names or workflow
@@ -265,10 +274,11 @@ one of its frozen `routes` keys:
 }
 ```
 
-Blank requests are created through `HumanRecoveryManager`; there is no CLI
-request command. Workflow hosts must route exceptional blocked outcomes through
-`requestResolution`, not directly mutate a waiting status, so the stable Error,
-baseline, and blank resolution slot are durable before the status transition.
+Blank requests are created through the broker/`HumanRecoveryManager`; there is
+no CLI request command. Workflow hosts apply role outcomes through
+`OutcomeTransitionBroker`, not directly through the provider mutation SPI, so a
+blocked route cannot move to its waiting status before the stable Error,
+baseline, and blank resolution slot are durable.
 
 `inspectHumanRecovery` returns Task status/version/archive state and, for each
 slot, its ID, kind, baseline-valid flag, response state, and consumption state.
@@ -306,7 +316,7 @@ and scheduling primitives, and the complete Notion adapter surface:
   handler factories, `LocalGitEffects`, `ConfiguredCommandEffects`,
   `DisposableBrowserEffects`, `DraftPublicationEffects`,
   `ProviderChildAgentWaveEffects`, and their driver contracts
-- Human recovery APIs: `HumanRecoveryManager`, slot creation/parsing/rendering
+- Human recovery APIs: `OutcomeTransitionBroker`, `HumanRecoveryManager`, slot creation/parsing/rendering
   and allowed-delta verification, `inspectHumanRecovery`,
   `inspectSubAgentActivity`, `reconcileHumanResponse`, `reconcileActivity`, and
   `reconcileLease`

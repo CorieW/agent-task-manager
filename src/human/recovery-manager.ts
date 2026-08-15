@@ -33,11 +33,14 @@ export class HumanRecoveryManager {
       if (existingSlot.response !== null) verifyAllowedHumanDelta(slot, existingSlot);
     }
     const nextBody = existingSlot === undefined ? appendHumanInteractionSlot(task.body, slot) : task.body;
+    const baselineProperties = taskPropertiesWithStatus(task.properties, input.waitingStatus);
     await this.writeSlotBaseline({
       schema: "human-slot-baseline-v2",
       slot,
+      taskArchived: task.archived,
       taskBodyDigest: sha256(normalizeText(nextBody)),
-      taskPropertiesDigest: digestJson(taskPropertiesWithStatus(task.properties, input.waitingStatus)),
+      taskProperties: baselineProperties,
+      taskPropertiesDigest: digestJson(baselineProperties),
       waitingStatus: input.waitingStatus,
     });
     if (input.error !== null) await this.provider.createOrUpdateError({ ...input.error, idempotencyKey: `human-error:${slot.slotId}:${digestJson(toJsonValue(input.error))}`, relatedTaskId: slot.taskId });
@@ -64,18 +67,16 @@ export class HumanRecoveryManager {
     if (consumption === null) {
       if (task.status !== baseline.waitingStatus) throw new Error("Task is not in the human slot's waiting status");
       verifyTaskBasis(baseline, task, edited);
-      consumption = { appliedTaskVersion: null, authority, schema: "human-consumption-v1", sourceStatus: baseline.waitingStatus, state: "pending", taskId };
+      consumption = { appliedTaskVersion: null, authority, schema: "human-consumption-v1", sourceStatus: baseline.waitingStatus, sourceTaskVersion: task.version, state: "pending", taskId };
       await this.writeConsumption(key, consumption);
     } else { verifyConsumption(consumption, authority, taskId); }
     if (consumption.state === "applied") return consumption;
     verifyTaskBasis(baseline, task, edited);
-    if (task.status !== authority.targetStatus) {
-      if (task.status !== consumption.sourceStatus) throw new Error("Task status changed outside the human authority");
-      const currentEdited = requiredSlot(task, slotId); const currentAuthority = verifyAllowedHumanDelta(baseline.slot, currentEdited); if (currentAuthority.responseDigest !== authority.responseDigest) throw new Error("Human response changed during consumption");
-      verifyTaskBasis(baseline, task, currentEdited);
-      await this.provider.applyTaskMutation({ expectedVersion: task.version, idempotencyKey: `human-consume:${slotId}:${authority.responseDigest}`, nextBody: null, nextProperties: task.properties, nextStatus: authority.targetStatus, taskId });
-      task = await this.provider.getTaskSnapshot(taskId);
-    }
+    if (task.status !== consumption.sourceStatus && task.status !== authority.targetStatus) throw new Error("Task status changed outside the human authority");
+    const currentEdited = requiredSlot(task, slotId); const currentAuthority = verifyAllowedHumanDelta(baseline.slot, currentEdited); if (currentAuthority.responseDigest !== authority.responseDigest) throw new Error("Human response changed during consumption");
+    verifyTaskBasis(baseline, task, currentEdited);
+    await this.provider.applyTaskMutation({ expectedVersion: consumption.sourceTaskVersion, idempotencyKey: `human-consume:${slotId}:${authority.responseDigest}`, nextBody: null, nextProperties: baseline.taskProperties, nextStatus: authority.targetStatus, taskId });
+    task = await this.provider.getTaskSnapshot(taskId);
     if (task.status !== authority.targetStatus) throw new Error("Human response transition did not verify");
     const applied: HumanConsumptionRecord = { ...consumption, appliedTaskVersion: task.version, state: "applied" }; await this.writeConsumption(key, applied); return applied;
   }
@@ -102,6 +103,7 @@ function verifyTaskSlot(task: TaskSnapshot, slotId: string): void { requiredSlot
 function requiredSlot(task: TaskSnapshot, slotId: string): HumanInteractionSlot { const matches = parseHumanInteractionSlots(task.body).filter((slot) => slot.slotId === slotId); if (matches.length !== 1) throw new Error(`Task must contain exactly one human slot: ${slotId}`); return matches[0]!; }
 function requireStatuses(valid: readonly string[], requested: readonly string[]): void { const known = new Set(valid); for (const status of requested) if (!known.has(status)) throw new Error(`Human interaction route is not a valid Task status: ${status}`); }
 function verifyTaskBasis(baseline: HumanSlotBaselineRecord, task: TaskSnapshot, edited: HumanInteractionSlot): void {
+  if (task.archived !== baseline.taskArchived) throw new Error("Human response changed Task archive state");
   const rendered = renderHumanInteractionSlot(edited);
   const occurrences = normalizeText(task.body).split(rendered).length - 1;
   if (occurrences !== 1) throw new Error("Human response changed the canonical slot representation");

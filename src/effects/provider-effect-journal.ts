@@ -43,7 +43,7 @@ export class ProviderEffectJournal {
     let retainUntilExpiry = false;
     try { return await operation(); }
     catch (error) { retainUntilExpiry = hasRetainedClaim(error); throw error; }
-    finally { if (!retainUntilExpiry) await this.provider.releaseLease({ leaseId: acquired.leaseId, ownerId }); }
+    finally { if (!retainUntilExpiry) await this.provider.releaseLease({ expectedVersion: null, leaseId: acquired.leaseId, ownerId }); }
   }
 }
 

@@ -209,6 +209,19 @@ test("lease renewals replay their original result", async () => {
   assert.equal((await provider.reconcileIntent("lease-renew")).state, "applied");
 });
 
+test("manual lease release requires the exact inspected lease version", async () => {
+  let current = Date.parse("2026-01-01T00:00:00.000Z");
+  const provider = new InMemoryProvider(environment, target, undefined, () => new Date(current));
+  const acquired = await provider.acquireLease({ expiresAt: "2026-01-01T00:10:00.000Z", idempotencyKey: "manual-acquire", ownerId: "owner", scope: "agent_run", subAgentId: "worker", taskId: null });
+  const before = await provider.getLeaseSnapshot(acquired.leaseId!); assert.notEqual(before, null);
+  current += 1_000;
+  await provider.renewLease({ expectedExpiresAt: "2026-01-01T00:10:00.000Z", idempotencyKey: "manual-renew", leaseId: acquired.leaseId!, nextExpiresAt: "2026-01-01T00:20:00.000Z", ownerId: "owner" });
+  await assert.rejects(provider.releaseLease({ expectedVersion: before!.version, leaseId: acquired.leaseId!, ownerId: "owner" }), /release conflict/u);
+  const after = await provider.getLeaseSnapshot(acquired.leaseId!); assert.notEqual(after, null);
+  await provider.releaseLease({ expectedVersion: after!.version, leaseId: acquired.leaseId!, ownerId: "owner" });
+  assert.equal(await provider.getLeaseSnapshot(acquired.leaseId!), null);
+});
+
 test("sub-agent activity is conditionally replaced", async () => {
   const provider = new InMemoryProvider(environment, target);
   provider.seedDefinition({

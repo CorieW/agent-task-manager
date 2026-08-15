@@ -16,6 +16,7 @@ import type {
   LeaseRequest,
   LeaseResult,
   LeaseProjection,
+  LeaseSnapshot,
   ResourceMutation,
   ResourceRecord,
   ResourceRef,
@@ -392,6 +393,21 @@ export class InMemoryProvider implements AgentTaskProvider {
     };
   }
 
+  public async getLeaseSnapshot(leaseId: string): Promise<LeaseSnapshot | null> {
+    const lease = this.#leases.get(leaseId);
+    if (lease === undefined) return null;
+    return {
+      expiresAt: lease.expiresAt,
+      leaseId: lease.id,
+      ownerId: lease.ownerId,
+      released: false,
+      scope: lease.scope,
+      subAgentId: lease.subAgentId,
+      taskId: lease.taskId,
+      version: digestJson(toJsonValue(lease)),
+    };
+  }
+
   public async listTaskStatusOptions(): Promise<readonly string[]> {
     return [...this.#taskStatusOptions].sort();
   }
@@ -577,7 +593,7 @@ export class InMemoryProvider implements AgentTaskProvider {
     const prior = this.lookupIdempotent<WriteReceipt>(key, "lease_release", request);
     if (prior !== undefined) return prior;
     const lease = this.#leases.get(request.leaseId);
-    if (lease === undefined || lease.ownerId !== request.ownerId) {
+    if (lease === undefined || lease.ownerId !== request.ownerId || (request.expectedVersion !== null && request.expectedVersion !== digestJson(toJsonValue(lease)))) {
       throw new Error("Lease release conflict");
     }
     this.#leases.delete(request.leaseId);

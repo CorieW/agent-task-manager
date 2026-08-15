@@ -51,7 +51,7 @@ export class ProviderWorkspaceOwnershipStore implements WorkspaceOwnershipStore 
     const ownerId = `workspace-ownership:${randomUUID()}`;
     const acquired = await this.provider.acquireLease({ expiresAt: new Date(Date.now() + this.claimMilliseconds).toISOString(), idempotencyKey: `workspace-ownership-claim:${sha256(workspaceKey)}:${ownerId}`, ownerId, scope: "task_assignment", subAgentId: "system/workspace-ownership", taskId: `system/workspace/${sha256(workspaceKey)}` });
     if (!acquired.acquired || acquired.leaseId === null) throw new Error(`Workspace ownership is already being changed: ${workspaceKey}`);
-    try { return await operation(); } finally { await this.provider.releaseLease({ leaseId: acquired.leaseId, ownerId }); }
+    try { return await operation(); } finally { await this.provider.releaseLease({ expectedVersion: null, leaseId: acquired.leaseId, ownerId }); }
   }
 }
 function key(workspaceKey: string): string { return `workspace-ownership/${sha256(workspaceKey)}`; }

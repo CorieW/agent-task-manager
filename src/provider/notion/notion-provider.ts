@@ -8,6 +8,7 @@ import type {
   LeaseRequest,
   LeaseResult,
   LeaseProjection,
+  LeaseSnapshot,
   ResourceMutation,
   ResourceRecord,
   ResourceRef,
@@ -132,6 +133,10 @@ export class NotionProvider implements AgentTaskProvider {
 
   public async getLeaseProjection(id: string): Promise<LeaseProjection> {
     return (await this.runtime()).state.activeProjection(id);
+  }
+
+  public async getLeaseSnapshot(leaseId: string): Promise<LeaseSnapshot | null> {
+    return (await this.runtime()).state.leaseSnapshot(leaseId);
   }
 
   public async listTaskStatusOptions(): Promise<readonly string[]> {

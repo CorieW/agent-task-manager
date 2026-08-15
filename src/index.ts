@@ -11,6 +11,7 @@ export * from "./core/json-schema.js";
 export * from "./core/migration-plan.js";
 export * from "./core/pagination.js";
 export * from "./core/outcome-router.js";
+export * from "./core/outcome-transition-broker.js";
 export * from "./core/selection-result.js";
 export * from "./core/selection-coordinator.js";
 export * from "./core/schema-diff.js";

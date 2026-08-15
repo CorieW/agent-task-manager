@@ -1,7 +1,7 @@
 // Encodes and validates provider-backed human slot baselines and consumption records.
 import { canonicalize } from "../core/canonical-json.js";
-import { sha256 } from "../core/digest.js";
-import { toJsonValue } from "../domain/json.js";
+import { digestJson, sha256 } from "../core/digest.js";
+import { toJsonValue, type JsonObject } from "../domain/json.js";
 import type { ResourceRecord } from "../domain/records.js";
 import type { HumanAuthority, HumanConsumptionRecord, HumanSlotBaselineRecord } from "./contracts.js";
 import { parseHumanInteractionSlot } from "./slot-codec.js";
@@ -29,20 +29,21 @@ export function parseHumanConsumptionResource(resource: ResourceRecord, slotId: 
 
 export function parseHumanConsumption(value: unknown): HumanConsumptionRecord {
   const found = record(value, "Human consumption");
-  closed(found, ["appliedTaskVersion", "authority", "schema", "sourceStatus", "state", "taskId"]);
-  if (found.schema !== "human-consumption-v1" || (found.state !== "pending" && found.state !== "applied") || !text(found.sourceStatus) || !text(found.taskId) || (found.appliedTaskVersion !== null && !text(found.appliedTaskVersion))) throw new TypeError("Human consumption fields are invalid");
+  closed(found, ["appliedTaskVersion", "authority", "schema", "sourceStatus", "sourceTaskVersion", "state", "taskId"]);
+  if (found.schema !== "human-consumption-v1" || (found.state !== "pending" && found.state !== "applied") || !text(found.sourceStatus) || !text(found.sourceTaskVersion) || !text(found.taskId) || (found.appliedTaskVersion !== null && !text(found.appliedTaskVersion))) throw new TypeError("Human consumption fields are invalid");
   const authority = parseHumanAuthority(found.authority);
   if ((found.state === "pending" && found.appliedTaskVersion !== null) || (found.state === "applied" && !text(found.appliedTaskVersion))) throw new TypeError("Human consumption lifecycle is invalid");
-  return { appliedTaskVersion: found.appliedTaskVersion as string | null, authority, schema: "human-consumption-v1", sourceStatus: found.sourceStatus, state: found.state, taskId: found.taskId };
+  return { appliedTaskVersion: found.appliedTaskVersion as string | null, authority, schema: "human-consumption-v1", sourceStatus: found.sourceStatus, sourceTaskVersion: found.sourceTaskVersion, state: found.state, taskId: found.taskId };
 }
 
 function parseHumanSlotBaseline(value: unknown): HumanSlotBaselineRecord {
   const found = record(value, "Human slot baseline");
-  closed(found, ["schema", "slot", "taskBodyDigest", "taskPropertiesDigest", "waitingStatus"]);
-  if (found.schema !== "human-slot-baseline-v2" || !digest(found.taskBodyDigest) || !digest(found.taskPropertiesDigest) || !text(found.waitingStatus)) throw new TypeError("Human slot baseline fields are invalid");
+  closed(found, ["schema", "slot", "taskArchived", "taskBodyDigest", "taskProperties", "taskPropertiesDigest", "waitingStatus"]);
+  const taskProperties = jsonObject(found.taskProperties, "Human slot Task properties");
+  if (found.schema !== "human-slot-baseline-v2" || typeof found.taskArchived !== "boolean" || !digest(found.taskBodyDigest) || !digest(found.taskPropertiesDigest) || digestJson(taskProperties) !== found.taskPropertiesDigest || !text(found.waitingStatus)) throw new TypeError("Human slot baseline fields are invalid");
   const slot = parseHumanInteractionSlot(found.slot);
   if (slot.response !== null) throw new TypeError("Human slot baseline response must be blank");
-  return { schema: "human-slot-baseline-v2", slot, taskBodyDigest: found.taskBodyDigest, taskPropertiesDigest: found.taskPropertiesDigest, waitingStatus: found.waitingStatus };
+  return { schema: "human-slot-baseline-v2", slot, taskArchived: found.taskArchived, taskBodyDigest: found.taskBodyDigest, taskProperties, taskPropertiesDigest: found.taskPropertiesDigest, waitingStatus: found.waitingStatus };
 }
 
 function parseHumanAuthority(value: unknown): HumanAuthority {
@@ -56,6 +57,7 @@ function assertResource(resource: ResourceRecord, key: string, kind: string, ver
   if (resource.key !== key || resource.kind !== kind || resource.state !== "active" || resource.version !== version || resource.digest !== sha256(resource.body)) throw new TypeError(`Human recovery Resource is invalid: ${key}`);
 }
 function record(value: unknown, label: string): Record<string, unknown> { if (value === null || typeof value !== "object" || Array.isArray(value)) throw new TypeError(`${label} must be an object`); return value as Record<string, unknown>; }
+function jsonObject(value: unknown, label: string): JsonObject { return record(toJsonValue(value), label) as JsonObject; }
 function closed(value: Record<string, unknown>, fields: readonly string[]): void { if (Object.keys(value).sort().join("\0") !== [...fields].sort().join("\0")) throw new TypeError("Human recovery object has unexpected or missing fields"); }
 function digest(value: unknown): value is string { return typeof value === "string" && /^[a-f0-9]{64}$/u.test(value); }
 function text(value: unknown): value is string { return typeof value === "string" && value !== ""; }

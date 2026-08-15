@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { canonicalize } from "../../core/canonical-json.js";
 import { digestJson, sha256 } from "../../core/digest.js";
 import { toJsonValue, type JsonObject, type JsonValue } from "../../domain/json.js";
-import type { LeaseRelease, LeaseRenewal, LeaseRequest, LeaseResult } from "../../domain/records.js";
+import type { LeaseRelease, LeaseRenewal, LeaseRequest, LeaseResult, LeaseSnapshot } from "../../domain/records.js";
 import type { ReconciliationResult } from "../../domain/provider.js";
 import type { WriteReceipt } from "../../domain/provider.js";
 import { NotionPageStore } from "./notion-page-store.js";
@@ -149,7 +149,7 @@ export class NotionStateStore {
       const prior = await this.beginIntent(idempotencyKey, "lease_release", request);
       if (prior !== undefined) return parseReleaseResult(prior);
       const located = await this.findLeaseById(request.leaseId);
-      if (located === null || located.record.ownerId !== request.ownerId || located.record.releasedAt !== null) {
+      if (located === null || located.record.ownerId !== request.ownerId || located.record.releasedAt !== null || (request.expectedVersion !== null && request.expectedVersion !== digestJson(toJsonValue(located.record)))) {
         throw new Error("Lease release conflict");
       }
       const receipt = await this.writeRecord(
@@ -160,6 +160,13 @@ export class NotionStateStore {
       await this.completeIntent(idempotencyKey, "lease_release", request, receipt);
       return receipt;
     });
+  }
+
+  public async leaseSnapshot(leaseId: string): Promise<LeaseSnapshot | null> {
+    const located = await this.findLeaseById(leaseId);
+    if (located === null) return null;
+    const record = located.record;
+    return { expiresAt: record.expiresAt, leaseId: record.leaseId, ownerId: record.ownerId, released: record.releasedAt !== null, scope: record.scope, subAgentId: record.subAgentId, taskId: record.taskId, version: digestJson(toJsonValue(record)) };
   }
 
   public async activeLeaseIds(scope: LeaseRequest["scope"], subAgentId: string): Promise<readonly string[]> {

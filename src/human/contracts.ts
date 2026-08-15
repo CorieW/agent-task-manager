@@ -1,4 +1,6 @@
 // Defines provider-neutral human interaction slots and consumed authority.
+import type { JsonObject } from "../domain/json.js";
+
 export type HumanSlotKind = "answer" | "resolution" | "review" | "testing";
 
 export interface HumanSlotResponse {
@@ -34,6 +36,7 @@ export interface HumanConsumptionRecord {
   readonly authority: HumanAuthority;
   readonly schema: "human-consumption-v1";
   readonly sourceStatus: string;
+  readonly sourceTaskVersion: string;
   readonly state: "applied" | "pending";
   readonly taskId: string;
 }
@@ -41,7 +44,9 @@ export interface HumanConsumptionRecord {
 export interface HumanSlotBaselineRecord {
   readonly schema: "human-slot-baseline-v2";
   readonly slot: HumanInteractionSlot;
+  readonly taskArchived: boolean;
   readonly taskBodyDigest: string;
+  readonly taskProperties: JsonObject;
   readonly taskPropertiesDigest: string;
   readonly waitingStatus: string;
 }
