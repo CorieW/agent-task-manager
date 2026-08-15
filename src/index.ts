@@ -16,6 +16,7 @@ export * from "./provider/agent-task-provider.js";
 export * from "./provider/in-memory-provider.js";
 export * from "./provider/notion/notion-schema.js";
 export * from "./provider/notion/notion-record-codec.js";
+export * from "./provider/notion/notion-page-store.js";
 export * from "./provider/notion/notion-transport.js";
 export * from "./provider/notion/notion-workspace-reader.js";
 export * from "./provider/provider-registry.js";
