@@ -4,9 +4,11 @@ import test from "node:test";
 
 import {
   finalizeTaskSelectionResult,
+  finalizeExplicitAssignment,
   InMemoryProvider,
   prepareSelection,
   promoteSelection,
+  promoteExplicitAssignment,
   resolveDefinition,
   type ProviderEnvironment,
   type ResourceMutation,
@@ -80,6 +82,31 @@ test("rejects stale/out-of-scope selections before leases", async () => {
   });
   await assert.rejects(promoteSelection({ assignmentDepth: 1, expiresAt: EXPIRY, ownerId: "run-2", provider, resolvedSelector: resolved, result, selectionContext: context, selectorRunLeaseId: run.leaseId! }), /outside the bounded candidate set/);
   assert.deepEqual((await provider.getLeaseProjection(worker.id)).taskIds, []);
+});
+
+test("promotes a trusted explicit assignment without an AI selector role", async () => {
+  const provider = new InMemoryProvider(environment, target);
+  const worker = definition("worker", "Localization Curator", "self", ["explicit", "self"], ["repository.read"]);
+  provider.seedDefinition(worker);
+  await seedResources(provider, [worker]);
+  provider.seedTask(task("task-1", "Ready", []));
+  const resolved = await resolveDefinition(provider, worker.id);
+  const context = await prepareSelection(provider, resolved);
+  const assignment = finalizeExplicitAssignment({
+    authorityId: "human-request-1",
+    idempotencyKey: "explicit-1",
+    schema: "explicit-assignment-v1",
+    selectionBasisDigest: context.basisDigest,
+    targetSubAgentId: worker.id,
+    targetSubAgentRevision: worker.revision,
+    taskId: "task-1",
+  });
+  const promoted = await promoteExplicitAssignment({
+    assignment, assignmentDepth: 0, expiresAt: EXPIRY, ownerId: "human-request-1", provider,
+    resolvedTarget: resolved, selectionContext: context,
+  });
+  assert.equal(promoted.taskId, "task-1");
+  assert.equal((await provider.getSubAgentActivity(worker.id)).status, "Online");
 });
 
 function definition(id: string, name: string, mode: "coordinator" | "self", accepts: SubAgentDefinition["selection"]["acceptsAssignmentsFrom"], capabilities: string[]): SubAgentDefinition {
