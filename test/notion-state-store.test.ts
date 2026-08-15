@@ -134,7 +134,7 @@ class ResourceTransport implements NotionTransport {
 
   public seedTask(parent = "tasks"): void {
     this.#pages.set("task-1", this.page("task-1", {
-      "Blocked By": { has_more: false, id: "blocked-by", relation: [], type: "relation" },
+      Dependencies: { has_more: false, id: "blocked-by", relation: [], type: "relation" },
       "Manager Mutation": { id: "manager-mutation", rich_text: [], type: "rich_text" },
       Priority: { id: "priority", number: null, type: "number" },
       Status: { id: "status", select: { name: "Todo" }, type: "select" },

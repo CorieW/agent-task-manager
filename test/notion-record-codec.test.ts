@@ -69,7 +69,7 @@ function taskPage(): JsonObject {
     object: "page",
     parent: { data_source_id: "tasks", type: "data_source_id" },
     properties: {
-      "Blocked By": { has_more: true, id: "blocked", relation: [{ id: "dep-inline" }], type: "relation" },
+      Dependencies: { has_more: true, id: "blocked", relation: [{ id: "dep-inline" }], type: "relation" },
       Priority: { id: "priority", number: 1, type: "number" },
       Status: { id: "status", status: { name: "Todo" }, type: "status" },
       Task: { id: "title", title: [{ plain_text: "First task" }], type: "title" },

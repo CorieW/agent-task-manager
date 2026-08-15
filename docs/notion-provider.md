@@ -12,10 +12,10 @@ fails closed.
 
 | Table | Required properties |
 | --- | --- |
-| Tasks | `Task` title; `Status` select; adapter-internal `Manager Mutation` rich text; optional managed `Priority` number, self-relation `Blocked By`, and `Issue / PR` URL |
-| Sub-agents | `Name` title; `Enabled` checkbox; `Revision`, `Model` rich text; `Status` select; `Working On` Tasks relation; `Last Run` last-edited time |
-| Errors | `Error` title; `Error Key` rich text; `Severity` select; `Status` select (`Not Fixed`, `Fixing`, or `Fixed`); `Task` and `Sub-agent` relations; optional `Run ID` rich text |
-| Resources | `Resource` title; `Kind`, `State` select; `Version`, `Digest`, `Dependencies` rich text |
+| Tasks | `Task` title; `Status`, `Resolution`, and `Type` selects; adapter-internal `Manager Mutation`; numeric `Priority`; `Scope`, `Acceptance Criteria`, `GitHub Links`, `Required Approval`, and `Outcome Summary` text; self-relation `Dependencies`; `Owner` people; `Created At` and `Closed At` timestamps |
+| Sub-agents | `Name` title; `Enabled` checkbox; `Revision`, `Model`, `Responsibilities`, and `Boundaries` text; `Status` select; `Working On` Tasks relation; `Last Run` last-edited time |
+| Errors | `Error` title; `Error Key` rich text; `Severity` and `Status` selects; `Task` and `Sub-agent` relations; optional `Run ID`; `Owner`, `GitHub Links`, `Created At`, and `Fixed At` tracking |
+| Resources | `Resource` title; `Kind`, `State` select; `Version`, `Digest`, `Dependencies`; `Owner`, `Source`, and `Review Date` tracking |
 
 Provider-managed page bodies use exact level-two headings:
 

@@ -472,6 +472,9 @@ function propertySchema(property: PropertyDescriptor, table: TableKind, resolved
   if (property.type === "number") return { number: { format: "number" } };
   if (property.type === "checkbox") return { checkbox: {} };
   if (property.type === "url") return { url: {} };
+  if (property.type === "date") return { date: {} };
+  if (property.type === "people") return { people: {} };
+  if (property.type === "created_time") return { created_time: {} };
   if (property.type === "last_edited_time") return { last_edited_time: {} };
   if (property.type === "select") return { select: { options: selectOptions(table, property.physicalName).map((name) => ({ name })) } };
   if (property.type === "status") return { status: { options: selectOptions(table, property.physicalName).map((name) => ({ name })) } };
@@ -527,8 +530,17 @@ function simulateWorkspaceStep(
 
 function selectOptions(table: TableKind, property: string): readonly string[] {
   if (table === "resources" && property === "State") return ["active", "draft", "retired"];
+  if (table === "resources" && property === "Kind") return [
+    "prompt", "policy", "task-query", "json-schema", "invocation-schedule",
+    "system/bootstrap", "system/schema", "system/workspace-step", "system/environment-patch", "system/bootstrap-session",
+    "system/human-interaction-slot", "system/human-consumption", "system/external-effect-intent", "system/child-agent-node-intent",
+    "system/workspace-ownership", "system/lease", "system/intent", "system/assignment-intent", "system/assignment-budget",
+  ];
   if (table === "errors" && property === "Severity") return ["critical", "high", "medium", "low"];
   if (table === "errors" && property === "Status") return ["Not Fixed", "Fixing", "Fixed"];
+  if (table === "tasks" && property === "Status") return ["Backlog", "Ready", "In progress", "Blocked", "In review", "Completed"];
+  if (table === "tasks" && property === "Resolution") return ["Completed", "Cancelled", "Duplicate", "Not reproducible", "Superseded"];
+  if (table === "tasks" && property === "Type") return ["Vulnerability", "Bug", "Feature", "Cleanup"];
   if (table === "subAgents" && property === "Status") return ["Online", "Offline"];
   return [];
 }

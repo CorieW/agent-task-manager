@@ -80,7 +80,7 @@ export class NotionRecordReader {
     const page = await this.getPageInTable(taskId, this.tables.tasks, "Task");
     const summary = this.taskSummary(page);
     const properties = objectValue(page.properties, "Task properties");
-    const dependencies = await this.relationIds(page, "Blocked By");
+    const dependencies = await this.relationIds(page, "Dependencies");
     return {
       ...summary,
       body: await this.readPageMarkdown(taskId),
