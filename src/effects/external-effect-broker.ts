@@ -9,7 +9,7 @@ import { createEffectObservation, validateEffectObservation } from "./observatio
 import { withSingleHostEffectLock } from "./single-host-effect-lock.js";
 
 export class IndeterminateExternalEffectError extends Error {
-  public constructor(public readonly effectId: string, public readonly retainClaimUntilExpiry = false) { super(`External effect is indeterminate: ${effectId}`); }
+  public constructor(public readonly effectId: string, public readonly retainClaimUntilExpiry = false, options?: ErrorOptions) { super(`External effect is indeterminate: ${effectId}`, options); }
 }
 class UnacknowledgedEffectCancellationError extends Error {}
 
@@ -68,7 +68,7 @@ export class ExternalEffectBroker {
 
     let observed: ExternalEffectObservation;
     try { observed = await invokeHandler((control) => handler.reconcile(request, control), deadlineAt, this.cancellationGraceMilliseconds); }
-    catch (error) { const blocked = executionMayContinue(error); await this.pauseForUnknown(record, error, blocked); throw new IndeterminateExternalEffectError(request.effectId, blocked); }
+    catch (error) { const blocked = record.automaticReplayBlocked || executionMayContinue(error); await this.pauseForUnknown(record, error, blocked); throw new IndeterminateExternalEffectError(request.effectId, blocked); }
     validateEffectObservation(observed);
     if (record.automaticReplayBlocked) {
       if (observed.state === "applied" || observed.state === "failed") return this.finalizeOrPause(record, request, observed);
@@ -80,7 +80,7 @@ export class ExternalEffectBroker {
     let applied: ExternalEffectObservation;
     try { applied = await invokeHandler((control) => handler.apply(request, control), deadlineAt, this.cancellationGraceMilliseconds); }
     catch (error) {
-      const blocked = executionMayContinue(error); await this.pauseForUnknown(record, error, blocked);
+      const blocked = record.automaticReplayBlocked || executionMayContinue(error); await this.pauseForUnknown(record, error, blocked);
       throw new IndeterminateExternalEffectError(request.effectId, blocked);
     }
     validateEffectObservation(applied);
@@ -89,7 +89,10 @@ export class ExternalEffectBroker {
     return this.finalizeOrPause(record, request, applied);
   }
 
-  private async pauseForUnknown(record: ExternalEffectIntentRecord, error: unknown, automaticReplayBlocked: boolean): Promise<void> { await this.journal.write({ ...record, automaticReplayBlocked, lastObservation: createEffectObservation("indeterminate", { errorClass: safeErrorClass(error) }), state: "indeterminate" }); }
+  private async pauseForUnknown(record: ExternalEffectIntentRecord, error: unknown, automaticReplayBlocked: boolean): Promise<void> {
+    try { await this.journal.write({ ...record, automaticReplayBlocked, lastObservation: createEffectObservation("indeterminate", { errorClass: safeErrorClass(error) }), state: "indeterminate" }); }
+    catch (persistenceError) { throw new IndeterminateExternalEffectError(record.effectId, true, { cause: new AggregateError([error, persistenceError], "External effect and quarantine persistence are indeterminate") }); }
+  }
 
   private async finalizeOrPause(record: ExternalEffectIntentRecord, request: ExternalEffectRequest, observation: ExternalEffectObservation): Promise<ExternalEffectExecution> {
     if (observation.state === "indeterminate") {

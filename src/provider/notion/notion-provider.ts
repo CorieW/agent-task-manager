@@ -284,6 +284,8 @@ export class NotionProvider implements AgentTaskProvider {
   }
 
   private async repairPendingResourceIntent(runtime: RuntimeServices, record: ResourceMutation): Promise<WriteReceipt> {
+    const current = await runtime.reader.getOptionalResource(record.key);
+    if (current !== null && !sameResource(current, record)) throw new IndeterminateProviderIntentError(`Pending Resource intent conflicts with newer state: ${record.key}`);
     const receipt = await runtime.pages.createResource(record);
     await runtime.state.completeIntent(record.idempotencyKey, "resource", record, receipt);
     return receipt;
@@ -298,4 +300,8 @@ function jsonObject(value: JsonValue | undefined, label: string): JsonObject {
 
 function sameSet(left: readonly string[], right: readonly string[]): boolean {
   return [...new Set(left)].sort().join("\0") === [...new Set(right)].sort().join("\0");
+}
+
+function sameResource(current: ResourceRecord, requested: ResourceMutation): boolean {
+  return current.body === requested.body && current.digest === requested.digest && current.key === requested.key && current.kind === requested.kind && current.state === requested.state && current.version === requested.version && digestJson(toJsonValue(current.dependencies)) === digestJson(toJsonValue(requested.dependencies));
 }

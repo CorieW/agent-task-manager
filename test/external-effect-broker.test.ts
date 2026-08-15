@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { EffectTerminationUnconfirmedError, ExternalEffectBroker, finalizeAgentResult, finalizeRequest, InMemoryProvider, IndeterminateExternalEffectError, ProviderEffectJournal, resolveExternalEffectEnvironment, type ExternalEffectHandler, type ExternalEffectObservation, type ProviderEnvironment, type WorkspaceSchemaDescriptor } from "../src/index.js";
+import { EffectCancellationAcknowledgedError, EffectTerminationUnconfirmedError, ExternalEffectBroker, finalizeAgentResult, finalizeRequest, InMemoryProvider, IndeterminateExternalEffectError, ProviderEffectJournal, resolveExternalEffectEnvironment, type ExternalEffectHandler, type ExternalEffectObservation, type ProviderEnvironment, type WorkspaceSchemaDescriptor } from "../src/index.js";
 
 const environment: ProviderEnvironment = { bootstrapParent: null, connection: {}, tables: { errors: "e", resources: "r", subAgents: "a", tasks: "t" }, type: "memory" };
 const target: WorkspaceSchemaDescriptor = { digest: "target", providerType: "memory", tables: [], version: "v1" };
@@ -80,13 +80,13 @@ test("retains the provider claim when deadline cancellation is not acknowledged"
 
 test("durable quarantine blocks replay after its provider claim expires", async () => {
   const provider = new InMemoryProvider(environment, target); let applications = 0;
-  const handler = testHandler({ async apply(_request, control) { applications += 1; return new Promise<ExternalEffectObservation>((_resolve, reject) => { control.signal.addEventListener("abort", () => reject(new EffectTerminationUnconfirmedError([], "teardown unconfirmed")), { once: true }); }); } });
+  const handler = testHandler({ async apply(_request, control) { applications += 1; return new Promise<ExternalEffectObservation>((_resolve, reject) => { control.signal.addEventListener("abort", () => reject(new EffectTerminationUnconfirmedError([], "teardown unconfirmed")), { once: true }); }); }, async reconcile() { if (applications > 0) throw new EffectCancellationAcknowledgedError("reconciliation cancelled safely"); return notApplied(); } });
   const environmentConfig = { adapters: null, effects: { handlers: { "git.commit": handler.id }, settings: {} }, environmentId: "test", provider: environment, raw: {}, runtime: null, schema: "agent-task-manager-environment-v1" as const };
   const broker = new ExternalEffectBroker(resolveExternalEffectEnvironment(environmentConfig, [handler]), new ProviderEffectJournal(provider), { async verify() {} }, 5, 0);
   const request = requestFor("git.commit", { message: "fix: durable quarantine" });
   await assert.rejects(broker.execute(request, Date.now() + 25), (error: unknown) => error instanceof IndeterminateExternalEffectError && error.retainClaimUntilExpiry);
   await new Promise((resolve) => setTimeout(resolve, 10));
-  await assert.rejects(broker.execute(request, deadline()), IndeterminateExternalEffectError);
+  await assert.rejects(broker.execute(request, deadline()), (error: unknown) => error instanceof IndeterminateExternalEffectError && error.retainClaimUntilExpiry);
   assert.equal(applications, 1);
   assert.equal((await provider.getOptionalResource(`external-effect-intent/${request.effectId}`))?.body.includes('"automaticReplayBlocked":true'), true);
 });

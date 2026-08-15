@@ -48,11 +48,22 @@ test("repairs a pending Notion Resource intent from its exact target state", asy
   const body = '{"schema":"test-resource-v1"}';
   const record: ResourceMutation = { body, dependencies: [], digest: sha256(body), idempotencyKey: "resource-interrupted", key: "test/recovered", kind: "test", state: "active", version: "v1" };
   await state.beginIntent(record.idempotencyKey, "resource", record);
-  const environment: ProviderEnvironment = { bootstrapParent: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", connection: { authEnvironmentVariable: "NOTION_TOKEN" }, tables: { errors: "11111111-1111-1111-1111-111111111111", resources: "22222222-2222-2222-2222-222222222222", subAgents: "33333333-3333-3333-3333-333333333333", tasks: "44444444-4444-4444-4444-444444444444" }, type: "notion" };
-  const provider = new NotionProvider({ environment, environmentId: `recovery-${randomUUID()}`, now, transport });
+  const provider = new NotionProvider({ environment: notionEnvironment(), environmentId: `recovery-${randomUUID()}`, now, transport });
   await provider.putResource(record);
   assert.deepEqual(await provider.getOptionalResource(record.key), { body, dependencies: [], digest: record.digest, key: record.key, kind: record.kind, state: record.state, version: record.version });
   assert.equal((await provider.reconcileIntent(record.idempotencyKey)).state, "applied");
+});
+
+test("does not repair an old pending Resource intent over newer state", async () => {
+  const transport = new ResourceTransport(); const now = () => new Date("2026-01-01T00:00:00.000Z");
+  const pages = new NotionPageStore(TABLES, transport, now); const state = new NotionStateStore(pages, new SingleHostMutex(`state-${randomUUID()}`), now);
+  const oldBody = '{"revision":1}'; const newerBody = '{"revision":2}';
+  const old: ResourceMutation = { body: oldBody, dependencies: [], digest: sha256(oldBody), idempotencyKey: "resource-old", key: "test/conflict", kind: "test", state: "active", version: "v1" };
+  const newer: ResourceMutation = { ...old, body: newerBody, digest: sha256(newerBody), idempotencyKey: "resource-newer", version: "v2" };
+  await state.beginIntent(old.idempotencyKey, "resource", old); await pages.createResource(newer);
+  const provider = new NotionProvider({ environment: notionEnvironment(), environmentId: `recovery-${randomUUID()}`, now, transport });
+  await assert.rejects(provider.putResource(old), /conflicts with newer state/);
+  assert.equal((await provider.getOptionalResource(old.key))?.digest, newer.digest);
 });
 
 class ResourceTransport implements NotionTransport {
@@ -138,4 +149,8 @@ function objectValue(value: unknown): JsonObject {
 function required<T>(value: T | undefined): T {
   if (value === undefined) throw new Error("Fixture value missing");
   return value;
+}
+
+function notionEnvironment(): ProviderEnvironment {
+  return { bootstrapParent: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", connection: { authEnvironmentVariable: "NOTION_TOKEN" }, tables: { errors: "11111111-1111-1111-1111-111111111111", resources: "22222222-2222-2222-2222-222222222222", subAgents: "33333333-3333-3333-3333-333333333333", tasks: "44444444-4444-4444-4444-444444444444" }, type: "notion" };
 }
