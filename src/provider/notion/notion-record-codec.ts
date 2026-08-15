@@ -50,6 +50,17 @@ export class NotionRecordReader {
     return pageAfter(matches, query, (summary) => summary.id);
   }
 
+  public async listTaskStatusOptions(): Promise<readonly string[]> {
+    const source = await this.transport.request({ method: "GET", path: `/v1/data_sources/${this.tables.tasks}` });
+    const status = objectValue(objectValue(source.properties, "Task properties").Status, "Task Status property");
+    if (status.type !== "select") throw new TypeError("Task Status must be select");
+    const options = objectValue(status.select, "Task Status select").options;
+    if (!Array.isArray(options)) throw new TypeError("Task Status options must be an array");
+    const names = options.map((option) => requiredString(objectValue(option, "Task Status option").name, "Task Status option name"));
+    if (new Set(names).size !== names.length) throw new TypeError("Task Status options contain duplicates");
+    return names.sort();
+  }
+
   public async getTaskSnapshot(taskId: string): Promise<TaskSnapshot> {
     const page = await this.getPage(taskId);
     const summary = this.taskSummary(page);

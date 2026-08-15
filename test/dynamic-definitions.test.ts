@@ -4,6 +4,7 @@ import test from "node:test";
 
 import {
   compileCapabilityGrant,
+  activateDefinitions,
   finalizeCandidateSet,
   InMemoryProvider,
   parseSubAgentDefinitionManifest,
@@ -42,12 +43,31 @@ test("resolves an active immutable Resource graph and closed output schemas", as
   const definition = parseSubAgentDefinitionManifest(manifest(), "security-auditor");
   provider.seedDefinition(definition);
   for (const resource of resources()) await provider.putResource(resource);
+  provider.seedTaskStatusOptions(["Testing", "Needs Human Resolution"]);
   const resolved = await resolveDefinition(provider, definition.id);
   assert.equal(resolved.taskQuery?.limit, 5);
   assert.deepEqual(resolved.resources.map((resource) => resource.key), [
     "policy/base", "prompt/security", "query/security", "schema/selection", "schema/work",
   ]);
   assert.match(resolved.digest, /^[a-f0-9]{64}$/u);
+  const [activated] = await activateDefinitions({
+    installedCapabilities: ["repository.read"],
+    installedIntents: ["error.upsert", "task.status.transition"],
+    provider,
+  });
+  assert.equal(activated?.resolved.definition.id, "security-auditor");
+});
+
+test("blocks activation when a provider-defined route has no Task status", async () => {
+  const provider = new InMemoryProvider(environment, target);
+  const definition = parseSubAgentDefinitionManifest(manifest(), "security-auditor");
+  provider.seedDefinition(definition);
+  for (const resource of resources()) await provider.putResource(resource);
+  provider.seedTaskStatusOptions(["Testing"]);
+  await assert.rejects(
+    activateDefinitions({ installedCapabilities: ["repository.read"], installedIntents: definition.allowedIntents, provider }),
+    /Needs Human Resolution/,
+  );
 });
 
 test("builds bounded candidate sets, least-privilege grants, and data-defined routes", () => {

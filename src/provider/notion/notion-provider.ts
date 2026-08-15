@@ -132,6 +132,10 @@ export class NotionProvider implements AgentTaskProvider {
     return (await this.runtime()).state.activeProjection(id);
   }
 
+  public async listTaskStatusOptions(): Promise<readonly string[]> {
+    return (await this.runtime()).reader.listTaskStatusOptions();
+  }
+
   public async updateSubAgentActivity(change: ActivityMutation): Promise<WriteReceipt> {
     const runtime = await this.runtime();
     return runtime.state.runExclusive(async () => {

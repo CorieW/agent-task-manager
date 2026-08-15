@@ -2,6 +2,7 @@ export * from "./config/environment.js";
 export * from "./core/canonical-json.js";
 export * from "./core/capability-compiler.js";
 export * from "./core/definition-resolver.js";
+export * from "./core/definition-activation.js";
 export * from "./core/digest.js";
 export * from "./core/dry-run.js";
 export * from "./core/idempotency-ledger.js";

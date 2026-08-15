@@ -186,6 +186,7 @@ export class InMemoryProvider implements AgentTaskProvider {
   readonly #leases = new Map<string, MemoryLease>();
   readonly #resources = new Map<string, ResourceRecord>();
   readonly #tasks = new Map<string, TaskSnapshot>();
+  readonly #taskStatusOptions = new Set<string>();
   readonly #workspaceOutcomes = new Map<string, ReconciliationResult>();
   #snapshot: WorkspaceSchemaSnapshot;
 
@@ -214,6 +215,14 @@ export class InMemoryProvider implements AgentTaskProvider {
 
   public seedTask(task: TaskSnapshot): void {
     this.#tasks.set(task.id, clone(task));
+    this.#taskStatusOptions.add(task.status);
+  }
+
+  public seedTaskStatusOptions(options: readonly string[]): void {
+    for (const option of options) {
+      if (option === "") throw new TypeError("Task status options must be non-empty");
+      this.#taskStatusOptions.add(option);
+    }
   }
 
   public async getCapabilities(): Promise<ProviderCapabilities> {
@@ -380,6 +389,10 @@ export class InMemoryProvider implements AgentTaskProvider {
       taskIds: [...new Set(leases.filter((lease) => lease.scope === "task_assignment").map((lease) => requiredLeaseTask(lease)))].sort(),
       taskLeaseIds: leases.filter((lease) => lease.scope === "task_assignment").map((lease) => lease.id).sort(),
     };
+  }
+
+  public async listTaskStatusOptions(): Promise<readonly string[]> {
+    return [...this.#taskStatusOptions].sort();
   }
 
   public async updateSubAgentActivity(change: ActivityMutation): Promise<WriteReceipt> {
