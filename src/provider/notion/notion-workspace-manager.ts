@@ -168,6 +168,11 @@ export class NotionWorkspaceManager {
     return Object.fromEntries(TABLE_KINDS.map((kind) => [kind, requiredResolved(this.#resolved, kind)])) as unknown as Readonly<Record<TableKind, string>>;
   }
 
+  public async resolveTableIds(): Promise<Partial<Record<TableKind, string>>> {
+    await this.resolveTables();
+    return Object.fromEntries(this.#resolved) as Partial<Record<TableKind, string>>;
+  }
+
   private async resolveTables(): Promise<void> {
     for (const kind of TABLE_ORDER) {
       if (this.#resolved.has(kind)) continue;

@@ -5,18 +5,27 @@ import { join } from "node:path";
 
 export class SingleHostMutex {
   readonly #path: string;
+  #tail: Promise<void> = Promise.resolve();
 
   public constructor(identity: string, root = tmpdir()) {
     this.#path = join(root, `agent-task-manager-${safeName(identity)}.lock`);
   }
 
   public async run<T>(operation: () => Promise<T>): Promise<T> {
-    const handle = await this.acquire();
+    const previous = this.#tail;
+    let releaseQueue!: () => void;
+    this.#tail = new Promise<void>((resolve) => { releaseQueue = resolve; });
+    await previous;
+    let handle: Awaited<ReturnType<typeof open>> | undefined;
     try {
+      handle = await this.acquire();
       return await operation();
     } finally {
-      await handle.close();
-      await rm(this.#path, { force: true });
+      if (handle !== undefined) {
+        await handle.close();
+        await rm(this.#path, { force: true });
+      }
+      releaseQueue();
     }
   }
 

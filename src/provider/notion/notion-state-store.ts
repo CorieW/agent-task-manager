@@ -6,6 +6,7 @@ import { digestJson, sha256 } from "../../core/digest.js";
 import { toJsonValue, type JsonObject, type JsonValue } from "../../domain/json.js";
 import type { LeaseRelease, LeaseRenewal, LeaseRequest, LeaseResult } from "../../domain/records.js";
 import type { ReconciliationResult } from "../../domain/provider.js";
+import type { WriteReceipt } from "../../domain/provider.js";
 import { NotionPageStore } from "./notion-page-store.js";
 import { SingleHostMutex } from "./single-host-mutex.js";
 
@@ -132,8 +133,11 @@ export class NotionStateStore {
     });
   }
 
-  public async releaseLease(request: LeaseRelease): Promise<{ readonly observedVersion: string; readonly resourceId: string }> {
+  public async releaseLease(request: LeaseRelease): Promise<WriteReceipt> {
     return this.mutex.run(async () => {
+      const idempotencyKey = `lease-release:${request.leaseId}:${request.ownerId}`;
+      const prior = await this.beginIntent(idempotencyKey, "lease_release", request);
+      if (prior !== undefined) return parseReleaseResult(prior);
       const located = await this.findLeaseById(request.leaseId);
       if (located === null || located.record.ownerId !== request.ownerId || located.record.releasedAt !== null) {
         throw new Error("Lease release conflict");
@@ -141,9 +145,10 @@ export class NotionStateStore {
       const receipt = await this.writeRecord(
         located.key,
         { ...located.record, releasedAt: this.now().toISOString() },
-        `lease-release:${request.leaseId}:${request.ownerId}`,
+        idempotencyKey,
       );
-      return { observedVersion: receipt.observedVersion, resourceId: receipt.providerRecord.id };
+      await this.completeIntent(idempotencyKey, "lease_release", request, receipt);
+      return receipt;
     });
   }
 
@@ -156,6 +161,21 @@ export class NotionStateStore {
       if (record.scope === scope && record.subAgentId === subAgentId && record.releasedAt === null && Date.parse(record.expiresAt) > now) ids.push(record.leaseId);
     }
     return ids.sort();
+  }
+
+  public async activeTaskIds(subAgentId: string): Promise<readonly string[]> {
+    const pages = await this.pages.listBySelect("resources", "Kind", "system/lease");
+    const now = this.now().getTime();
+    const ids: string[] = [];
+    for (const page of pages) {
+      const record = parseLease(toJsonValue(JSON.parse(await this.pages.managedText(page.id, "Resource body"))));
+      if (record.scope === "task_assignment" && record.subAgentId === subAgentId && record.taskId !== null && record.releasedAt === null && Date.parse(record.expiresAt) > now) ids.push(record.taskId);
+    }
+    return [...new Set(ids)].sort();
+  }
+
+  public async runExclusive<T>(operation: () => Promise<T>): Promise<T> {
+    return this.mutex.run(operation);
   }
 
   private async findLeaseById(leaseId: string): Promise<{ readonly key: string; readonly record: LeaseRecord } | null> {
@@ -225,6 +245,18 @@ function parseLeaseResult(value: JsonValue): LeaseResult {
   const object = exactObject(value, ["acquired", "conflictingLeaseId", "leaseId"], "Lease result");
   if (typeof object.acquired !== "boolean") throw new TypeError("Lease result acquired must be boolean");
   return { acquired: object.acquired, conflictingLeaseId: nullableString(object.conflictingLeaseId, "conflictingLeaseId"), leaseId: nullableString(object.leaseId, "leaseId") };
+}
+
+function parseReleaseResult(value: JsonValue): WriteReceipt {
+  const object = exactObject(value, ["idempotencyKey", "observedVersion", "providerRecord", "writtenAt"], "Lease release result");
+  const providerRecord = exactObject(object.providerRecord ?? null, ["id", "table"], "Lease release provider record");
+  if (providerRecord.table !== "resources") throw new TypeError("Lease release receipt must reference Resources");
+  return {
+    idempotencyKey: stringValue(object.idempotencyKey, "idempotencyKey"),
+    observedVersion: stringValue(object.observedVersion, "observedVersion"),
+    providerRecord: { id: stringValue(providerRecord.id, "providerRecord.id"), table: "resources" },
+    writtenAt: stringValue(object.writtenAt, "writtenAt"),
+  };
 }
 
 function validateLeaseRequest(request: LeaseRequest, now: Date): void {

@@ -40,7 +40,7 @@ export class NotionWorkspaceReader {
   public getCapabilities(): ProviderCapabilities {
     return {
       archive: true,
-      attachments: true,
+      attachments: false,
       conditionalWrites: "optimistic",
       deterministicPagination: true,
       idempotencyLookup: true,

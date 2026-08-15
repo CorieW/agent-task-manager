@@ -51,6 +51,27 @@ export class NotionPageStore {
     return page === undefined ? null : located(page);
   }
 
+  public async findUniqueByRichText(
+    table: TableKind,
+    property: string,
+    value: string,
+  ): Promise<LocatedPage | null> {
+    const pages = await collectNotionPages((cursor) =>
+      this.transport.request({
+        body: {
+          filter: { property, rich_text: { equals: value } },
+          page_size: 100,
+          ...(cursor === null ? {} : { start_cursor: cursor }),
+        },
+        method: "POST",
+        path: `/v1/data_sources/${this.tables[table]}/query`,
+      }),
+    );
+    if (pages.length > 1) throw new Error(`${table}.${property}=${value} is not unique`);
+    const page = pages[0];
+    return page === undefined ? null : located(page);
+  }
+
   public async listBySelect(table: TableKind, property: string, value: string): Promise<readonly LocatedPage[]> {
     const pages = await collectNotionPages((cursor) =>
       this.transport.request({
@@ -92,7 +113,7 @@ export class NotionPageStore {
   }
 
   public async createOrUpdateError(error: ErrorMutation): Promise<WriteReceipt> {
-    const existing = await this.findUniqueByTitle("errors", "Error", error.title);
+    const existing = await this.findUniqueByRichText("errors", "Error Key", error.errorKey);
     const properties = errorProperties(error);
     let locatedPage: LocatedPage;
     if (existing === null) {
@@ -104,10 +125,6 @@ export class NotionPageStore {
         [{ heading: "Error Resolution", text: error.resolution }],
       );
     } else {
-      const currentKey = propertyText(existing.page, "Error Key");
-      if (currentKey !== error.errorKey) {
-        throw new Error(`Error title conflicts with a different stable Error Key: ${error.title}`);
-      }
       await this.transport.request({
         body: { properties },
         method: "PATCH",
@@ -125,6 +142,10 @@ export class NotionPageStore {
     const current = await this.getPage(change.subAgentId);
     const currentTaskIds = relationIds(pageProperty(current.page, "Working On"));
     if (!sameSet(currentTaskIds, change.expectedTaskIds)) throw new Error("Sub-agent Working On conflict");
+    const currentStatus = propertyOption(current.page, "Status");
+    if (currentStatus !== (change.expectedRunLeaseIds.length === 0 ? "Offline" : "Online")) {
+      throw new Error("Sub-agent Status conflict");
+    }
     await this.transport.request({
       body: {
         properties: {
@@ -150,7 +171,7 @@ export class NotionPageStore {
     const current = await this.getPage(mutation.taskId);
     if (current.version !== mutation.expectedVersion) throw new Error("Task version conflict");
     await this.transport.request({
-      body: { properties: encodeGenericProperties(mutation.nextProperties) },
+      body: { properties: encodeGenericProperties(mutation.nextProperties, current.page) },
       method: "PATCH",
       path: `/v1/pages/${mutation.taskId}`,
     });
@@ -283,17 +304,25 @@ function errorProperties(error: ErrorMutation): JsonObject {
   };
 }
 
-function encodeGenericProperties(properties: JsonObject): JsonObject {
-  return Object.fromEntries(Object.entries(properties).map(([name, value]) => [name, encodeProperty(value)]));
+function encodeGenericProperties(properties: JsonObject, page: JsonObject): JsonObject {
+  return Object.fromEntries(Object.entries(properties).map(([name, value]) => {
+    const current = pageProperty(page, name);
+    return [name, encodeProperty(value, requiredString(current.type, `${name} type`))];
+  }));
 }
 
-function encodeProperty(value: JsonValue): JsonObject {
-  if (typeof value === "boolean") return { checkbox: value };
-  if (typeof value === "number") return { number: value };
-  if (typeof value === "string") return richTextProperty(value);
-  if (value === null) return { rich_text: [] };
-  if (Array.isArray(value) && value.every((item) => typeof item === "string")) return relationProperty(value as string[]);
-  throw new TypeError("Task mutation property is not representable without a provider type hint");
+function encodeProperty(value: JsonValue, type: string): JsonObject {
+  if (type === "checkbox" && typeof value === "boolean") return { checkbox: value };
+  if (type === "number" && (typeof value === "number" || value === null)) return { number: value };
+  if (type === "title" && typeof value === "string") return titleProperty(value);
+  if (type === "rich_text" && typeof value === "string") return richTextProperty(value);
+  if ((type === "select" || type === "status") && (typeof value === "string" || value === null)) {
+    return { [type]: value === null ? null : { name: value } };
+  }
+  if (type === "url" && (typeof value === "string" || value === null)) return { url: value };
+  if (type === "relation" && Array.isArray(value) && value.every((item) => typeof item === "string")) return relationProperty(value as string[]);
+  if (type === "date" && (value === null || (typeof value === "object" && !Array.isArray(value)))) return { date: value };
+  throw new TypeError(`Task mutation value is invalid for Notion property type ${type}`);
 }
 
 function propertyMatches(page: JsonObject, name: string, expected: JsonValue): boolean {

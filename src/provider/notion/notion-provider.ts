@@ -1,0 +1,238 @@
+// Composes Notion workspace, record, page, and state services behind AgentTaskProvider.
+import type {
+  ActivityMutation,
+  ConditionalTaskMutation,
+  ErrorMutation,
+  LeaseRelease,
+  LeaseRenewal,
+  LeaseRequest,
+  LeaseResult,
+  ResourceMutation,
+  ResourceRecord,
+  ResourceRef,
+  SubAgentDefinition,
+  TaskQuery,
+  TaskSnapshot,
+  TaskSummary,
+} from "../../domain/records.js";
+import type {
+  ProviderCapabilities,
+  ProviderEnvironment,
+  ReconciliationResult,
+  TableKind,
+  ValidationReport,
+  WriteReceipt,
+} from "../../domain/provider.js";
+import { TABLE_KINDS } from "../../domain/provider.js";
+import { toJsonValue, type JsonObject, type JsonValue } from "../../domain/json.js";
+import type {
+  TableValidationReport,
+  WorkspaceMigrationPlan,
+  WorkspaceMigrationStep,
+  WorkspaceSchemaDescriptor,
+  WorkspaceSchemaRequest,
+  WorkspaceSchemaSnapshot,
+} from "../../domain/schema.js";
+import type { AgentTaskProvider } from "../agent-task-provider.js";
+import { compareWorkspaceSchema } from "../../core/schema-diff.js";
+import { NotionPageStore, type NotionMutableTableIds } from "./notion-page-store.js";
+import { NotionRecordReader } from "./notion-record-codec.js";
+import { createNotionWorkspaceSchema } from "./notion-schema.js";
+import { NotionStateStore } from "./notion-state-store.js";
+import type { NotionTransport } from "./notion-transport.js";
+import { NotionWorkspaceManager } from "./notion-workspace-manager.js";
+import { NotionWorkspaceReader } from "./notion-workspace-reader.js";
+import { SingleHostMutex } from "./single-host-mutex.js";
+
+export interface NotionProviderOptions {
+  readonly environment: ProviderEnvironment;
+  readonly environmentId: string;
+  readonly mutex?: SingleHostMutex;
+  readonly now?: () => Date;
+  readonly target?: WorkspaceSchemaDescriptor;
+  readonly transport: NotionTransport;
+}
+
+interface RuntimeServices {
+  readonly pages: NotionPageStore;
+  readonly reader: NotionRecordReader;
+  readonly state: NotionStateStore;
+}
+
+export class NotionProvider implements AgentTaskProvider {
+  readonly #environment: ProviderEnvironment;
+  readonly #manager: NotionWorkspaceManager;
+  readonly #mutex: SingleHostMutex;
+  readonly #now: () => Date;
+  readonly #target: WorkspaceSchemaDescriptor;
+  readonly #transport: NotionTransport;
+
+  public constructor(options: NotionProviderOptions) {
+    this.#environment = options.environment;
+    this.#target = options.target ?? createNotionWorkspaceSchema();
+    this.#transport = options.transport;
+    this.#now = options.now ?? (() => new Date());
+    this.#mutex = options.mutex ?? new SingleHostMutex(options.environmentId);
+    this.#manager = new NotionWorkspaceManager(
+      options.environmentId,
+      options.environment,
+      this.#target,
+      options.transport,
+      this.#now,
+    );
+  }
+
+  public async getCapabilities(): Promise<ProviderCapabilities> {
+    return new NotionWorkspaceReader(this.#environment, this.#target, this.#transport, this.#now).getCapabilities();
+  }
+
+  public async validateEnvironment(environment: ProviderEnvironment): Promise<ValidationReport> {
+    return new NotionWorkspaceReader(environment, this.#target, this.#transport, this.#now).validateEnvironment();
+  }
+
+  public async validateTables(): Promise<TableValidationReport> {
+    return compareWorkspaceSchema(await this.#manager.inspectWorkspaceSchema(), this.#target);
+  }
+
+  public async inspectWorkspaceSchema(): Promise<WorkspaceSchemaSnapshot> {
+    return this.#manager.inspectWorkspaceSchema();
+  }
+
+  public async planWorkspaceChanges(request: WorkspaceSchemaRequest): Promise<WorkspaceMigrationPlan> {
+    return this.#manager.planWorkspaceChanges(request);
+  }
+
+  public async applyWorkspaceStep(step: WorkspaceMigrationStep): Promise<WriteReceipt> {
+    return this.#manager.applyWorkspaceStep(step);
+  }
+
+  public async reconcileWorkspaceStep(stepId: string): Promise<ReconciliationResult> {
+    return this.#manager.reconcileWorkspaceStep(stepId);
+  }
+
+  public async listSubAgentDefinitions(): Promise<readonly SubAgentDefinition[]> {
+    return (await this.runtime()).reader.listSubAgentDefinitions();
+  }
+
+  public async getSubAgentDefinition(id: string): Promise<SubAgentDefinition> {
+    return (await this.runtime()).reader.getSubAgentDefinition(id);
+  }
+
+  public async updateSubAgentActivity(change: ActivityMutation): Promise<WriteReceipt> {
+    const runtime = await this.runtime();
+    return runtime.state.runExclusive(async () => {
+      const prior = await runtime.state.beginIntent(change.idempotencyKey, "agent_activity", change);
+      if (prior !== undefined) return parseWriteReceipt(prior);
+      const activeRuns = await runtime.state.activeLeaseIds("agent_run", change.subAgentId);
+      const activeTasks = await runtime.state.activeTaskIds(change.subAgentId);
+      if (!sameSet(activeRuns, change.nextRunLeaseIds) || !sameSet(activeTasks, change.nextTaskIds)) {
+        throw new Error("Sub-agent activity must equal the provider's active lease projection");
+      }
+      const receipt = await runtime.pages.updateSubAgentActivity(change);
+      await runtime.state.completeIntent(change.idempotencyKey, "agent_activity", change, receipt);
+      return receipt;
+    });
+  }
+
+  public async listTaskSummaries(query: TaskQuery): Promise<readonly TaskSummary[]> {
+    return (await this.runtime()).reader.listTaskSummaries(query);
+  }
+
+  public async getTaskSnapshot(taskId: string): Promise<TaskSnapshot> {
+    return (await this.runtime()).reader.getTaskSnapshot(taskId);
+  }
+
+  public async applyTaskMutation(mutation: ConditionalTaskMutation): Promise<WriteReceipt> {
+    const runtime = await this.runtime();
+    return runtime.state.runExclusive(async () => {
+      const prior = await runtime.state.beginIntent(mutation.idempotencyKey, "task", mutation);
+      if (prior !== undefined) return parseWriteReceipt(prior);
+      const receipt = await runtime.pages.applyTaskMutation(mutation);
+      await runtime.state.completeIntent(mutation.idempotencyKey, "task", mutation, receipt);
+      return receipt;
+    });
+  }
+
+  public async getResources(refs: readonly ResourceRef[]): Promise<readonly ResourceRecord[]> {
+    return (await this.runtime()).reader.getResources(refs);
+  }
+
+  public async putResource(record: ResourceMutation): Promise<WriteReceipt> {
+    if (record.key.startsWith("system/")) throw new Error("system/ Resource keys are reserved by Agent Task Manager");
+    const runtime = await this.runtime();
+    return runtime.state.runExclusive(async () => {
+      const prior = await runtime.state.beginIntent(record.idempotencyKey, "resource", record);
+      if (prior !== undefined) return parseWriteReceipt(prior);
+      const receipt = await runtime.pages.createResource(record);
+      await runtime.state.completeIntent(record.idempotencyKey, "resource", record, receipt);
+      return receipt;
+    });
+  }
+
+  public async acquireLease(request: LeaseRequest): Promise<LeaseResult> {
+    return (await this.runtime()).state.acquireLease(request);
+  }
+
+  public async renewLease(request: LeaseRenewal): Promise<LeaseResult> {
+    return (await this.runtime()).state.renewLease(request);
+  }
+
+  public async releaseLease(request: LeaseRelease): Promise<WriteReceipt> {
+    return (await this.runtime()).state.releaseLease(request);
+  }
+
+  public async createOrUpdateError(error: ErrorMutation): Promise<WriteReceipt> {
+    const runtime = await this.runtime();
+    return runtime.state.runExclusive(async () => {
+      const prior = await runtime.state.beginIntent(error.idempotencyKey, "error", error);
+      if (prior !== undefined) return parseWriteReceipt(prior);
+      const receipt = await runtime.pages.createOrUpdateError(error);
+      await runtime.state.completeIntent(error.idempotencyKey, "error", error, receipt);
+      return receipt;
+    });
+  }
+
+  public async reconcileIntent(intentId: string): Promise<ReconciliationResult> {
+    return (await this.runtime()).state.reconcileIntent(intentId);
+  }
+
+  private async runtime(): Promise<RuntimeServices> {
+    const partial = await this.#manager.resolveTableIds();
+    for (const kind of TABLE_KINDS) if (partial[kind] === undefined) throw new Error(`Notion runtime requires configured or discoverable ${kind} table`);
+    const tables = partial as NotionMutableTableIds;
+    const pages = new NotionPageStore(tables, this.#transport, this.#now);
+    return {
+      pages,
+      reader: new NotionRecordReader(tables, this.#transport),
+      state: new NotionStateStore(pages, this.#mutex, this.#now),
+    };
+  }
+}
+
+function parseWriteReceipt(value: JsonValue): WriteReceipt {
+  const object = jsonObject(value, "Write receipt");
+  const providerRecord = jsonObject(object.providerRecord, "Provider record");
+  const table = stringValue(providerRecord.table, "Provider record table");
+  if (!TABLE_KINDS.includes(table as TableKind)) throw new TypeError("Provider record table is invalid");
+  return {
+    idempotencyKey: stringValue(object.idempotencyKey, "Receipt idempotencyKey"),
+    observedVersion: stringValue(object.observedVersion, "Receipt observedVersion"),
+    providerRecord: { id: stringValue(providerRecord.id, "Provider record id"), table: table as TableKind },
+    writtenAt: stringValue(object.writtenAt, "Receipt writtenAt"),
+  };
+}
+
+function jsonObject(value: JsonValue | undefined, label: string): JsonObject {
+  const checked = toJsonValue(value);
+  if (checked === null || typeof checked !== "object" || Array.isArray(checked)) throw new TypeError(`${label} must be an object`);
+  return checked;
+}
+
+function stringValue(value: JsonValue | undefined, label: string): string {
+  if (typeof value !== "string" || value === "") throw new TypeError(`${label} must be a non-empty string`);
+  return value;
+}
+
+function sameSet(left: readonly string[], right: readonly string[]): boolean {
+  return [...new Set(left)].sort().join("\0") === [...new Set(right)].sort().join("\0");
+}
