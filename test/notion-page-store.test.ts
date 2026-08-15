@@ -44,7 +44,8 @@ class MutableTransport implements NotionTransport {
         Object.entries(objectValue(body.properties)).map(([name, value]) => {
           const update = objectValue(value);
           const prior = objectValue(priorProperties[name]);
-          return [name, { ...prior, ...update, type: prior.type }];
+          const type = typeof prior.type === "string" ? prior.type : Object.keys(update)[0] ?? "unknown";
+          return [name, { ...prior, ...update, type }];
         }),
       );
       const next = this.newPage(pageMatch[1], String(page.parent), { ...priorProperties, ...updates });
