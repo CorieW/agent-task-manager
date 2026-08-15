@@ -433,8 +433,8 @@ function assertBlocker(blocker: IdentificationTrialBlocker): void {
   assertBoundedString(blocker.description, "Blocker description", 4_000);
   assertBoundedString(blocker.resolution, "Blocker resolution", 4_000);
   assertBoundedString(blocker.title, "Blocker title", 200);
-  assertExactKeys(blocker.error, ["description", "errorKey", "idempotencyKey", "relatedRunId", "relatedSubAgentId", "relatedTaskId", "resolution", "severity", "title"], "Identification trial Error proposal");
-  if (blocker.error.description !== blocker.description || blocker.error.resolution !== blocker.resolution || blocker.error.title !== blocker.title || blocker.error.severity !== "high") throw new Error("Identification trial blocker Error proposal is inconsistent");
+  assertExactKeys(blocker.error, ["description", "errorKey", "idempotencyKey", "relatedRunId", "relatedSubAgentId", "relatedTaskId", "resolution", "severity", "status", "title"], "Identification trial Error proposal");
+  if (blocker.error.description !== blocker.description || blocker.error.resolution !== blocker.resolution || blocker.error.title !== blocker.title || blocker.error.severity !== "high" || blocker.error.status !== "Not Fixed") throw new Error("Identification trial blocker Error proposal is inconsistent");
 }
 
 function safeSum(left: number, right: number, label: string): number {
