@@ -391,6 +391,11 @@ replay until reconciliation can prove the outcome. Live assignment, lease,
 Task, role, and Resource authority is revalidated immediately before every
 effect. Local files are never the durable journal.
 
+Immediately before invoking `apply`, the broker durably enables automatic
+replay blocking on the intent. Only a durably stored terminal `applied` or
+`failed` observation clears it. This write-ahead quarantine remains effective
+even if the provider becomes unavailable after external execution begins.
+
 Workspace ownership is likewise stored as a provider-backed
 `workspace-ownership-v1` Resource and serialized with a provider lease. The
 runtime never uses a sidecar file as ownership authority. If a handler does not

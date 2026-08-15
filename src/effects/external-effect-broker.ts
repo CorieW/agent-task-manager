@@ -68,7 +68,7 @@ export class ExternalEffectBroker {
 
     let observed: ExternalEffectObservation;
     try { observed = await invokeHandler((control) => handler.reconcile(request, control), deadlineAt, this.cancellationGraceMilliseconds); }
-    catch (error) { const blocked = record.automaticReplayBlocked || executionMayContinue(error); await this.pauseForUnknown(record, error, blocked); throw new IndeterminateExternalEffectError(request.effectId, blocked); }
+    catch (error) { const mayContinue = executionMayContinue(error); await this.pauseForUnknown(record, error, record.automaticReplayBlocked || mayContinue); throw new IndeterminateExternalEffectError(request.effectId, mayContinue); }
     validateEffectObservation(observed);
     if (record.automaticReplayBlocked) {
       if (observed.state === "applied" || observed.state === "failed") return this.finalizeOrPause(record, request, observed);
@@ -77,11 +77,13 @@ export class ExternalEffectBroker {
     }
     if (observed.state !== "not_applied") return this.finalizeOrPause(record, request, observed);
 
+    record = { ...record, automaticReplayBlocked: true, lastObservation: observed };
+    await this.journal.write(record);
     let applied: ExternalEffectObservation;
     try { applied = await invokeHandler((control) => handler.apply(request, control), deadlineAt, this.cancellationGraceMilliseconds); }
     catch (error) {
-      const blocked = record.automaticReplayBlocked || executionMayContinue(error); await this.pauseForUnknown(record, error, blocked);
-      throw new IndeterminateExternalEffectError(request.effectId, blocked);
+      const mayContinue = executionMayContinue(error); await this.pauseForUnknown(record, error, record.automaticReplayBlocked || mayContinue);
+      throw new IndeterminateExternalEffectError(request.effectId, mayContinue);
     }
     validateEffectObservation(applied);
     if (applied.state === "indeterminate") return this.finalizeOrPause(record, request, applied);
@@ -96,7 +98,7 @@ export class ExternalEffectBroker {
 
   private async finalizeOrPause(record: ExternalEffectIntentRecord, request: ExternalEffectRequest, observation: ExternalEffectObservation): Promise<ExternalEffectExecution> {
     if (observation.state === "indeterminate") {
-      await this.journal.write({ ...record, automaticReplayBlocked: false, lastObservation: observation, state: "indeterminate" });
+      await this.journal.write({ ...record, lastObservation: observation, state: "indeterminate" });
       throw new IndeterminateExternalEffectError(record.effectId);
     }
     const receipt: ExternalEffectReceipt = {

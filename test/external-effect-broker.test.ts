@@ -68,6 +68,15 @@ test("preflights a complete result before applying its first effect", async () =
   await assert.rejects(broker.executeResult(result, deadline()), /bad second payload/); assert.equal(applications, 0);
 });
 
+test("persists replay quarantine before invoking an external apply", async () => {
+  const provider = new InMemoryProvider(environment, target); let writeAheadObserved = false;
+  const request = requestFor("git.commit", { message: "fix: write ahead" });
+  const handler = testHandler({ async apply() { writeAheadObserved = (await provider.getOptionalResource(`external-effect-intent/${request.effectId}`))?.body.includes('"automaticReplayBlocked":true') === true; return applied("write-ahead"); } });
+  await brokerFor(provider, handler).execute(request, deadline());
+  assert.equal(writeAheadObserved, true);
+  assert.equal((await provider.getOptionalResource(`external-effect-intent/${request.effectId}`))?.body.includes('"automaticReplayBlocked":false'), true);
+});
+
 test("retains the provider claim when deadline cancellation is not acknowledged", async () => {
   const provider = new InMemoryProvider(environment, target);
   const handler = testHandler({ async apply() { return new Promise<ExternalEffectObservation>(() => undefined); } });
@@ -86,7 +95,7 @@ test("durable quarantine blocks replay after its provider claim expires", async 
   const request = requestFor("git.commit", { message: "fix: durable quarantine" });
   await assert.rejects(broker.execute(request, Date.now() + 25), (error: unknown) => error instanceof IndeterminateExternalEffectError && error.retainClaimUntilExpiry);
   await new Promise((resolve) => setTimeout(resolve, 10));
-  await assert.rejects(broker.execute(request, deadline()), (error: unknown) => error instanceof IndeterminateExternalEffectError && error.retainClaimUntilExpiry);
+  await assert.rejects(broker.execute(request, deadline()), (error: unknown) => error instanceof IndeterminateExternalEffectError && !error.retainClaimUntilExpiry);
   assert.equal(applications, 1);
   assert.equal((await provider.getOptionalResource(`external-effect-intent/${request.effectId}`))?.body.includes('"automaticReplayBlocked":true'), true);
 });
