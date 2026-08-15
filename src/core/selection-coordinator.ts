@@ -32,9 +32,12 @@ export interface AssignmentPromotion {
   readonly operationDigest: string;
   readonly ownerId: string;
   readonly runLeaseId: string;
+  readonly selectionBasisDigest: string;
   readonly targetSubAgentId: string;
   readonly taskId: string;
   readonly taskLeaseId: string;
+  readonly taskStatus: string;
+  readonly taskVersion: string;
 }
 
 export interface ExplicitAssignmentCore {
@@ -53,6 +56,24 @@ export interface ExplicitAssignment extends ExplicitAssignmentCore {
 
 export function finalizeExplicitAssignment(core: ExplicitAssignmentCore): ExplicitAssignment {
   return { ...core, digest: digestJson(toJsonValue(core)) };
+}
+
+export async function verifyAssignmentPromotion(provider: AgentTaskProvider, promotion: AssignmentPromotion): Promise<void> {
+  const resource = await provider.getOptionalResource(`assignment-intent/${promotion.operationDigest}`);
+  if (resource === null || resource.kind !== "system/assignment-intent" || resource.state !== "active" || resource.version !== "v1" || resource.digest !== sha256(resource.body)) {
+    throw new Error("Assignment promotion Resource is missing or invalid");
+  }
+  const parsed: unknown = JSON.parse(resource.body);
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Assignment promotion receipt is malformed");
+  const value = parsed as Record<string, unknown>;
+  const expected = {
+    operationDigest: promotion.operationDigest, ownerId: promotion.ownerId, runLeaseId: promotion.runLeaseId,
+    schema: "assignment-intent-v1", selectionBasisDigest: promotion.selectionBasisDigest, state: "complete",
+    targetSubAgentId: promotion.targetSubAgentId, taskId: promotion.taskId, taskLeaseId: promotion.taskLeaseId,
+    taskStatus: promotion.taskStatus, taskVersion: promotion.taskVersion,
+  };
+  if (Object.keys(value).sort().join("\0") !== Object.keys(expected).sort().join("\0")) throw new Error("Assignment promotion receipt has unexpected fields");
+  for (const [key, expectedValue] of Object.entries(expected)) if (value[key] !== expectedValue) throw new Error("Assignment promotion receipt does not match the dispatch");
 }
 
 export function parseExplicitAssignment(value: JsonValue): ExplicitAssignment {
@@ -153,8 +174,11 @@ export async function promoteSelection(input: {
     operationDigest: result.digest,
     ownerId: input.ownerId,
     provider: input.provider,
+    selectionBasisDigest: input.selectionContext.basisDigest,
     target,
     taskId,
+    taskStatus: task.status,
+    taskVersion: task.version,
   });
   if (result.mode !== "self") await releaseAndProjectSelector(input.provider, selector.id, input.selectorRunLeaseId, input.ownerId, result.digest);
   return promotion;
@@ -197,8 +221,11 @@ export async function promoteExplicitAssignment(input: {
     operationDigest: parsed.digest,
     ownerId: input.ownerId,
     provider: input.provider,
+    selectionBasisDigest: input.selectionContext.basisDigest,
     target,
     taskId: parsed.taskId,
+    taskStatus: task.status,
+    taskVersion: task.version,
   });
 }
 
@@ -208,14 +235,17 @@ async function acquireAndProject(input: {
   readonly operationDigest: string;
   readonly ownerId: string;
   readonly provider: AgentTaskProvider;
+  readonly selectionBasisDigest: string;
   readonly target: SubAgentDefinition;
   readonly taskId: string;
+  readonly taskStatus: string;
+  readonly taskVersion: string;
 }): Promise<AssignmentPromotion> {
   const intentKey = `assignment-intent/${input.operationDigest}`;
   const priorIntent = await readAssignmentIntent(input.provider, intentKey, input);
   if (priorIntent?.state === "complete") {
     if (priorIntent.runLeaseId === null || priorIntent.taskLeaseId === null) throw new Error("Completed assignment intent is missing lease identities");
-    return { operationDigest: input.operationDigest, ownerId: input.ownerId, runLeaseId: priorIntent.runLeaseId, targetSubAgentId: input.target.id, taskId: input.taskId, taskLeaseId: priorIntent.taskLeaseId };
+    return { operationDigest: input.operationDigest, ownerId: input.ownerId, runLeaseId: priorIntent.runLeaseId, selectionBasisDigest: input.selectionBasisDigest, targetSubAgentId: input.target.id, taskId: input.taskId, taskLeaseId: priorIntent.taskLeaseId, taskStatus: input.taskStatus, taskVersion: input.taskVersion };
   }
   await writeAssignmentIntent(input.provider, intentKey, input, priorIntent ?? {
     runLeaseId: input.existingRunLeaseId,
@@ -264,7 +294,7 @@ async function acquireAndProject(input: {
   }
   if (!activityMatches(await input.provider.getSubAgentActivity(input.target.id), afterProjection)) throw new Error("Selected Sub-agent activity did not verify");
   await writeAssignmentIntent(input.provider, intentKey, input, { runLeaseId, state: "complete", taskLeaseId: taskLease.leaseId });
-  return { operationDigest: input.operationDigest, ownerId: input.ownerId, runLeaseId, targetSubAgentId: input.target.id, taskId: input.taskId, taskLeaseId: taskLease.leaseId };
+  return { operationDigest: input.operationDigest, ownerId: input.ownerId, runLeaseId, selectionBasisDigest: input.selectionBasisDigest, targetSubAgentId: input.target.id, taskId: input.taskId, taskLeaseId: taskLease.leaseId, taskStatus: input.taskStatus, taskVersion: input.taskVersion };
 }
 
 type AssignmentIntentState = "compensated" | "complete" | "prepared" | "run_acquired" | "task_acquired";
@@ -277,14 +307,14 @@ interface AssignmentIntentProgress {
 async function readAssignmentIntent(
   provider: AgentTaskProvider,
   key: string,
-  input: { readonly operationDigest: string; readonly ownerId: string; readonly target: SubAgentDefinition; readonly taskId: string },
+  input: { readonly operationDigest: string; readonly ownerId: string; readonly selectionBasisDigest: string; readonly target: SubAgentDefinition; readonly taskId: string; readonly taskStatus: string; readonly taskVersion: string },
 ): Promise<AssignmentIntentProgress | null> {
   const resource = await provider.getOptionalResource(key);
   if (resource === null) return null;
   const parsed: unknown = JSON.parse(resource.body);
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Assignment intent is malformed");
   const value = parsed as Record<string, unknown>;
-  if (value.schema !== "assignment-intent-v1" || value.operationDigest !== input.operationDigest || value.ownerId !== input.ownerId || value.targetSubAgentId !== input.target.id || value.taskId !== input.taskId) {
+  if (value.schema !== "assignment-intent-v1" || value.operationDigest !== input.operationDigest || value.ownerId !== input.ownerId || value.selectionBasisDigest !== input.selectionBasisDigest || value.targetSubAgentId !== input.target.id || value.taskId !== input.taskId || value.taskStatus !== input.taskStatus || value.taskVersion !== input.taskVersion) {
     throw new Error("Assignment intent identity conflicts with the requested promotion");
   }
   if (!(["compensated", "complete", "prepared", "run_acquired", "task_acquired"] as const).includes(value.state as AssignmentIntentState)) {
@@ -299,7 +329,7 @@ async function readAssignmentIntent(
 async function writeAssignmentIntent(
   provider: AgentTaskProvider,
   key: string,
-  input: { readonly operationDigest: string; readonly ownerId: string; readonly target: SubAgentDefinition; readonly taskId: string },
+  input: { readonly operationDigest: string; readonly ownerId: string; readonly selectionBasisDigest: string; readonly target: SubAgentDefinition; readonly taskId: string; readonly taskStatus: string; readonly taskVersion: string },
   progress: AssignmentIntentProgress,
 ): Promise<void> {
   const body = JSON.stringify({
@@ -308,9 +338,12 @@ async function writeAssignmentIntent(
     runLeaseId: progress.runLeaseId,
     schema: "assignment-intent-v1",
     state: progress.state,
+    selectionBasisDigest: input.selectionBasisDigest,
     targetSubAgentId: input.target.id,
     taskId: input.taskId,
     taskLeaseId: progress.taskLeaseId,
+    taskStatus: input.taskStatus,
+    taskVersion: input.taskVersion,
   });
   const record: ResourceMutation = {
     body, dependencies: [], digest: sha256(body), idempotencyKey: `${key}:${progress.state}:${sha256(body)}`,

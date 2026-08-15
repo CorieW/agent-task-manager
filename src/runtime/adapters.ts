@@ -18,7 +18,7 @@ export interface ModelTransportSession {
 
 export interface ModelTransportAdapter {
   readonly id: string;
-  prepare(input: { readonly model: string; readonly reasoning: string; readonly runId: string }): Promise<ModelTransportSession>;
+  prepare(input: { readonly model: string; readonly reasoning: string; readonly runId: string; readonly signal: AbortSignal }): Promise<ModelTransportSession>;
 }
 
 export interface ToolIsolationPolicy {
@@ -45,7 +45,7 @@ export interface ToolIsolationSession {
 
 export interface ToolIsolationAdapter {
   readonly id: string;
-  prepare(policy: ToolIsolationPolicy): Promise<ToolIsolationSession>;
+  prepare(policy: ToolIsolationPolicy, signal: AbortSignal): Promise<ToolIsolationSession>;
 }
 
 export interface AgentRunnerIdentity {
@@ -82,6 +82,7 @@ export interface AgentRunnerAdapter {
     readonly outputSchema: JsonObject;
     readonly outputLimitBytes: number;
     readonly toolIsolationHandle: unknown;
+    readonly signal: AbortSignal;
   }): Promise<SupervisedAgentProcess>;
 }
 

@@ -1,7 +1,7 @@
 // Launches one currently assigned Sub-agent through environment-bound trusted adapters.
 import { digestJson } from "../core/digest.js";
 import { activateDefinitions, type ActivatedDefinition } from "../core/definition-activation.js";
-import type { ActivationRuntime, AssignmentPromotion } from "../core/selection-coordinator.js";
+import { verifyAssignmentPromotion, type ActivationRuntime, type AssignmentPromotion } from "../core/selection-coordinator.js";
 import { assertSupportedJsonSchema } from "../core/json-schema.js";
 import { toJsonValue, type JsonObject } from "../domain/json.js";
 import type { AgentTaskProvider } from "../provider/agent-task-provider.js";
@@ -59,9 +59,15 @@ async function dispatchVerified(input: {
   let isolation: ToolIsolationSession | null = null;
   let primaryError: unknown;
   try {
-    controlPlane = await withinDeadline(input.runtime.modelTransport.prepare({ model: definition.model, reasoning: definition.reasoning, runId }), deadlineAt, "model_prepare_timeout");
+    controlPlane = await cancellableWithinDeadline(
+      (signal) => input.runtime.modelTransport.prepare({ model: definition.model, reasoning: definition.reasoning, runId, signal }),
+      deadlineAt, input.runtime.config.postKillReapMilliseconds, "model_prepare_timeout", (session) => session.close(),
+    );
     validateModelReceipt(input.runtime, definition.model, definition.reasoning, runId, controlPlane);
-    isolation = await withinDeadline(input.runtime.toolIsolation.prepare(policy), deadlineAt, "isolation_prepare_timeout");
+    isolation = await cancellableWithinDeadline(
+      (signal) => input.runtime.toolIsolation.prepare(policy, signal),
+      deadlineAt, input.runtime.config.postKillReapMilliseconds, "isolation_prepare_timeout", (session) => session.close(),
+    );
     validateIsolationReceipt(input.runtime, runId, policyDigest, isolation);
     const runtimeReceipt: RuntimeCapabilityReceipt = {
       controlPlaneSeparated: controlPlane.receipt.separatedFromToolProcesses,
@@ -86,6 +92,8 @@ async function dispatchVerified(input: {
     };
     validateRuntimeCapabilityReceipt(runtimeReceipt);
     const context = await compileRunContext({ activated: input.activated, additionalInput: input.additionalInput, provider: input.provider, runId, runtimeReceipt, taskId: input.promotion.taskId });
+    const controlPlaneHandle = controlPlane.opaqueHandle;
+    const toolIsolationHandle = isolation.opaqueHandle;
     const outputResource = input.activated.resolved.resources.find((resource) => resource.key === definition.outputSchema);
     if (outputResource === undefined) throw new RuntimeDispatchError("output_schema_missing", "Output schema Resource is absent from the resolved definition");
     const outputSchema = jsonObject(JSON.parse(outputResource.body), "Output schema");
@@ -95,9 +103,12 @@ async function dispatchVerified(input: {
       const remaining = deadlineAt - Date.now();
       if (remaining < 1) throw new RuntimeDispatchError("deadline_exceeded", "Agent dispatch exceeded its total deadline");
       try {
-        const process = await withinDeadline(input.runtime.runner.start({ context, controlPlaneHandle: controlPlane.opaqueHandle, outputLimitBytes: input.runtime.config.outputLimitBytes, outputSchema, toolIsolationHandle: isolation.opaqueHandle }), deadlineAt, "runner_start_timeout");
+        const process = await cancellableWithinDeadline(
+          (signal) => input.runtime.runner.start({ context, controlPlaneHandle, outputLimitBytes: input.runtime.config.outputLimitBytes, outputSchema, signal, toolIsolationHandle }),
+          deadlineAt, input.runtime.config.postKillReapMilliseconds, "runner_start_timeout", disposeLateProcess,
+        );
         const supervised = await superviseProcess({
-          deadlineMilliseconds: remaining,
+          deadlineAt,
           graceMilliseconds: input.runtime.config.terminationGraceMilliseconds,
           outputLimitBytes: input.runtime.config.outputLimitBytes,
           postKillReapMilliseconds: input.runtime.config.postKillReapMilliseconds,
@@ -133,18 +144,19 @@ async function verifyLiveAssignment(input: {
   const fresh = await activateDefinitions({ ...input.activationRuntime, provider: input.provider });
   const matches = fresh.filter(({ resolved }) => resolved.definition.id === definitionId);
   if (matches.length !== 1 || matches[0] === undefined || matches[0].digest !== input.activated.digest) throw new RuntimeDispatchError("activation_changed", "Sub-agent definition, Resources, or capability grant changed before dispatch");
-  const intent = await input.provider.getOptionalResource(`assignment-intent/${input.promotion.operationDigest}`);
-  if (intent === null) throw new RuntimeDispatchError("assignment_receipt_missing", "Assignment promotion receipt is missing");
-  const value = jsonObject(JSON.parse(intent.body), "Assignment promotion receipt");
-  if (value.schema !== "assignment-intent-v1" || value.state !== "complete" || value.operationDigest !== input.promotion.operationDigest || value.ownerId !== input.promotion.ownerId || value.runLeaseId !== input.promotion.runLeaseId || value.taskLeaseId !== input.promotion.taskLeaseId || value.targetSubAgentId !== definitionId || value.taskId !== input.promotion.taskId) {
-    throw new RuntimeDispatchError("assignment_receipt_invalid", "Assignment promotion receipt does not match the dispatch");
-  }
+  try { await verifyAssignmentPromotion(input.provider, input.promotion); }
+  catch (error) { throw new RuntimeDispatchError("assignment_receipt_invalid", "Assignment promotion receipt does not match the dispatch", { cause: error }); }
   const projection = await input.provider.getLeaseProjection(definitionId);
   if (!projection.runLeaseIds.includes(input.promotion.runLeaseId) || !projection.taskLeaseIds.includes(input.promotion.taskLeaseId) || !projection.taskIds.includes(input.promotion.taskId)) throw new RuntimeDispatchError("assignment_inactive", "Assignment leases are not active");
   const activity = await input.provider.getSubAgentActivity(definitionId);
   if (activity.status !== "Online" || !sameSet(activity.taskIds, projection.taskIds)) throw new RuntimeDispatchError("activity_mismatch", "Sub-agent Status or Working On does not match active leases");
   const task = await input.provider.getTaskSnapshot(input.promotion.taskId);
   if (task.archived) throw new RuntimeDispatchError("task_archived", "Assigned Task is archived");
+  if (task.version !== input.promotion.taskVersion || task.status !== input.promotion.taskStatus) throw new RuntimeDispatchError("task_basis_changed", "Assigned Task changed after selection");
+  for (const dependencyId of task.dependencies) {
+    const dependency = await input.provider.getTaskSnapshot(dependencyId);
+    if (dependency.archived || !matches[0].resolved.taskQuery?.dependencySatisfiedStatuses.includes(dependency.status)) throw new RuntimeDispatchError("task_dependency_changed", "Assigned Task dependency state changed after selection");
+  }
   return matches[0];
 }
 
@@ -205,4 +217,32 @@ async function withinDeadline<T>(promise: Promise<T>, deadlineAt: number, code: 
   try {
     return await Promise.race([promise, new Promise<T>((_resolve, reject) => { timer = setTimeout(() => reject(new RuntimeDispatchError(code, "Trusted runtime operation exceeded its deadline")), remaining); })]);
   } finally { if (timer !== undefined) clearTimeout(timer); }
+}
+async function cancellableWithinDeadline<T>(
+  start: (signal: AbortSignal) => Promise<T>, deadlineAt: number, cancellationMilliseconds: number, code: string, dispose: (value: T) => Promise<void>,
+): Promise<T> {
+  const controller = new AbortController();
+  const operation = start(controller.signal);
+  try { return await withinDeadline(operation, deadlineAt, code); }
+  catch (error) {
+    if (!(error instanceof RuntimeDispatchError) || error.code !== code) throw error;
+    controller.abort(error);
+    const lateCleanup = operation.then(dispose, () => undefined);
+    const acknowledged = await settleBefore(operation.then(() => true, () => true), cancellationMilliseconds);
+    if (acknowledged === null) {
+      void lateCleanup;
+      throw new RuntimeDispatchError(`${code}_unacknowledged`, "Trusted runtime operation did not acknowledge cancellation", { cause: error });
+    }
+    await lateCleanup;
+    throw error;
+  }
+}
+async function disposeLateProcess(process: Awaited<ReturnType<ResolvedRuntimeEnvironment["runner"]["start"]>>): Promise<void> {
+  await Promise.allSettled([process.terminateTree(), process.killTree()]);
+  await process.cleanup();
+}
+async function settleBefore<T>(promise: Promise<T>, milliseconds: number): Promise<T | null> {
+  let timer: NodeJS.Timeout | undefined;
+  try { return await Promise.race([promise, new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), milliseconds); })]); }
+  finally { if (timer !== undefined) clearTimeout(timer); }
 }

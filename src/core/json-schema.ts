@@ -11,7 +11,7 @@ const TYPE_KEYS: Readonly<Record<string, ReadonlySet<string>>> = {
   array: new Set(["items", "maxItems", "minItems", "uniqueItems"]), boolean: new Set(),
   integer: new Set(["maximum", "minimum"]), null: new Set(), number: new Set(["maximum", "minimum"]),
   object: new Set(["additionalProperties", "maxProperties", "minProperties", "properties", "required"]),
-  string: new Set(["maxLength", "minLength", "pattern"]),
+  string: new Set(["maxLength", "minLength"]),
 };
 
 export function assertSupportedJsonSchema(schema: JsonObject, label = "JSON Schema"): void {
@@ -45,20 +45,19 @@ function assertSchemaNode(schema: JsonObject, path: string, label: string): void
     assertSchemaNode(schema.items, `${path}.items`, label);
     assertNonNegativeInteger(schema.minItems, `${label} ${path}.minItems`);
     assertNonNegativeInteger(schema.maxItems, `${label} ${path}.maxItems`);
+    assertBounds(schema.minItems, schema.maxItems, `${label} ${path} item`);
     if (schema.uniqueItems !== undefined && typeof schema.uniqueItems !== "boolean") throw new TypeError(`${label} ${path}.uniqueItems must be boolean`);
   }
   if (type === "string") {
     assertNonNegativeInteger(schema.minLength, `${label} ${path}.minLength`);
     assertNonNegativeInteger(schema.maxLength, `${label} ${path}.maxLength`);
-    if (schema.pattern !== undefined) {
-      if (typeof schema.pattern !== "string") throw new TypeError(`${label} ${path}.pattern must be a string`);
-      try { new RegExp(schema.pattern, "u"); } catch { throw new TypeError(`${label} ${path}.pattern is invalid`); }
-    }
+    assertBounds(schema.minLength, schema.maxLength, `${label} ${path} length`);
   }
   if (type === "number" || type === "integer") for (const key of ["minimum", "maximum"] as const) {
     const value = schema[key];
     if (value !== undefined && (typeof value !== "number" || !Number.isFinite(value))) throw new TypeError(`${label} ${path}.${key} must be finite`);
   }
+  if (type === "number" || type === "integer") assertBounds(schema.minimum, schema.maximum, `${label} ${path} numeric`);
 }
 
 function assertObjectSchema(schema: JsonObject, path: string, label: string): void {
@@ -72,11 +71,15 @@ function assertObjectSchema(schema: JsonObject, path: string, label: string): vo
   for (const key of schema.required as string[]) if (!(key in schema.properties)) throw new TypeError(`${label} ${path}.required names an unknown property: ${key}`);
   assertNonNegativeInteger(schema.minProperties, `${label} ${path}.minProperties`);
   assertNonNegativeInteger(schema.maxProperties, `${label} ${path}.maxProperties`);
+  assertBounds(schema.minProperties, schema.maxProperties, `${label} ${path} property`);
 }
 
 function assertNonNegativeInteger(value: JsonValue | undefined, label: string): void {
   if (value === undefined) return;
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) throw new TypeError(`${label} must be a non-negative integer`);
+}
+function assertBounds(minimum: JsonValue | undefined, maximum: JsonValue | undefined, label: string): void {
+  if (typeof minimum === "number" && typeof maximum === "number" && minimum > maximum) throw new TypeError(`${label} minimum cannot exceed maximum`);
 }
 
 function validateNode(schema: JsonObject, value: JsonValue, path: string, issues: SchemaValidationIssue[]): void {
@@ -114,7 +117,6 @@ function validateArray(schema: JsonObject, value: readonly JsonValue[], path: st
 function validateString(schema: JsonObject, value: string, path: string, issues: SchemaValidationIssue[]): void {
   if (typeof schema.minLength === "number" && value.length < schema.minLength) issues.push({ message: `must be at least ${schema.minLength} characters`, path });
   if (typeof schema.maxLength === "number" && value.length > schema.maxLength) issues.push({ message: `must be at most ${schema.maxLength} characters`, path });
-  if (typeof schema.pattern === "string" && !new RegExp(schema.pattern, "u").test(value)) issues.push({ message: "does not match its pattern", path });
 }
 
 function validateNumber(schema: JsonObject, value: number, path: string, issues: SchemaValidationIssue[]): void {

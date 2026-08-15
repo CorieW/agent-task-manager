@@ -12,7 +12,6 @@ export interface ProcessTelemetry {
   readonly durationMilliseconds: number;
   readonly exitCode: number | null;
   readonly hardKilled: boolean;
-  readonly outputLimitExceeded: boolean;
   readonly schema: "process-telemetry-v2";
   readonly stderrBytes: number;
   readonly stderrDigest: string;
@@ -31,14 +30,14 @@ export interface SupervisedCompletion {
 }
 
 export async function superviseProcess(input: {
-  readonly deadlineMilliseconds: number;
+  readonly deadlineAt: number;
   readonly graceMilliseconds: number;
   readonly now?: () => number;
   readonly outputLimitBytes: number;
   readonly postKillReapMilliseconds: number;
   readonly process: SupervisedAgentProcess;
 }): Promise<SupervisedCompletion> {
-  assertPositive(input.deadlineMilliseconds, "Process deadline");
+  if (!Number.isFinite(input.deadlineAt) || input.deadlineAt <= Date.now()) throw new RangeError("Process deadline must be in the future");
   assertNonNegative(input.graceMilliseconds, "Process grace period");
   assertPositive(input.outputLimitBytes, "Process output limit");
   assertPositive(input.postKillReapMilliseconds, "Process reap deadline");
@@ -51,34 +50,36 @@ export async function superviseProcess(input: {
   let terminated = false;
   let hardKilled = false;
   let timedOut = false;
-  let outputLimitExceeded = false;
   let primaryError: unknown;
   try {
-    const first = await firstEvent(wait, outputSettled, input.deadlineMilliseconds);
+    const first = await firstEvent(wait, outputSettled, remaining(input.deadlineAt));
     if (first.kind === "deadline") {
       timedOut = true;
       ({ completion, hardKilled, terminated } = await stopAndReap(input, wait));
     } else if (first.kind === "wait") {
       if (!first.value.ok) {
-        await forceStop(input);
+        try { await forceStop(input); }
+        catch (stopError) { throw new AggregateError([first.value.error, stopError], "Agent wait failed and teardown could not be verified", { cause: first.value.error }); }
         throw new ProcessSupervisionError("process_wait_failed", "Agent process wait failed", { cause: first.value.error });
       }
       completion = first.value.value;
     } else if (!first.value.ok) {
-      outputLimitExceeded = first.value.error instanceof ProcessSupervisionError && first.value.error.code === "output_limit";
       try { ({ completion, hardKilled, terminated } = await stopAndReap(input, wait)); }
       catch (stopError) { throw new AggregateError([first.value.error, stopError], "Agent output failed and the process could not be reaped", { cause: first.value.error }); }
       throw first.value.error;
     } else {
-      const waited = await settleBefore(wait, input.deadlineMilliseconds);
+      const waited = await settleBefore(wait, remaining(input.deadlineAt));
       if (waited === null) { timedOut = true; ({ completion, hardKilled, terminated } = await stopAndReap(input, wait)); }
-      else if (!waited.ok) throw new ProcessSupervisionError("process_wait_failed", "Agent process wait failed", { cause: waited.error });
+      else if (!waited.ok) {
+        try { await forceStop(input); }
+        catch (stopError) { throw new AggregateError([waited.error, stopError], "Agent wait failed and teardown could not be verified", { cause: waited.error }); }
+        throw new ProcessSupervisionError("process_wait_failed", "Agent process wait failed", { cause: waited.error });
+      }
       else completion = waited.value;
     }
     const drained = await settleBefore(outputSettled, input.postKillReapMilliseconds);
     if (drained === null) throw new ProcessSupervisionError("output_stream_failed", "Agent process output did not close after reap");
     if (!drained.ok) {
-      outputLimitExceeded = drained.error instanceof ProcessSupervisionError && drained.error.code === "output_limit";
       throw drained.error;
     }
     if (completion === null) throw new ProcessSupervisionError("reap_timeout", "Agent process did not produce a completion");
@@ -87,7 +88,7 @@ export async function superviseProcess(input: {
     return {
       completion, stderr, stdout,
       telemetry: {
-        durationMilliseconds: Math.max(0, now() - started), exitCode: completion.exitCode, hardKilled, outputLimitExceeded,
+        durationMilliseconds: Math.max(0, now() - started), exitCode: completion.exitCode, hardKilled,
         schema: "process-telemetry-v2", stderrBytes: output.stderrBytes, stderrDigest: sha256(stderr), stdoutBytes: output.stdoutBytes,
         stdoutDigest: sha256(stdout), terminated, timedOut, toolViolation: completion.toolViolation,
       },
@@ -144,7 +145,8 @@ async function stopAndReap(input: { readonly graceMilliseconds: number; readonly
 
 async function forceStop(input: { readonly graceMilliseconds: number; readonly postKillReapMilliseconds: number; readonly process: SupervisedAgentProcess }): Promise<void> {
   await settleBefore(settle(input.process.terminateTree()), Math.max(1, input.graceMilliseconds));
-  await settleBefore(settle(input.process.killTree()), input.postKillReapMilliseconds);
+  const killed = await settleBefore(settle(input.process.killTree()), input.postKillReapMilliseconds);
+  if (killed === null || !killed.ok) throw new ProcessSupervisionError("reap_timeout", "Agent process teardown could not be verified", { cause: killed === null ? undefined : killed.error });
 }
 
 type Settled<T> = { readonly ok: true; readonly value: T } | { readonly error: unknown; readonly ok: false };
@@ -169,3 +171,4 @@ async function firstEvent<T>(wait: Promise<Settled<T>>, output: Promise<Settled<
 }
 function assertPositive(value: number, label: string): void { if (!Number.isSafeInteger(value) || value < 1) throw new RangeError(`${label} must be positive`); }
 function assertNonNegative(value: number, label: string): void { if (!Number.isSafeInteger(value) || value < 0) throw new RangeError(`${label} must be non-negative`); }
+function remaining(deadlineAt: number): number { return Math.max(0, deadlineAt - Date.now()); }

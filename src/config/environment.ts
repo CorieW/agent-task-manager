@@ -28,6 +28,10 @@ export interface RuntimeEnvironmentConfig {
   readonly root: string;
   readonly terminationGraceMilliseconds: number;
 }
+export interface RuntimeReadyEnvironmentConfig extends EnvironmentConfig {
+  readonly adapters: RuntimeAdapterConfig;
+  readonly runtime: RuntimeEnvironmentConfig;
+}
 
 export class EnvironmentConfigError extends TypeError {
   public constructor(public readonly issues: readonly string[]) {
@@ -180,7 +184,7 @@ function stringArray(value: JsonValue | undefined, path: string, issues: string[
   return [...result];
 }
 
-export function assertRuntimeReady(config: EnvironmentConfig): void {
+export function assertRuntimeReady(config: EnvironmentConfig): asserts config is RuntimeReadyEnvironmentConfig {
   const missing = TABLE_KINDS.filter((kind) => config.provider.tables[kind] === null);
   if (missing.length > 0) {
     throw new EnvironmentConfigError([

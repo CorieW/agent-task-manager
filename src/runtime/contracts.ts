@@ -82,7 +82,7 @@ export function parseAgentResult(input: {
   if (!input.allowedOutcomes.includes(parsed.outcome)) throw new Error(`Agent result outcome is not authorized: ${parsed.outcome}`);
   const allowed = new Set(input.allowedIntents);
   for (const [index, intent] of parsed.proposedIntents.entries()) {
-    if (!isIntent(intent) || !allowed.has(intent.kind)) throw new Error(`Agent result intent ${index} is not authorized`);
+    if (!allowed.has(intent.kind)) throw new Error(`Agent result intent ${index} is not authorized`);
   }
   return structuredClone(parsed);
 }
@@ -103,9 +103,6 @@ export function validateRuntimeCapabilityReceipt(receipt: RuntimeCapabilityRecei
   }
 }
 
-function isIntent(value: unknown): value is AgentResult["proposedIntents"][number] {
-  return value !== null && typeof value === "object" && !Array.isArray(value) && typeof (value as { kind?: unknown }).kind === "string" && isJsonObject((value as { payload?: JsonValue }).payload);
-}
 function assertIntentShape(value: JsonValue, index: number): void {
   const intent = objectValue(value, `Agent result intent ${index}`);
   assertExactKeys(intent, ["kind", "payload"], `Agent result intent ${index}`);

@@ -26,7 +26,6 @@ export function resolveRuntimeEnvironment(input: {
   assertRuntimeReady(input.config);
   const adapters = input.config.adapters;
   const runtime = input.config.runtime;
-  if (adapters === null || runtime === null) throw new Error("Runtime configuration did not survive readiness validation");
   const normalized = normalizeRuntimeConfig(runtime);
   return {
     config: normalized,
@@ -47,8 +46,9 @@ export function compileToolIsolationPolicy(input: {
   const mayReadRepository = capabilities.has("repository.read") || capabilities.has("repository.write");
   const mayWriteRepository = capabilities.has("repository.write");
   const mayUseNetwork = capabilities.has("network.access");
+  const mayReadEnvironment = capabilities.has("environment.read");
   return {
-    allowedEnvironmentNames: input.runtime.config.allowedEnvironmentNames,
+    allowedEnvironmentNames: mayReadEnvironment ? input.runtime.config.allowedEnvironmentNames : [],
     allowedReadRoots: mayReadRepository ? input.runtime.config.allowedReadRoots : [],
     allowedWriteRoots: mayWriteRepository ? input.runtime.config.allowedWriteRoots : [],
     network: mayUseNetwork && input.runtime.config.allowedNetworkOrigins.length > 0

@@ -10,6 +10,9 @@ import {
   finalizeAgentResult,
   finalizeExplicitAssignment,
   InMemoryProvider,
+  NoToolAgentRunnerAdapter,
+  NoToolIsolationAdapter,
+  NoToolModelTransportAdapter,
   parseEnvironmentConfig,
   prepareSelection,
   promoteExplicitAssignment,
@@ -112,6 +115,47 @@ test("rejects malformed primitive result fields", async () => {
   await assert.rejects(dispatchActivatedAgent({ activated: prepared.activated, activationRuntime, additionalInput: {}, promotion: prepared.promotion, provider: prepared.provider, runtime: runtimeEnvironment(runner) }), /outcome must be a non-empty string/);
 });
 
+test("rejects a Task whose selected version changed before dispatch", async () => {
+  const prepared = await preparedDispatch("run-stale-task");
+  await prepared.provider.applyTaskMutation({ expectedVersion: "v1", idempotencyKey: "human:done", nextBody: null, nextProperties: { Status: "Done" }, taskId: "task-1" });
+  await assert.rejects(dispatchActivatedAgent({
+    activated: prepared.activated, activationRuntime, additionalInput: {}, promotion: prepared.promotion,
+    provider: prepared.provider, runtime: runtimeEnvironment(resultRunner(() => ({}))),
+  }), /changed after selection/);
+});
+
+test("cleans a process handle that resolves only after start cancellation", async () => {
+  const definition = { ...agentDefinition(), deadlineSeconds: 1 };
+  const prepared = await preparedDispatch("run-late-start", definition);
+  let cleaned = 0;
+  const runner: AgentRunnerAdapter = {
+    id: "runner",
+    async identity() { return { executableDigest: sha256("runner"), executableVersion: "1", id: "runner", supportedProfiles: ["read-only"] }; },
+    async start({ signal }) {
+      await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
+      const process = completedProcess({ exitCode: null, stderr: "", stdout: "", toolViolation: null });
+      return { ...process, async cleanup() { cleaned += 1; } };
+    },
+  };
+  await assert.rejects(dispatchActivatedAgent({ activated: prepared.activated, activationRuntime, additionalInput: {}, promotion: prepared.promotion, provider: prepared.provider, runtime: runtimeEnvironment(runner) }), /exceeded its deadline/);
+  assert.equal(cleaned, 1);
+});
+
+test("runs a context-only agent through the concrete no-tool stack", async () => {
+  const noToolRuntime: ActivationRuntime = { ...activationRuntime, installedRunnerProfiles: ["no-tools"] };
+  const definition: SubAgentDefinition = { ...agentDefinition(), capabilities: [], runnerProfile: "no-tools" };
+  const prepared = await preparedDispatch("run-no-tools", definition, noToolRuntime);
+  const model = new NoToolModelTransportAdapter("no-tool-model", {
+    async *stream({ context }) {
+      yield JSON.stringify(finalizeAgentResult({ contextDigest: context.digest, definitionDigest: context.definitionDigest, outcome: "succeeded", payload: { summary: "bounded" }, proposedIntents: [], runId: context.runId, schema: "agent-result-v1" }));
+    },
+  }, sha256("model-client"));
+  const runner = new NoToolAgentRunnerAdapter("no-tool-runner", sha256("no-tool-runner"), "1.0.0");
+  const runtime = runtimeEnvironment(runner, new NoToolIsolationAdapter("no-tool-isolation"), undefined, model);
+  const dispatched = await dispatchActivatedAgent({ activated: prepared.activated, activationRuntime: noToolRuntime, additionalInput: {}, promotion: prepared.promotion, provider: prepared.provider, runtime });
+  assert.equal(dispatched.result.payload.summary, "bounded");
+});
+
 test("streams output and hard-kills a process tree after its deadline", async () => {
   let finish!: (value: AgentProcessCompletion) => void;
   const waiting = new Promise<AgentProcessCompletion>((resolve) => { finish = resolve; });
@@ -125,7 +169,7 @@ test("streams output and hard-kills a process tree after its deadline", async ()
     async terminateTree() { terminated += 1; },
     async wait() { return waiting; },
   };
-  const result = await superviseProcess({ deadlineMilliseconds: 1, graceMilliseconds: 1, outputLimitBytes: 100, postKillReapMilliseconds: 10, process });
+  const result = await superviseProcess({ deadlineAt: Date.now() + 1, graceMilliseconds: 1, outputLimitBytes: 100, postKillReapMilliseconds: 10, process });
   assert.equal(terminated, 1);
   assert.equal(killed, 1);
   assert.equal(cleaned, 1);
@@ -135,6 +179,8 @@ test("streams output and hard-kills a process tree after its deadline", async ()
 
 test("rejects unsupported JSON-Schema keywords before activation", () => {
   assert.throws(() => assertSupportedJsonSchema({ additionalProperties: false, minProperties: 1, properties: {}, required: [], type: "object", $ref: "#/x" }), /\$\.\$ref is unsupported/);
+  assert.throws(() => assertSupportedJsonSchema({ type: "string", pattern: "^(a+)+$" }), /pattern is unsupported/);
+  assert.throws(() => assertSupportedJsonSchema({ items: { type: "string" }, maxItems: 1, minItems: 2, type: "array" }), /minimum cannot exceed maximum/);
   assert.deepEqual(assertSupportedJsonSchema({ additionalProperties: false, minProperties: 1, properties: {}, required: [], type: "object" }), undefined);
 });
 
@@ -146,9 +192,9 @@ test("resolves only configured adapters and rejects unsafe environment authority
   assert.throws(() => runtimeEnvironment(runner, undefined, undefined, undefined, ["API_TOKEN"]), /unsafe/);
 });
 
-async function preparedDispatch(ownerId: string): Promise<{ activated: ActivatedDefinition; promotion: AssignmentPromotion; provider: RecordingProvider }> {
-  const provider = await preparedProvider();
-  const activated = await activateDefinitions({ ...activationRuntime, provider });
+async function preparedDispatch(ownerId: string, definition = agentDefinition(), runtime = activationRuntime): Promise<{ activated: ActivatedDefinition; promotion: AssignmentPromotion; provider: RecordingProvider }> {
+  const provider = await preparedProvider(definition);
+  const activated = await activateDefinitions({ ...runtime, provider });
   const target = activated[0];
   assert.ok(target);
   const selectionContext = await prepareSelection(provider, target.resolved, activated);
@@ -158,7 +204,7 @@ async function preparedDispatch(ownerId: string): Promise<{ activated: Activated
     targetSubAgentRevision: target.resolved.definition.revision, taskId: "task-1",
   });
   const promotion = await promoteExplicitAssignment({
-    activationRuntime, assignment, assignmentDepth: 0, expiresAt: "2099-01-01T00:00:00.000Z", ownerId,
+    activationRuntime: runtime, assignment, assignmentDepth: 0, expiresAt: "2099-01-01T00:00:00.000Z", ownerId,
     provider, resolvedTarget: target.resolved, selectionContext,
   });
   return { activated: target, promotion, provider };
@@ -175,7 +221,7 @@ function runtimeEnvironment(
   const models = new RuntimeAdapterRegistry<ModelTransportAdapter>();
   const isolations = new RuntimeAdapterRegistry<ToolIsolationAdapter>();
   runners.register(runner); models.register(model);
-  const observed: ToolIsolationAdapter = observePolicy === undefined ? isolation : { id: isolation.id, async prepare(policy) { observePolicy(policy); return isolation.prepare(policy); } };
+  const observed: ToolIsolationAdapter = observePolicy === undefined ? isolation : { id: isolation.id, async prepare(policy, signal) { observePolicy(policy); return isolation.prepare(policy, signal); } };
   isolations.register(observed);
   const config = parseEnvironmentConfig({
     adapters: { agentRunner: runner.id, modelTransport: model.id, publication: null, sandbox: observed.id }, environmentId: "demo",
@@ -218,9 +264,9 @@ function completedProcess(value: AgentProcessCompletion & { readonly stderr: str
     async terminateTree() {}, async wait() { return { exitCode: value.exitCode, toolViolation: value.toolViolation }; },
   };
 }
-async function preparedProvider(): Promise<RecordingProvider> {
+async function preparedProvider(definition = agentDefinition()): Promise<RecordingProvider> {
   const provider = new RecordingProvider(environment, target);
-  provider.seedDefinition(agentDefinition());
+  provider.seedDefinition(definition);
   provider.seedTaskStatusOptions(["Done", "Todo"]);
   provider.seedTask({ archived: false, body: "Task body", dependencies: [], id: "task-1", priority: 1, properties: { Status: "Todo" }, status: "Todo", title: "Task", version: "v1" });
   for (const record of resources()) await provider.putResource(record);
