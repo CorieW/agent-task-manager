@@ -65,6 +65,20 @@ test("environment configuration is closed and reports missing required fields", 
       }),
     /environmentId must be a non-empty string/,
   );
+  assert.throws(
+    () =>
+      parseEnvironmentConfig({
+        environmentId: "demo",
+        provider: {
+          bootstrapParent: null,
+          connection: {},
+          tables: {},
+          type: "memory",
+        },
+        schema: "agent-task-manager-environment-v1",
+      }),
+    /provider\.tables\.tasks is required/,
+  );
 });
 
 test("migration authorization rejects a different digest", () => {

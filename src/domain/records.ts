@@ -86,6 +86,7 @@ export interface ResourceMutation extends ResourceRecord {
 export interface ErrorMutation {
   readonly description: string;
   readonly errorKey: string;
+  readonly idempotencyKey: string;
   readonly relatedRunId: string | null;
   readonly relatedSubAgentId: string | null;
   readonly relatedTaskId: string | null;
@@ -105,6 +106,7 @@ export interface LeaseRequest {
 
 export interface LeaseRenewal {
   readonly expectedExpiresAt: string;
+  readonly idempotencyKey: string;
   readonly leaseId: string;
   readonly nextExpiresAt: string;
   readonly ownerId: string;

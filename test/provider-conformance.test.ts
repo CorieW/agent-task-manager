@@ -133,7 +133,8 @@ test("task writes are atomic, opaque-versioned, replayable, and isolated", async
   const stored = await provider.getTaskSnapshot("atomic");
   assert.equal(receipt.providerRecord.id, "atomic");
   assert.equal(receipt.observedVersion, stored.version);
-  assert.match(stored.version, /^memory:atomic:1$/);
+  assert.match(stored.version, /^memory:atomic:[0-9a-f-]{36}$/);
+  assert.notEqual(stored.version, seeded.version);
   assert.deepEqual(stored.properties, { winner: 1 });
   stored.properties.winner = 99;
   assert.deepEqual((await provider.getTaskSnapshot("atomic")).properties, { winner: 1 });
@@ -178,6 +179,96 @@ test("leases are exclusive, expiry-aware, and replayable", async () => {
     ).acquired,
     true,
   );
+});
+
+test("lease renewals replay their original result", async () => {
+  const provider = new InMemoryProvider(
+    environment,
+    target,
+    undefined,
+    () => new Date("2026-01-01T00:00:00.000Z"),
+  );
+  const acquired = await provider.acquireLease({
+    expiresAt: "2026-01-01T00:01:00.000Z",
+    idempotencyKey: "lease-acquire",
+    ownerId: "run",
+    scope: "agent_run",
+    subAgentId: "agent",
+    taskId: null,
+  });
+  const renewal = {
+    expectedExpiresAt: "2026-01-01T00:01:00.000Z",
+    idempotencyKey: "lease-renew",
+    leaseId: acquired.leaseId!,
+    nextExpiresAt: "2026-01-01T00:02:00.000Z",
+    ownerId: "run",
+  };
+  const first = await provider.renewLease(renewal);
+  assert.deepEqual(await provider.renewLease(renewal), first);
+  assert.equal((await provider.reconcileIntent("lease-renew")).state, "applied");
+});
+
+test("sub-agent activity is conditionally replaced", async () => {
+  const provider = new InMemoryProvider(environment, target);
+  provider.seedDefinition({
+    allowedIntents: [],
+    capabilities: [],
+    concurrency: 1,
+    enabled: true,
+    id: "worker",
+    invocationPriority: 1,
+    model: "model",
+    name: "Worker",
+    promptResources: [],
+    reasoning: "medium",
+    revision: 1,
+    selection: {
+      acceptsAssignmentsFrom: ["self"],
+      maxCandidateSummaries: 1,
+      mode: "self",
+      resultSchemaResource: "selection",
+      taskQueryResource: "query",
+    },
+    transitions: {},
+    workResultSchemaResource: "result",
+  });
+  const first = {
+    expectedRunLeaseIds: [],
+    expectedTaskIds: [],
+    idempotencyKey: "activity-1",
+    nextRunLeaseIds: ["run-1"],
+    nextTaskIds: ["task-1"],
+    subAgentId: "worker",
+  };
+  assert.deepEqual(await provider.updateSubAgentActivity(first), await provider.updateSubAgentActivity(first));
+  await assert.rejects(
+    provider.updateSubAgentActivity({ ...first, idempotencyKey: "activity-2" }),
+    /version conflict/,
+  );
+});
+
+test("errors use distinct entity and operation identities", async () => {
+  const provider = new InMemoryProvider(environment, target);
+  const base = {
+    description: "description",
+    errorKey: "error-1",
+    idempotencyKey: "error-write-1",
+    relatedRunId: null,
+    relatedSubAgentId: null,
+    relatedTaskId: null,
+    resolution: "first",
+    severity: "medium" as const,
+    title: "Error",
+  };
+  const first = await provider.createOrUpdateError(base);
+  assert.deepEqual(await provider.createOrUpdateError(base), first);
+  const second = await provider.createOrUpdateError({
+    ...base,
+    idempotencyKey: "error-write-2",
+    resolution: "second",
+  });
+  assert.equal(second.providerRecord.id, "error-1");
+  assert.notEqual(second.observedVersion, first.observedVersion);
 });
 
 test("resource pins and read models exclude mutation metadata", async () => {
@@ -225,6 +316,38 @@ test("workspace plans converge with verified dependency and digest chains", asyn
   });
   assert.deepEqual(nextPlan.steps, []);
   assert.equal((await provider.reconcileWorkspaceStep(plan.steps[0]!.id)).state, "applied");
+});
+
+test("workspace planning fails closed for an unverifiable relation target", async () => {
+  const provider = new InMemoryProvider(environment, target, {
+    capturedAt: "2026-01-01T00:00:00.000Z",
+    digest: "observed",
+    providerIdentity: "memory",
+    tables: [
+      {
+        id: "memory:tasks",
+        kind: "tasks",
+        managedRanges: ["Task workspace"],
+        properties: [
+          { name: "Task", providerMetadata: {}, targetTableId: null, type: "title", writable: true },
+          {
+            name: "Resources",
+            providerMetadata: {},
+            targetTableId: "wrong",
+            type: "relation",
+            writable: true,
+          },
+        ],
+        title: "Tasks",
+        version: "1",
+      },
+    ],
+  });
+  const observed = await provider.inspectWorkspaceSchema();
+  await assert.rejects(
+    provider.planWorkspaceChanges({ environmentId: "test", mode: "bootstrap", observed, target }),
+    /incompatible/,
+  );
 });
 
 test("environment validation reports the supplied provider mismatch", async () => {

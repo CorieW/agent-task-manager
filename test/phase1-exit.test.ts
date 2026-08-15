@@ -95,6 +95,10 @@ test("typed selection results are closed, digested, and authority checked", () =
   assert.deepEqual(parsed, result);
   assert.doesNotThrow(() => assertSelectionAuthority(parsed, selector, selector));
   assert.throws(
+    () => assertSelectionAuthority({ ...parsed, mode: "explicit" }, selector, selector),
+    /mode/,
+  );
+  assert.throws(
     () => parseTaskSelectionResult({ ...result, unexpected: true }),
     /unknown or missing fields/,
   );
@@ -124,6 +128,7 @@ test("foundation dry run plans and schedules without writes", async () => {
   provider.seedDefinition(definition());
   const before = await provider.inspectWorkspaceSchema();
   const report = await runFoundationDryRun({
+    activeRuns: {},
     environment,
     environmentId: "phase-1",
     provider,
@@ -134,9 +139,32 @@ test("foundation dry run plans and schedules without writes", async () => {
   assert.equal(report.environmentValid, true);
   assert.equal(report.workspaceState, "needs_bootstrap");
   assert.deepEqual(report.scheduledSubAgentIds, ["planner"]);
-  assert.ok(report.migrationPlan.steps.length > 0);
+  assert.ok((report.migrationPlan?.steps.length ?? 0) > 0);
   assert.deepEqual(after, before);
   assert.equal((await provider.reconcileIntent("dry-run")).state, "not_applied");
+});
+
+test("foundation dry run honors capacity and does not plan ready workspaces", async () => {
+  const bootstrap = new InMemoryProvider(environment, target);
+  const initialPlan = await bootstrap.planWorkspaceChanges({
+    environmentId: "phase-1",
+    mode: "bootstrap",
+    observed: await bootstrap.inspectWorkspaceSchema(),
+    target,
+  });
+  for (const step of initialPlan.steps) await bootstrap.applyWorkspaceStep(step);
+  bootstrap.seedDefinition(definition());
+  const report = await runFoundationDryRun({
+    activeRuns: { planner: 1 },
+    environment,
+    environmentId: "phase-1",
+    provider: bootstrap,
+    scheduleLimit: 1,
+    target,
+  });
+  assert.equal(report.workspaceState, "ready");
+  assert.equal(report.migrationPlan, null);
+  assert.deepEqual(report.scheduledSubAgentIds, []);
 });
 
 test("pagination and idempotency primitives are deterministic", () => {
@@ -150,6 +178,10 @@ test("pagination and idempotency primitives are deterministic", () => {
   });
   assert.deepEqual(ledger.read("key", "operation", { value: 1 }), { receipt: 1 });
   assert.throws(() => ledger.read("key", "operation", { value: 2 }), /reused/);
+  assert.throws(
+    () => ledger.read("key", "operation", { value: undefined } as never),
+    /JSON|compatible|reused/,
+  );
 });
 
 test("core and domain modules do not import the Notion provider", async () => {

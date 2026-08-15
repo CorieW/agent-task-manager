@@ -69,9 +69,8 @@ export function compareWorkspaceSchema(
         property.writable !== expectedProperty.writable ||
         (expectedProperty.targetTable === null
           ? property.targetTableId !== null
-          : observed.tables.some((table) => table.kind === expectedProperty.targetTable) &&
-            property.targetTableId !==
-              observed.tables.find((table) => table.kind === expectedProperty.targetTable)?.id)
+          : observed.tables.find((table) => table.kind === expectedProperty.targetTable)?.id !==
+            property.targetTableId)
       ) {
         differences.push({
           code: "incompatible_property",

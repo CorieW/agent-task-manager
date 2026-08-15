@@ -83,6 +83,9 @@ export function parseEnvironmentConfig(value: JsonValue): EnvironmentConfig {
   if (!isObject(tablesValue)) issues.push("provider.tables must be an object");
   const tableObject = isObject(tablesValue) ? tablesValue : {};
   rejectUnknownKeys(tableObject, TABLE_KINDS, "provider.tables", issues);
+  for (const kind of TABLE_KINDS) {
+    if (!Object.hasOwn(tableObject, kind)) issues.push(`provider.tables.${kind} is required`);
+  }
   const tables = Object.fromEntries(
     TABLE_KINDS.map((kind) => [
       kind,

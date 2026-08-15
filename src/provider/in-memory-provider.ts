@@ -5,7 +5,7 @@ import { IdempotencyLedger } from "../core/idempotency-ledger.js";
 import { finalizeMigrationPlan } from "../core/migration-plan.js";
 import { pageAfter } from "../core/pagination.js";
 import { compareWorkspaceSchema } from "../core/schema-diff.js";
-import type { JsonObject, JsonValue } from "../domain/json.js";
+import { toJsonValue } from "../domain/json.js";
 import type {
   ActivityMutation,
   ConditionalTaskMutation,
@@ -48,15 +48,16 @@ interface MemoryLease extends LeaseRequest {
   readonly id: string;
 }
 
+interface MemoryActivity {
+  readonly runLeaseIds: readonly string[];
+  readonly taskIds: readonly string[];
+}
+
 const TABLE_ORDER: readonly TableKind[] = ["resources", "errors", "tasks", "subAgents"];
 const TASK_SUMMARY_KEYS = new Set(["archived", "id", "priority", "status", "title", "version"]);
 
 function clone<T>(value: T): T {
   return structuredClone(value);
-}
-
-function asJson(value: unknown): JsonValue {
-  return JSON.parse(JSON.stringify(value)) as JsonValue;
 }
 
 function snapshotDigest(tables: readonly ObservedTable[]): string {
@@ -67,7 +68,7 @@ function snapshotDigest(tables: readonly ObservedTable[]): string {
       properties: [...table.properties].sort((left, right) => left.name.localeCompare(right.name)),
     }))
     .sort((left, right) => left.id.localeCompare(right.id));
-  return digestJson(asJson(normalized));
+  return digestJson(toJsonValue(normalized));
 }
 
 function observedProperty(
@@ -169,14 +170,15 @@ function evolveSnapshot(
 
 export class InMemoryProvider implements AgentTaskProvider {
   readonly #completedWorkspaceSteps = new Set<string>();
+  readonly #activities = new Map<string, MemoryActivity>();
   readonly #definitions = new Map<string, SubAgentDefinition>();
   readonly #entityVersions = new Map<string, number>();
+  readonly #errors = new Map<string, Omit<ErrorMutation, "idempotencyKey">>();
   readonly #idempotency = new IdempotencyLedger();
   readonly #intentOutcomes = new Map<string, ReconciliationResult>();
   readonly #leases = new Map<string, MemoryLease>();
   readonly #resources = new Map<string, ResourceRecord>();
   readonly #tasks = new Map<string, TaskSnapshot>();
-  readonly #taskRevisions = new Map<string, number>();
   readonly #workspaceOutcomes = new Map<string, ReconciliationResult>();
   #snapshot: WorkspaceSchemaSnapshot;
 
@@ -198,11 +200,13 @@ export class InMemoryProvider implements AgentTaskProvider {
 
   public seedDefinition(definition: SubAgentDefinition): void {
     this.#definitions.set(definition.id, clone(definition));
+    if (!this.#activities.has(definition.id)) {
+      this.#activities.set(definition.id, { runLeaseIds: [], taskIds: [] });
+    }
   }
 
   public seedTask(task: TaskSnapshot): void {
     this.#tasks.set(task.id, clone(task));
-    this.#taskRevisions.set(task.id, 0);
   }
 
   public async getCapabilities(): Promise<ProviderCapabilities> {
@@ -357,6 +361,17 @@ export class InMemoryProvider implements AgentTaskProvider {
     if (!this.#definitions.has(change.subAgentId)) {
       throw new Error(`Unknown Sub-agent definition: ${change.subAgentId}`);
     }
+    const current = this.#activities.get(change.subAgentId) ?? { runLeaseIds: [], taskIds: [] };
+    if (
+      !this.sameSet(current.runLeaseIds, change.expectedRunLeaseIds) ||
+      !this.sameSet(current.taskIds, change.expectedTaskIds)
+    ) {
+      throw new Error("Sub-agent activity version conflict");
+    }
+    this.#activities.set(change.subAgentId, {
+      runLeaseIds: this.normalizedSet(change.nextRunLeaseIds),
+      taskIds: this.normalizedSet(change.nextTaskIds),
+    });
     const version = this.nextEntityVersion("subAgents", change.subAgentId);
     const receipt = this.receipt(
       "subAgents",
@@ -395,9 +410,7 @@ export class InMemoryProvider implements AgentTaskProvider {
     const task = this.#tasks.get(mutation.taskId);
     if (task === undefined) throw new Error(`Unknown Task: ${mutation.taskId}`);
     if (task.version !== mutation.expectedVersion) throw new Error("Task version conflict");
-    const revision = (this.#taskRevisions.get(task.id) ?? 0) + 1;
-    this.#taskRevisions.set(task.id, revision);
-    const version = `memory:${task.id}:${revision}`;
+    const version = `memory:${task.id}:${randomUUID()}`;
     this.#tasks.set(task.id, {
       ...clone(task),
       body: mutation.nextBody ?? task.body,
@@ -468,6 +481,8 @@ export class InMemoryProvider implements AgentTaskProvider {
   }
 
   public async renewLease(request: LeaseRenewal): Promise<LeaseResult> {
+    const prior = this.lookupIdempotent<LeaseResult>(request.idempotencyKey, "lease_renew", request);
+    if (prior !== undefined) return prior;
     this.pruneExpiredLeases();
     const lease = this.#leases.get(request.leaseId);
     const nextExpiry = this.parseFutureTimestamp(request.nextExpiresAt, "nextExpiresAt");
@@ -477,10 +492,21 @@ export class InMemoryProvider implements AgentTaskProvider {
       lease.expiresAt !== request.expectedExpiresAt ||
       nextExpiry <= Date.parse(lease.expiresAt)
     ) {
-      return { acquired: false, conflictingLeaseId: request.leaseId, leaseId: null };
+      const result = { acquired: false, conflictingLeaseId: request.leaseId, leaseId: null };
+      this.recordIdempotent(
+        request.idempotencyKey,
+        "lease_renew",
+        request,
+        result,
+        this.#intentOutcomes,
+        "not_applied",
+      );
+      return result;
     }
     this.#leases.set(lease.id, { ...lease, expiresAt: request.nextExpiresAt });
-    return { acquired: true, conflictingLeaseId: null, leaseId: lease.id };
+    const result = { acquired: true, conflictingLeaseId: null, leaseId: lease.id };
+    this.recordIdempotent(request.idempotencyKey, "lease_renew", request, result);
+    return clone(result);
   }
 
   public async releaseLease(request: LeaseRelease): Promise<WriteReceipt> {
@@ -498,11 +524,13 @@ export class InMemoryProvider implements AgentTaskProvider {
   }
 
   public async createOrUpdateError(error: ErrorMutation): Promise<WriteReceipt> {
-    const prior = this.lookupIdempotent<WriteReceipt>(error.errorKey, "error", error);
+    const prior = this.lookupIdempotent<WriteReceipt>(error.idempotencyKey, "error", error);
     if (prior !== undefined) return prior;
+    const { idempotencyKey: _idempotencyKey, ...stored } = error;
+    this.#errors.set(error.errorKey, clone(stored));
     const version = this.nextEntityVersion("errors", error.errorKey);
-    const receipt = this.receipt("errors", error.errorKey, error.errorKey, version);
-    this.recordIdempotent(error.errorKey, "error", error, receipt);
+    const receipt = this.receipt("errors", error.errorKey, error.idempotencyKey, version);
+    this.recordIdempotent(error.idempotencyKey, "error", error, receipt);
     return clone(receipt);
   }
 
@@ -555,8 +583,16 @@ export class InMemoryProvider implements AgentTaskProvider {
     return `memory:${key}:${version}`;
   }
 
+  private normalizedSet(values: readonly string[]): readonly string[] {
+    return [...new Set(values)].sort();
+  }
+
+  private sameSet(left: readonly string[], right: readonly string[]): boolean {
+    return this.normalizedSet(left).join("\0") === this.normalizedSet(right).join("\0");
+  }
+
   private lookupIdempotent<T>(key: string, operation: string, payload: unknown): T | undefined {
-    return this.#idempotency.read<T>(key, operation, payload);
+    return this.#idempotency.read<T>(key, operation, toJsonValue(payload));
   }
 
   private recordIdempotent<T>(
@@ -567,9 +603,9 @@ export class InMemoryProvider implements AgentTaskProvider {
     outcomes: Map<string, ReconciliationResult> = this.#intentOutcomes,
     state: ReconciliationResult["state"] = "applied",
   ): void {
-    this.#idempotency.write(key, operation, payload, result);
+    this.#idempotency.write(key, operation, toJsonValue(payload), result);
     outcomes.set(key, {
-      evidence: { operation, result: asJson(result) },
+      evidence: { operation, result: toJsonValue(result) },
       state,
     });
   }

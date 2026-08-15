@@ -1,6 +1,6 @@
 // Validates the closed task-selection result exchanged with provider-defined selectors.
 import { digestJson } from "./digest.js";
-import type { JsonObject, JsonValue } from "../domain/json.js";
+import { toJsonValue, type JsonObject, type JsonValue } from "../domain/json.js";
 import type { SubAgentDefinition } from "../domain/records.js";
 
 const SELECTION_KEYS = [
@@ -40,12 +40,8 @@ export interface TaskSelectionResult extends TaskSelectionResultCore {
   readonly digest: string;
 }
 
-function asJson(value: unknown): JsonValue {
-  return JSON.parse(JSON.stringify(value)) as JsonValue;
-}
-
 export function finalizeTaskSelectionResult(core: TaskSelectionResultCore): TaskSelectionResult {
-  return { ...core, digest: digestJson(asJson(core)) };
+  return { ...core, digest: digestJson(toJsonValue(core)) };
 }
 
 export function parseTaskSelectionResult(value: JsonValue): TaskSelectionResult {
@@ -112,14 +108,17 @@ export function assertSelectionAuthority(
   if (result.selectorSubAgentId !== selector.id || result.selectorRevision !== selector.revision) {
     throw new Error("Selection result does not match the selector definition revision");
   }
+  if (result.mode !== selector.selection.mode) {
+    throw new Error("Selection result mode does not match the selector definition");
+  }
+  if (result.mode === "coordinator" && !selector.capabilities.includes("dispatch.coordinate")) {
+    throw new Error("Selector is not authorized to coordinate assignments");
+  }
   if (result.outcome === "no_work") return;
   if (target === null || result.targetSubAgentId !== target.id || result.targetSubAgentRevision !== target.revision) {
     throw new Error("Selection result does not match the target definition revision");
   }
   if (!target.selection.acceptsAssignmentsFrom.includes(result.mode)) {
     throw new Error(`Target does not accept ${result.mode} assignments`);
-  }
-  if (result.mode === "coordinator" && !selector.capabilities.includes("dispatch.coordinate")) {
-    throw new Error("Selector is not authorized to coordinate assignments");
   }
 }
