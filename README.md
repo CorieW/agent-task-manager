@@ -1,14 +1,14 @@
 # Agent Task Manager
 
-Agent Task Manager is a provider-neutral orchestration service for task-driven
-AI sub-agents. Deterministic code owns provider access, leases, validation,
-side effects, and recovery; sub-agents receive bounded context and return typed
+Agent Task Manager is provider-neutral infrastructure for task-driven AI
+sub-agents. Deterministic code owns provider access, leases, validation, side
+effects, and recovery; sub-agents receive bounded context and return typed
 proposals.
 
-The initial implementation is under active development. Its durable model is
-restricted to four provider table types: Tasks, Sub-agents, Errors, and
-Resources. Local files are configuration or disposable runtime artifacts, not
-authoritative workflow storage.
+Authoritative data is restricted to four provider table types: Tasks,
+Sub-agents, Errors, and Resources. Local files are environment configuration or
+disposable runtime artifacts—not workflow storage. Notion is the first concrete
+provider.
 
 ## Development
 
@@ -21,44 +21,95 @@ node dist/src/cli.js --help
 
 Node.js 22 or newer and pnpm 11 are required.
 
-## Environment configuration
+## Notion setup
 
-The CLI reads `agent-task-manager.environment.json` by default, or another path
-passed with `--config`. Copy the tracked
-`agent-task-manager.environment.example.json` to begin. The four table values
-may be `null` only while a provider workspace is awaiting bootstrap; runtime
-execution requires stable IDs for all four tables.
+1. Create a Notion internal integration and copy its token into a local
+   `NOTION_TOKEN` environment variable.
+2. Create or choose one bootstrap parent page, then share that page and any
+   existing managed databases with the integration.
+3. Copy `agent-task-manager.environment.example.json` to
+   `agent-task-manager.environment.json` and replace the placeholder
+   `bootstrapParent` URL.
+4. Leave table IDs `null` only for tables the authorized `init` command should
+   create. Otherwise use stable Notion database or data-source IDs.
+5. Validate or plan before authorizing any write.
 
 ```powershell
+$env:NOTION_TOKEN = "..."
 Copy-Item agent-task-manager.environment.example.json agent-task-manager.environment.json
-node dist/src/cli.js validate
-node dist/src/cli.js validate --json --config agent-task-manager.environment.json
+pnpm build
+node dist/src/cli.js validate --config agent-task-manager.environment.json
+node dist/src/cli.js init --plan --json --config agent-task-manager.environment.json
 ```
 
 Configuration describes the environment only. Keep credentials in environment
-variables or an external secret store and put only variable names or secret
-references in `provider.connection`. The real default configuration file is
-ignored by Git and must never contain committed credentials.
+variables or an external secret store; `provider.connection` contains only the
+environment-variable name. The real default configuration file is ignored by
+Git and must never contain credentials.
 
-## Foundation API
+## Workspace commands
 
-The package root exports the provider-neutral contracts and Phase 1 execution
-primitives:
+Planning is read-only. Applying an initialization or additive migration is a
+human-authorized operation and requires the exact SHA-256 digest returned by a
+fresh plan.
 
-- `AgentTaskProvider`, `ProviderRegistry`, and `InMemoryProvider` define and
-  exercise provider behavior without provider-specific types in core code.
-- `runFoundationDryRun` validates one provider-reported schema snapshot, builds
-  an additive plan only when actionable, and schedules definitions without
-  writing. Callers must supply authoritative active-run counts.
-- `finalizeTaskSelectionResult`, `parseTaskSelectionResult`, and
-  `assertSelectionAuthority` create and validate closed, digest-bound selection
-  results. A selector result must use the selector definition's configured mode.
-- `scheduleInvocations` orders enabled definitions by invocation priority and
-  stable ID while respecting per-definition concurrency.
-- `pageAfter` implements exclusive, deterministic string cursors with a bounded
-  limit. Cursors identify the final key returned by the preceding page.
-- `IdempotencyLedger` replays one result for the same operation, key, and valid
-  JSON payload; a changed payload or non-JSON input is rejected.
+```powershell
+node dist/src/cli.js init --plan --json [--config <path>]
+node dist/src/cli.js init --apply --expected-plan-digest <sha256> [--write-environment] [--config <path>]
+node dist/src/cli.js migrate --plan --json [--config <path>]
+node dist/src/cli.js migrate --apply --expected-plan-digest <sha256> [--write-environment] [--config <path>]
+```
+
+Apply writes provider-backed step intents and receipts before and after each
+mutation. Once Resources exists, it also records the full authorized bootstrap
+session so the same digest can resume after interruption. `--write-environment`
+atomically fills the four table IDs in the local environment file after the
+provider schema verifies ready; without it, the proposed patch is printed and
+recorded for a human to apply.
+
+The v1 Notion adapter is a single-host implementation. Its local mutex prevents
+overlap only inside one Node.js process; deploy exactly one manager instance per
+environment until a provider-backed distributed run lock is implemented.
+
+## Managed Notion schema
+
+The manager validates these provider-owned names and types. Extra properties
+are tolerated; a missing compatible property can be added only by an authorized
+workspace apply, while incompatible or destructive drift fails closed.
+
+| Table | Required properties |
+| --- | --- |
+| Tasks | `Task` title; `Status` select; optional managed `Priority` number, self-relation `Blocked By`, and `Issue / PR` URL |
+| Sub-agents | `Name` title; `Enabled` checkbox; `Revision`, `Model` rich text; `Status` select; `Working On` Tasks relation; `Last Run` last-edited time |
+| Errors | `Error` title; `Error Key` rich text; `Severity` select; `Task` and `Sub-agent` relations; optional `Run ID` rich text |
+| Resources | `Resource` title; `Kind`, `State` select; `Version`, `Digest`, `Dependencies` rich text |
+
+Provider-managed page bodies use exact level-two headings:
+
+- Sub-agent definitions: `## Sub-agent definition`
+- Resources and internal journals: `## Resource body`
+- Errors: `## Error Description` and `## Error Resolution`
+
+Resource keys beginning with `system/` are reserved for manager-owned schema,
+intent, lease, bootstrap-session, and recovery records. User resources must not
+use that namespace.
+
+`Status` and `Working On` are independent projections: `Status` is `Online` if
+and only if the sub-agent owns an active run lease, while `Working On` contains
+exactly its active task leases. The manager exhausts paginated relation values
+before comparing or replacing either projection.
+
+## Public API
+
+The package root exports the provider-neutral contracts, deterministic planning
+and scheduling primitives, and the complete Notion adapter surface:
+
+- `AgentTaskProvider`, `ProviderRegistry`, and `InMemoryProvider`
+- `runFoundationDryRun`, selection-result helpers, invocation scheduling,
+  pagination, canonical JSON, migration plans, and schema comparison
+- `NotionProvider`, `NotionHttpTransport`, `NotionWorkspaceReader`,
+  `NotionWorkspaceManager`, `NotionPageStore`, `NotionRecordReader`, and
+  `NotionStateStore`
 
 ```ts
 import {
@@ -82,5 +133,5 @@ const report = await runFoundationDryRun({
 });
 ```
 
-The dry run is currently a library API, not a CLI command. It may read provider
-state but does not apply schema steps, mutate Tasks, or acquire leases.
+The dry run is a library API. It may read provider state but does not apply
+schema steps, mutate Tasks, or acquire leases.
