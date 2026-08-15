@@ -25,6 +25,7 @@ import type {
 } from "../../domain/provider.js";
 import { TABLE_KINDS } from "../../domain/provider.js";
 import { toJsonValue, type JsonObject, type JsonValue } from "../../domain/json.js";
+import { digestJson } from "../../core/digest.js";
 import type {
   TableValidationReport,
   WorkspaceMigrationPlan,
@@ -198,6 +199,44 @@ export class NotionProvider implements AgentTaskProvider {
 
   public workspaceManager(): NotionWorkspaceManager {
     return this.#manager;
+  }
+
+  public async reconcileSubAgentActivity(
+    subAgentId: string,
+    idempotencyKey: string,
+  ): Promise<ReconciliationResult> {
+    const runtime = await this.runtime();
+    const activeRunLeaseIds = await runtime.state.activeLeaseIds("agent_run", subAgentId);
+    const activeTaskIds = await runtime.state.activeTaskIds(subAgentId);
+    const observed = await runtime.pages.getSubAgentActivity(subAgentId);
+    const expectedStatus = activeRunLeaseIds.length === 0 && activeTaskIds.length === 0 ? "Offline" : "Online";
+    if (observed.status === expectedStatus && sameSet(observed.taskIds, activeTaskIds)) {
+      return {
+        evidence: jsonObject(toJsonValue({ activeRunLeaseIds, activeTaskIds, status: expectedStatus }), "Activity evidence"),
+        state: "not_applied",
+      };
+    }
+    const basis = { activeRunLeaseIds, activeTaskIds, expectedStatus, observed, subAgentId };
+    const receipt = await runtime.state.runExclusive(() => runtime.pages.setSubAgentActivity(
+      subAgentId,
+      observed.status,
+      observed.taskIds,
+      expectedStatus,
+      activeTaskIds,
+      idempotencyKey,
+    ));
+    await this.createOrUpdateError({
+      description: `Observed activity ${JSON.stringify({ status: observed.status, taskIds: observed.taskIds })}; expected ${JSON.stringify({ status: expectedStatus, taskIds: activeTaskIds })}.`,
+      errorKey: `stale-sub-agent-activity:${subAgentId}`,
+      idempotencyKey: `error:stale-sub-agent-activity:${digestJson(toJsonValue(basis))}`,
+      relatedRunId: null,
+      relatedSubAgentId: subAgentId,
+      relatedTaskId: null,
+      resolution: "The manager reconciled Status and Working On from active provider-backed leases. Investigate the interrupted run or partial provider write.",
+      severity: "high",
+      title: "Stale sub-agent activity",
+    });
+    return { evidence: { basis: toJsonValue(basis), receipt: toJsonValue(receipt) }, state: "applied" };
   }
 
   private async runtime(): Promise<RuntimeServices> {

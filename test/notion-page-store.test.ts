@@ -120,6 +120,7 @@ test("conditionally updates Status and Working On", async () => {
     subAgentId: "agent-1",
   });
   assert.equal(receipt.providerRecord.id, "agent-1");
+  assert.equal((await store.getSubAgentActivity("agent-1")).status, "Online");
   await assert.rejects(
     store.updateSubAgentActivity({
       expectedRunLeaseIds: [],

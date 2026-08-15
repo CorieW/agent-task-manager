@@ -23,6 +23,12 @@ export interface LocatedPage {
   readonly version: string;
 }
 
+export interface NotionAgentActivity {
+  readonly status: string;
+  readonly taskIds: readonly string[];
+  readonly version: string;
+}
+
 export class NotionPageStore {
   public constructor(
     private readonly tables: NotionMutableTableIds,
@@ -143,28 +149,60 @@ export class NotionPageStore {
     const currentTaskIds = relationIds(pageProperty(current.page, "Working On"));
     if (!sameSet(currentTaskIds, change.expectedTaskIds)) throw new Error("Sub-agent Working On conflict");
     const currentStatus = propertyOption(current.page, "Status");
-    if (currentStatus !== (change.expectedRunLeaseIds.length === 0 ? "Offline" : "Online")) {
+    const expectedStatus = activityStatus(change.expectedRunLeaseIds, change.expectedTaskIds);
+    if (currentStatus !== expectedStatus) {
       throw new Error("Sub-agent Status conflict");
+    }
+    return this.setSubAgentActivity(
+      change.subAgentId,
+      expectedStatus,
+      change.expectedTaskIds,
+      activityStatus(change.nextRunLeaseIds, change.nextTaskIds),
+      change.nextTaskIds,
+      change.idempotencyKey,
+    );
+  }
+
+  public async getSubAgentActivity(subAgentId: string): Promise<NotionAgentActivity> {
+    const current = await this.getPage(subAgentId);
+    return {
+      status: propertyOption(current.page, "Status") ?? "",
+      taskIds: normalizedSet(relationIds(pageProperty(current.page, "Working On"))),
+      version: current.version,
+    };
+  }
+
+  public async setSubAgentActivity(
+    subAgentId: string,
+    expectedStatus: string,
+    expectedTaskIds: readonly string[],
+    nextStatus: "Offline" | "Online",
+    nextTaskIds: readonly string[],
+    idempotencyKey: string,
+  ): Promise<WriteReceipt> {
+    const current = await this.getPage(subAgentId);
+    if (propertyOption(current.page, "Status") !== expectedStatus || !sameSet(relationIds(pageProperty(current.page, "Working On")), expectedTaskIds)) {
+      throw new Error("Sub-agent activity changed before reconciliation");
     }
     await this.transport.request({
       body: {
         properties: {
-          Status: { select: { name: change.nextRunLeaseIds.length === 0 ? "Offline" : "Online" } },
-          "Working On": { relation: normalizedSet(change.nextTaskIds).map((id) => ({ id })) },
+          Status: { select: { name: nextStatus } },
+          "Working On": { relation: normalizedSet(nextTaskIds).map((id) => ({ id })) },
         },
       },
       method: "PATCH",
-      path: `/v1/pages/${change.subAgentId}`,
+      path: `/v1/pages/${subAgentId}`,
     });
-    const verified = await this.getPage(change.subAgentId);
+    const verified = await this.getPage(subAgentId);
     const status = propertyOption(verified.page, "Status");
-    if (status !== (change.nextRunLeaseIds.length === 0 ? "Offline" : "Online")) {
+    if (status !== nextStatus) {
       throw new Error("Sub-agent Status post-verification failed");
     }
-    if (!sameSet(relationIds(pageProperty(verified.page, "Working On")), change.nextTaskIds)) {
+    if (!sameSet(relationIds(pageProperty(verified.page, "Working On")), nextTaskIds)) {
       throw new Error("Sub-agent Working On post-verification failed");
     }
-    return this.receipt("subAgents", verified, change.idempotencyKey);
+    return this.receipt("subAgents", verified, idempotencyKey);
   }
 
   public async applyTaskMutation(mutation: ConditionalTaskMutation): Promise<WriteReceipt> {
@@ -412,6 +450,9 @@ function verifyPropertyText(page: JsonObject, name: string, expected: string): v
 
 function normalizedSet(values: readonly string[]): readonly string[] { return [...new Set(values)].sort(); }
 function sameSet(left: readonly string[], right: readonly string[]): boolean { return normalizedSet(left).join("\0") === normalizedSet(right).join("\0"); }
+function activityStatus(runLeaseIds: readonly string[], taskIds: readonly string[]): "Offline" | "Online" {
+  return runLeaseIds.length === 0 && taskIds.length === 0 ? "Offline" : "Online";
+}
 function normalizeText(text: string): string { return text.replace(/\r\n?/gu, "\n").normalize("NFC"); }
 
 function objectValue(value: JsonValue | undefined, label: string): JsonObject {
