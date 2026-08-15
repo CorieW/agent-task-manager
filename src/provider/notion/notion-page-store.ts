@@ -51,6 +51,21 @@ export class NotionPageStore {
     return page === undefined ? null : located(page);
   }
 
+  public async listBySelect(table: TableKind, property: string, value: string): Promise<readonly LocatedPage[]> {
+    const pages = await collectNotionPages((cursor) =>
+      this.transport.request({
+        body: {
+          filter: { property, select: { equals: value } },
+          page_size: 100,
+          ...(cursor === null ? {} : { start_cursor: cursor }),
+        },
+        method: "POST",
+        path: `/v1/data_sources/${this.tables[table]}/query`,
+      }),
+    );
+    return pages.map((page) => located(page));
+  }
+
   public async createResource(record: ResourceMutation): Promise<WriteReceipt> {
     const existing = await this.findUniqueByTitle("resources", "Resource", record.key);
     if (existing !== null) return this.updateResource(existing, record);

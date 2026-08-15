@@ -22,8 +22,12 @@ class MutableTransport implements NotionTransport {
       const filter = objectValue(request.body).filter;
       const filterObject = objectValue(filter);
       const property = String(filterObject.property);
-      const equals = String(objectValue(filterObject.title).equals);
-      const results = [...this.pages.values()].filter((page) => page.parent === query[1] && propertyText(page, property) === equals);
+      const titleEquals = objectValue(filterObject.title).equals;
+      const selectEquals = objectValue(filterObject.select).equals;
+      const equals = typeof titleEquals === "string" ? titleEquals : String(selectEquals);
+      const results = [...this.pages.values()].filter((page) =>
+        page.parent === query[1] && propertyValue(page, property) === equals,
+      );
       return { has_more: false, next_cursor: null, results };
     }
     if (request.method === "POST" && request.path === "/v1/pages") {
@@ -129,11 +133,13 @@ test("conditionally updates Status and Working On", async () => {
   );
 });
 
-function propertyText(page: JsonObject, name: string): string {
+function propertyValue(page: JsonObject, name: string): string {
   const property = objectValue(objectValue(page.properties)[name]);
   const values = property.title;
-  if (!Array.isArray(values)) return "";
-  return values.map((item) => String(objectValue(objectValue(item).text).content)).join("");
+  if (Array.isArray(values)) {
+    return values.map((item) => String(objectValue(objectValue(item).text).content)).join("");
+  }
+  return String(objectValue(property.select).name ?? "");
 }
 
 function objectValue(value: unknown): JsonObject {
