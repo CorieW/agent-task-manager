@@ -47,6 +47,45 @@ variables or an external secret store; `provider.connection` contains only the
 environment-variable name. The real default configuration file is ignored by
 Git and must never contain credentials.
 
+## Runtime configuration and security boundary
+
+Runtime fields become mandatory before dispatch. Adapter fields are registry
+IDs, not package names: `agentRunner`, `modelTransport`, and `sandbox` must
+already be registered by the host. `publication` is reserved for the Phase 5
+publication broker and is currently inert.
+
+`runtime.root` and every read/write root must be absolute and must not be a
+filesystem root. Write roots must be descendants of `runtime.root`. Replace the
+tracked Windows placeholders with host paths; a Unix deployment might use
+`/var/tmp/agent-task-manager/local-demo` with disposable worktrees beneath it.
+`outputLimitBytes` bounds combined streamed output.
+`terminationGraceMilliseconds` bounds graceful termination, while
+`postKillReapMilliseconds` bounds hard-kill acknowledgement, output closure,
+cleanup, cancellation acknowledgement, and session close.
+
+Authority is compiled from environment boundaries and the activated role:
+
+- `repository.read` exposes configured read roots.
+- `repository.write` exposes configured read and write roots.
+- `network.access` exposes configured HTTP(S) origins.
+- `environment.read` exposes configured non-secret environment names.
+- Without the corresponding capability, the policy contains no such authority.
+  Secret-shaped environment names are rejected.
+
+The core verifies adapter identity, run and policy digests, model/reasoning,
+control-plane separation, credential non-exposure, and process-tree enforcement.
+The configured `ToolIsolationAdapter` owns actual operating-system enforcement;
+placeholder adapter IDs are not built-in adapters, and hosts must not register
+adapters that merely assert receipts.
+
+The package includes one concrete, deliberately limited stack:
+`NoToolModelTransportAdapter`, `NoToolIsolationAdapter`, and
+`NoToolAgentRunnerAdapter`. It supports `runnerProfile: "no-tools"` roles,
+rejects all filesystem/environment/network authority, launches no child
+process, and streams a trusted model client's result through the bounded
+supervisor. Tool-enabled roles require an external enforcing adapter and fail
+closed when it is absent.
+
 ## Workspace commands
 
 Planning is read-only. Applying an initialization or additive migration is a
@@ -165,7 +204,11 @@ Selection and output Resources have kind `json-schema` and must be recursively
 closed object schemas. Prompt, input, query, schedule, and schema dependency
 graphs are resolved transitively, digest-bound, and collectively limited by
 `contextBudgetBytes`. Candidate limits cannot exceed 100, context cannot exceed
-10 MB, and deadlines cannot exceed 86,400 seconds. The manager activates a
+10 MB, retry attempts cannot exceed five, and deadlines cannot exceed 86,400
+seconds. Output schemas use the deliberately supported closed subset: object,
+array, string, number, integer, boolean, null, const/enum, bounded collection/
+string/number constraints, and `allOf`/`anyOf`/`oneOf`. Regex patterns,
+references, formats, and unknown keywords are rejected. The manager activates a
 definition only when its runner, model/reasoning pair, capabilities, intents,
 provider requirements, Resources, query, schedule, and transition statuses all
 verify. A coordinator can target only definitions in the immutable activated
@@ -187,6 +230,12 @@ and scheduling primitives, and the complete Notion adapter surface:
 - `NotionProvider`, `NotionHttpTransport`, `NotionWorkspaceReader`,
   `NotionWorkspaceManager`, `NotionPageStore`, `NotionRecordReader`, and
   `NotionStateStore`
+- Runtime APIs: `RuntimeAdapterRegistry`, adapter/session/process interfaces,
+  `resolveRuntimeEnvironment`, `compileToolIsolationPolicy`, context/result/
+  receipt helpers, `assertSupportedJsonSchema`, `superviseProcess`, and
+  `dispatchActivatedAgent`
+- Safe context-only adapters: `NoToolModelTransportAdapter`,
+  `NoToolIsolationAdapter`, and `NoToolAgentRunnerAdapter`
 
 ```ts
 import {
@@ -214,3 +263,66 @@ const report = await runFoundationDryRun({
 
 The dry run is a library API. It may read provider state but does not apply
 schema steps, mutate Tasks, or acquire leases.
+
+### Runtime host integration
+
+Dispatch never accepts raw adapters or caller-authored tool policy. Resolve one
+environment-bound runtime, then pass the completed `AssignmentPromotion` from
+selection/promotion:
+
+```ts
+const runtime = resolveRuntimeEnvironment({
+  config,
+  modelTransports,
+  runners,
+  toolIsolations,
+});
+
+const result = await dispatchActivatedAgent({
+  activated,
+  activationRuntime,
+  additionalInput: {},
+  promotion,
+  provider,
+  runtime,
+});
+```
+
+Immediately before launch, dispatch reactivates the definition and Resource
+graph; verifies the active, digest-correct assignment intent; checks exact run
+and task leases, `Status`, `Working On`, Task version/status, and dependencies;
+and recompiles authority. One absolute deadline covers model/isolation
+preparation, runner startup, retries, and execution. Only a nonzero process exit
+classified as `process_no_verdict` may use the role's bounded retry policy.
+Policy violations, invalid receipts/results, timeouts, and cleanup failures do
+not retry.
+
+The manager streams output under the configured byte limit and attempts
+terminate, kill, reap, output closure, and cleanup on every path. Model and
+isolation sessions close after partial preparation and normal completion. Agent
+results are proposals only; Phase 4 does not execute their intents.
+
+### Runtime wire contracts
+
+- `run-context-v1` binds activation/definition digests, the exact Task snapshot,
+  Resource bodies and pins, capability grant, input, run ID, and runtime receipt.
+- `agent-result-v1` echoes context, definition, and run identities; uses an
+  allowed outcome; satisfies the output schema; contains only allowed typed
+  intents; and carries the digest of every other result field.
+- `runtime-capability-receipt-v1` binds environment, policy, adapter,
+  executable, model, reasoning, run, filesystem, network, and environment
+  evidence.
+- `process-telemetry-v2` reports duration, exit/termination state, byte counts,
+  output digests, and a stable tool-violation code. It is trusted runtime
+  evidence, not agent-authored output.
+
+### Runtime failure troubleshooting
+
+Failures create or update `agent-runtime:<runId>` in Errors with a stable code
+and redacted description. Raw exceptions, paths, adapter output, and credentials
+are intentionally not copied into provider content. Inspect trusted host
+telemetry and receipts for details. Common classes are stale assignment or Task
+basis, invalid adapter receipt, unauthorized tool activity, output limit,
+deadline, unacknowledged cancellation, reap/cleanup failure, and invalid result
+contract. If Error persistence also fails, the caller receives an
+`AggregateError` preserving both failures.
