@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
 
 import { digestJson } from "../core/digest.js";
+import { IdempotencyLedger } from "../core/idempotency-ledger.js";
 import { finalizeMigrationPlan } from "../core/migration-plan.js";
+import { pageAfter } from "../core/pagination.js";
 import { compareWorkspaceSchema } from "../core/schema-diff.js";
 import type { JsonObject, JsonValue } from "../domain/json.js";
 import type {
@@ -44,12 +46,6 @@ import type { AgentTaskProvider } from "./agent-task-provider.js";
 
 interface MemoryLease extends LeaseRequest {
   readonly id: string;
-}
-
-interface IdempotencyEntry {
-  readonly fingerprint: string;
-  readonly operation: string;
-  readonly result: unknown;
 }
 
 const TABLE_ORDER: readonly TableKind[] = ["resources", "errors", "tasks", "subAgents"];
@@ -175,7 +171,7 @@ export class InMemoryProvider implements AgentTaskProvider {
   readonly #completedWorkspaceSteps = new Set<string>();
   readonly #definitions = new Map<string, SubAgentDefinition>();
   readonly #entityVersions = new Map<string, number>();
-  readonly #idempotency = new Map<string, IdempotencyEntry>();
+  readonly #idempotency = new IdempotencyLedger();
   readonly #intentOutcomes = new Map<string, ReconciliationResult>();
   readonly #leases = new Map<string, MemoryLease>();
   readonly #resources = new Map<string, ResourceRecord>();
@@ -373,24 +369,18 @@ export class InMemoryProvider implements AgentTaskProvider {
   }
 
   public async listTaskSummaries(query: TaskQuery): Promise<readonly TaskSummary[]> {
-    if (!Number.isInteger(query.limit) || query.limit < 1 || query.limit > 100) {
-      throw new RangeError("Task query limit must be an integer from 1 to 100");
-    }
     for (const key of Object.keys(query.predicate)) {
       if (!TASK_SUMMARY_KEYS.has(key)) throw new Error(`Unsupported task predicate: ${key}`);
     }
 
-    return [...this.#tasks.values()]
+    const matching = [...this.#tasks.values()]
       .map((task) => this.taskSummary(task))
-      .filter((task) => query.cursor === null || task.id.localeCompare(query.cursor) > 0)
       .filter((task) =>
         Object.entries(query.predicate).every(([key, expected]) =>
           Object.is(task[key as keyof TaskSummary], expected),
         ),
-      )
-      .sort((left, right) => left.id.localeCompare(right.id))
-      .slice(0, query.limit)
-      .map((task) => clone(task));
+      );
+    return pageAfter(matching, query, (task) => task.id).map((task) => clone(task));
   }
 
   public async getTaskSnapshot(taskId: string): Promise<TaskSnapshot> {
@@ -566,13 +556,7 @@ export class InMemoryProvider implements AgentTaskProvider {
   }
 
   private lookupIdempotent<T>(key: string, operation: string, payload: unknown): T | undefined {
-    const existing = this.#idempotency.get(key);
-    if (existing === undefined) return undefined;
-    const fingerprint = digestJson(asJson({ operation, payload }));
-    if (existing.operation !== operation || existing.fingerprint !== fingerprint) {
-      throw new Error(`Idempotency key reused with a different operation: ${key}`);
-    }
-    return clone(existing.result as T);
+    return this.#idempotency.read<T>(key, operation, payload);
   }
 
   private recordIdempotent<T>(
@@ -583,11 +567,7 @@ export class InMemoryProvider implements AgentTaskProvider {
     outcomes: Map<string, ReconciliationResult> = this.#intentOutcomes,
     state: ReconciliationResult["state"] = "applied",
   ): void {
-    this.#idempotency.set(key, {
-      fingerprint: digestJson(asJson({ operation, payload })),
-      operation,
-      result: clone(result),
-    });
+    this.#idempotency.write(key, operation, payload, result);
     outcomes.set(key, {
       evidence: { operation, result: asJson(result) },
       state,
