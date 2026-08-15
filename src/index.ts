@@ -22,6 +22,7 @@ export * from "./domain/records.js";
 export * from "./domain/schema.js";
 export * from "./effects/contracts.js";
 export * from "./effects/external-effect-broker.js";
+export * from "./effects/local-git-effects.js";
 export * from "./effects/provider-effect-journal.js";
 export * from "./effects/registry.js";
 export * from "./effects/typed-effect-handlers.js";
