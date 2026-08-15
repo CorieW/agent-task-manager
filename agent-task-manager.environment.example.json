@@ -9,14 +9,14 @@
   },
   "effects": {
     "handlers": {
-      "browser.run": "configured-browser",
+      "browser.run": "disposable-browser",
       "child_agent.wave": "provider-child-agent-wave",
       "command.run": "configured-command",
       "git.branch": "local-git",
       "git.commit": "local-git",
       "git.observe": "local-git",
       "git.push": "local-git",
-      "publication.draft_pr": "configured-publication",
+      "publication.draft_pr": "draft-publication",
       "workspace.provision": "local-git-workspace",
       "workspace.release": "local-git-workspace"
     },

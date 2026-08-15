@@ -45,14 +45,17 @@ node dist/src/cli.js init --plan --json --config agent-task-manager.environment.
 Configuration describes the environment only. Keep credentials in environment
 variables or an external secret store; `provider.connection` contains only the
 environment-variable name. The real default configuration file is ignored by
-Git and must never contain credentials.
+Git and must never contain credentials. The tracked example's empty
+`effects.settings` is illustrative and cannot run tool-enabled handlers until a
+host supplies validated environment-specific settings.
 
 ## Runtime configuration and security boundary
 
 Runtime fields become mandatory before dispatch. Adapter fields are registry
 IDs, not package names: `agentRunner`, `modelTransport`, and `sandbox` must
-already be registered by the host. `publication` is reserved for the Phase 5
-publication broker and is currently inert.
+already be registered by the host. The legacy `adapters.publication` field
+remains inert; Phase 5 draft publication uses
+`effects.handlers["publication.draft_pr"]` instead.
 
 `runtime.root` and every read/write root must be absolute and must not be a
 filesystem root. Write roots must be descendants of `runtime.root`. Replace the
@@ -236,6 +239,11 @@ and scheduling primitives, and the complete Notion adapter surface:
   `dispatchActivatedAgent`
 - Safe context-only adapters: `NoToolModelTransportAdapter`,
   `NoToolIsolationAdapter`, and `NoToolAgentRunnerAdapter`
+- Effects APIs: `ExternalEffectBroker`, `ProviderEffectJournal`,
+  `AssignmentEffectAuthority`, `resolveExternalEffectEnvironment`, typed
+  handler factories, `LocalGitEffects`, `ConfiguredCommandEffects`,
+  `DisposableBrowserEffects`, `DraftPublicationEffects`,
+  `ProviderChildAgentWaveEffects`, and their driver contracts
 
 ```ts
 import {
@@ -335,9 +343,11 @@ Phase 5 turns authorized `agent-result-v1.proposedIntents` into deterministic,
 crash-reconcilable operations. The environment maps each supported intent kind
 to one installed handler under `effects.handlers`; adapter-specific repository,
 executable, command, browser, publication, and child-runner definitions belong
-under `effects.settings` and must be validated by that adapter. Provider content
-can select logical IDs, but cannot introduce paths, executables, remotes,
-origins, credentials, or handler implementations.
+under `effects.settings`. The host must parse and validate those opaque settings
+before constructing `installedHandlers`; `resolveExternalEffectEnvironment`
+only binds the already-constructed handlers and hashes their settings. Provider
+content can select logical IDs, but cannot introduce paths, executables,
+remotes, origins, credentials, or handler implementations.
 
 The built-in intent kinds are:
 
@@ -354,23 +364,31 @@ The built-in intent kinds are:
 
 ```ts
 const effects = resolveExternalEffectEnvironment(config, installedHandlers);
+const authority = new AssignmentEffectAuthority(
+  activated,
+  activationRuntime,
+  promotion,
+  provider,
+);
 const broker = new ExternalEffectBroker(
   effects,
   new ProviderEffectJournal(provider),
+  authority,
 );
 const executions = await broker.executeResult(
-  agentResult,
-  activated.grant.allowedIntents,
+  dispatchResult.result,
+  Date.now() + 60_000,
 );
 ```
 
 Before invoking a handler, the broker stores the complete canonical
-`external-effect-intent-v1` in Resources. A successful, known-failed, or
-known-not-applied operation stores an `external-effect-receipt-v1` in that same
-row. If a process or provider connection fails after an external system accepts
-the operation, the intent remains indeterminate; the next invocation must
-inspect the external identity and finalize the prior outcome before replay.
-Local files are never the durable journal.
+`external-effect-intent-v1` in Resources and acquires a provider-backed effect
+claim. An `applied` or known `failed` observation receives an
+`external-effect-receipt-v1`; `not_applied` authorizes the broker to call
+`apply`. An indeterminate observation is persisted without a receipt and blocks
+replay until reconciliation can prove the outcome. Live assignment, lease,
+Task, role, and Resource authority is revalidated immediately before every
+effect. Local files are never the durable journal.
 
 Child waves additionally store one `child-agent-node-intent-v1` Resource per
 node. Each node receives only its own immutable context and the receipts of its
@@ -401,3 +419,21 @@ enforce disposable isolation and the configured origin set; a publication
 driver must reconcile the exact draft target, repository, branches, and head.
 Handlers are unavailable—and role activation must fail closed—until the host
 registers those enforcing drivers.
+
+### Intent payloads
+
+All payloads are closed objects. Repository and workspace values are logical
+environment IDs; revisions and digests are full immutable hashes.
+
+| Kind | Required fields |
+| --- | --- |
+| `workspace.provision` | `mode`, `repositoryId`, `sourceRevision`, `workspaceKey` |
+| `workspace.release` | `repositoryId`, `workspaceKey` |
+| `git.observe` | `repositoryId`, `revision`, `workspaceKey` |
+| `git.branch` | `branch`, `expectedHead`, `repositoryId`, `workspaceKey` |
+| `git.commit` | `expectedHead`, `message`, nonempty repository-relative `paths`, `repositoryId`, `workspaceKey` |
+| `git.push` | `branch`, `expectedLocalHead`, nullable `expectedRemoteHead`, configured `remote`, `repositoryId`, `workspaceKey` |
+| `publication.draft_pr` | `baseBranch`, bounded `body`, `expectedHead`, `headBranch`, `publicationTarget`, `repositoryId`, bounded `title` |
+| `command.run` | bounded `arguments`, configured `commandKey`, `repositoryId`, `workspaceKey` |
+| `browser.run` | configured `environmentKey`, `repositoryId`, `scenarioResource`, `workspaceKey` |
+| `child_agent.wave` | `maxConcurrency` (1–32) and an acyclic `nodes` array; every node pins `contextResource`, `contextVersion`, `contextDigest`, `definitionId`, `dependsOn`, and `nodeKey` |
