@@ -19,11 +19,18 @@ fails closed.
 
 Project-specific columns are additive and remain provider data rather than core
 role logic. The Perfect Project v4 workspace additionally uses Task governance
-fields (`Resolution`, `Type`, `Scope`, `Acceptance Criteria`, `GitHub Links`,
-`Owner`, `Required Approval`, `Outcome Summary`, `Created At`, and `Closed At`),
-Sub-agent `Responsibilities` and `Boundaries`, Error ownership/fix tracking,
-and Resource ownership/source/review tracking. The adapter tolerates and can
-round-trip these extra properties without imposing them on another project.
+fields (`Type`, `Scope`, `Acceptance Criteria`, `GitHub Links`, `Owner`,
+`Required Approval`, `Outcome Summary`, `Created At`, and `Closed At`), Error
+ownership/fix tracking, and Resource ownership/source/review tracking. Its Task
+`Status` select carries both active workflow states and terminal outcomes:
+`Completed`, `Cancelled`, `Duplicate`, `Not reproducible`, and `Superseded`.
+Sub-agent responsibilities and boundaries belong in prompt Resources instead
+of duplicate table properties. The adapter tolerates and can round-trip these
+extra properties without imposing them on another project.
+
+The optional Errors `GitHub Links` property points to issues, pull requests,
+commits, or runs that diagnose or remediate an Error. Agent Task Manager does
+not require or populate it when no GitHub artifact exists.
 
 Provider-managed page bodies use exact level-two headings:
 

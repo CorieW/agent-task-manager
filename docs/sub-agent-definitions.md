@@ -6,6 +6,11 @@ The JSON is a closed `sub-agent-definition-v1` manifest; its logical `id` is
 independent of the provider row ID. `Name`, `Enabled`, `Revision`, and `Model`
 must match their row properties.
 
+Role responsibilities and operational boundaries belong in the prompt
+Resources referenced by `promptResources`. Do not duplicate them in Sub-agent
+table properties: prompt bodies are the digest-bound authority supplied to the
+model at dispatch.
+
 ```json
 {
   "schema": "sub-agent-definition-v1",
