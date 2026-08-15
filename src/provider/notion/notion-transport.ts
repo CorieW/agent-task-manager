@@ -9,6 +9,7 @@ export interface NotionRequest {
   readonly method: "DELETE" | "GET" | "PATCH" | "POST";
   readonly path: string;
   readonly query?: Readonly<Record<string, boolean | number | string | null>>;
+  readonly signal?: AbortSignal;
 }
 
 export interface NotionTransport {
@@ -20,6 +21,7 @@ export interface NotionHttpTransportOptions {
   readonly baseUrl?: string;
   readonly fetch?: typeof fetch;
   readonly token: string;
+  readonly timeoutMilliseconds?: number;
 }
 
 export class NotionApiError extends Error {
@@ -38,6 +40,7 @@ export class NotionHttpTransport implements NotionTransport {
   readonly #baseUrl: string;
   readonly #fetch: typeof fetch;
   readonly #token: string;
+  readonly #timeoutMilliseconds: number;
 
   public constructor(options: NotionHttpTransportOptions) {
     if (options.token.trim() === "") throw new TypeError("Notion token must not be empty");
@@ -45,6 +48,10 @@ export class NotionHttpTransport implements NotionTransport {
     this.#baseUrl = (options.baseUrl ?? "https://api.notion.com").replace(/\/$/u, "");
     this.#fetch = options.fetch ?? fetch;
     this.#token = options.token;
+    this.#timeoutMilliseconds = options.timeoutMilliseconds ?? 30_000;
+    if (!Number.isSafeInteger(this.#timeoutMilliseconds) || this.#timeoutMilliseconds < 1) {
+      throw new RangeError("Notion request timeout must be a positive integer");
+    }
   }
 
   public async request(request: NotionRequest): Promise<JsonObject> {
@@ -61,9 +68,25 @@ export class NotionHttpTransport implements NotionTransport {
         "Notion-Version": this.#apiVersion,
       },
       method: request.method,
+      signal: request.signal === undefined
+        ? AbortSignal.timeout(this.#timeoutMilliseconds)
+        : AbortSignal.any([request.signal, AbortSignal.timeout(this.#timeoutMilliseconds)]),
     };
     if (request.body !== undefined) init.body = JSON.stringify(request.body);
-    const response = await this.#fetch(url, init);
+    let response: Response;
+    try {
+      response = await this.#fetch(url, init);
+    } catch (error) {
+      if (init.signal?.aborted === true) {
+        throw new NotionApiError(
+          request.signal?.aborted === true ? "Notion request was aborted" : "Notion request timed out",
+          0,
+          request.signal?.aborted === true ? "request_aborted" : "request_timeout",
+          null,
+        );
+      }
+      throw error;
+    }
     const raw: unknown = await response.json().catch(() => ({ message: "Non-JSON Notion response" }));
     const value = toJsonValue(raw);
     const object = asObject(value, "Notion response");

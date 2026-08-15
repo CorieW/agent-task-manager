@@ -41,17 +41,7 @@ export class NotionPageStore {
     property: string,
     value: string,
   ): Promise<LocatedPage | null> {
-    const pages = await collectNotionPages((cursor) =>
-      this.transport.request({
-        body: {
-          filter: { property, title: { equals: value } },
-          page_size: 100,
-          ...(cursor === null ? {} : { start_cursor: cursor }),
-        },
-        method: "POST",
-        path: `/v1/data_sources/${this.tables[table]}/query`,
-      }),
-    );
+    const pages = await this.filteredPages(table, { property, title: { equals: value } });
     if (pages.length > 1) throw new Error(`${table}.${property}=${value} is not unique`);
     const page = pages[0];
     return page === undefined ? null : located(page);
@@ -62,34 +52,14 @@ export class NotionPageStore {
     property: string,
     value: string,
   ): Promise<LocatedPage | null> {
-    const pages = await collectNotionPages((cursor) =>
-      this.transport.request({
-        body: {
-          filter: { property, rich_text: { equals: value } },
-          page_size: 100,
-          ...(cursor === null ? {} : { start_cursor: cursor }),
-        },
-        method: "POST",
-        path: `/v1/data_sources/${this.tables[table]}/query`,
-      }),
-    );
+    const pages = await this.filteredPages(table, { property, rich_text: { equals: value } });
     if (pages.length > 1) throw new Error(`${table}.${property}=${value} is not unique`);
     const page = pages[0];
     return page === undefined ? null : located(page);
   }
 
   public async listBySelect(table: TableKind, property: string, value: string): Promise<readonly LocatedPage[]> {
-    const pages = await collectNotionPages((cursor) =>
-      this.transport.request({
-        body: {
-          filter: { property, select: { equals: value } },
-          page_size: 100,
-          ...(cursor === null ? {} : { start_cursor: cursor }),
-        },
-        method: "POST",
-        path: `/v1/data_sources/${this.tables[table]}/query`,
-      }),
-    );
+    const pages = await this.filteredPages(table, { property, select: { equals: value } });
     return pages.map((page) => located(page));
   }
 
@@ -146,10 +116,10 @@ export class NotionPageStore {
 
   public async updateSubAgentActivity(change: ActivityMutation): Promise<WriteReceipt> {
     const current = await this.getPage(change.subAgentId);
-    const currentTaskIds = relationIds(pageProperty(current.page, "Working On"));
+    const currentTaskIds = await this.relationIds(current.page, "Working On");
     if (!sameSet(currentTaskIds, change.expectedTaskIds)) throw new Error("Sub-agent Working On conflict");
     const currentStatus = propertyOption(current.page, "Status");
-    const expectedStatus = activityStatus(change.expectedRunLeaseIds, change.expectedTaskIds);
+    const expectedStatus = activityStatus(change.expectedRunLeaseIds);
     if (currentStatus !== expectedStatus) {
       throw new Error("Sub-agent Status conflict");
     }
@@ -157,7 +127,7 @@ export class NotionPageStore {
       change.subAgentId,
       expectedStatus,
       change.expectedTaskIds,
-      activityStatus(change.nextRunLeaseIds, change.nextTaskIds),
+      activityStatus(change.nextRunLeaseIds),
       change.nextTaskIds,
       change.idempotencyKey,
     );
@@ -167,7 +137,7 @@ export class NotionPageStore {
     const current = await this.getPage(subAgentId);
     return {
       status: propertyOption(current.page, "Status") ?? "",
-      taskIds: normalizedSet(relationIds(pageProperty(current.page, "Working On"))),
+      taskIds: normalizedSet(await this.relationIds(current.page, "Working On")),
       version: current.version,
     };
   }
@@ -181,7 +151,7 @@ export class NotionPageStore {
     idempotencyKey: string,
   ): Promise<WriteReceipt> {
     const current = await this.getPage(subAgentId);
-    if (propertyOption(current.page, "Status") !== expectedStatus || !sameSet(relationIds(pageProperty(current.page, "Working On")), expectedTaskIds)) {
+    if (propertyOption(current.page, "Status") !== expectedStatus || !sameSet(await this.relationIds(current.page, "Working On"), expectedTaskIds)) {
       throw new Error("Sub-agent activity changed before reconciliation");
     }
     await this.transport.request({
@@ -199,7 +169,7 @@ export class NotionPageStore {
     if (status !== nextStatus) {
       throw new Error("Sub-agent Status post-verification failed");
     }
-    if (!sameSet(relationIds(pageProperty(verified.page, "Working On")), nextTaskIds)) {
+    if (!sameSet(await this.relationIds(verified.page, "Working On"), nextTaskIds)) {
       throw new Error("Sub-agent Working On post-verification failed");
     }
     return this.receipt("subAgents", verified, idempotencyKey);
@@ -215,6 +185,9 @@ export class NotionPageStore {
     });
     if (mutation.nextBody !== null) {
       await this.replaceAllContent(mutation.taskId, mutation.nextBody);
+      if ((await this.readManagedTaskBody(mutation.taskId)) !== normalizeText(mutation.nextBody)) {
+        throw new Error("Task body post-verification failed");
+      }
     }
     const verified = await this.getPage(mutation.taskId);
     if (verified.version === current.version) throw new Error("Task write did not advance last_edited_time");
@@ -277,19 +250,39 @@ export class NotionPageStore {
     const blocks = await this.childBlocks(pageId);
     for (const block of blocks) {
       await this.transport.request({
-        body: { archived: true },
+        body: { in_trash: true },
         method: "PATCH",
         path: `/v1/blocks/${requiredString(block.id, "Block id")}`,
       });
     }
     await this.transport.request({
-      body: { children: [managedCode(text, "plain text")] },
+      body: { children: [managedCode(text, "markdown")] },
       method: "PATCH",
       path: `/v1/blocks/${pageId}/children`,
     });
   }
 
-  private async findManagedSection(pageId: string, heading: string): Promise<{ readonly content: JsonObject; readonly heading: JsonObject }> {
+  private async readManagedTaskBody(pageId: string): Promise<string | null> {
+    const blocks = await this.childBlocks(pageId);
+    if (blocks.length !== 1 || blocks[0]?.type !== "code") return null;
+    const code = objectValue(blocks[0].code, "Task body code");
+    return code.language === "markdown" ? blockText(blocks[0]) : null;
+  }
+
+  private async relationIds(page: JsonObject, propertyName: string): Promise<readonly string[]> {
+    const property = pageProperty(page, propertyName);
+    if (property.has_more !== true) return normalizedSet(relationIds(property));
+    const pageId = requiredString(page.id, "Page id");
+    const propertyId = requiredString(property.id, `${propertyName} property id`);
+    const items = await collectNotionPages((cursor) => this.transport.request({
+      method: "GET",
+      path: `/v1/pages/${pageId}/properties/${encodeURIComponent(propertyId)}`,
+      query: { page_size: 100, start_cursor: cursor },
+    }));
+    return normalizedSet(items.flatMap((item) => relationIds(item)));
+  }
+
+  private async findManagedSection(pageId: string, heading: string): Promise<{ readonly content: JsonObject }> {
     const blocks = await this.childBlocks(pageId);
     const matches = blocks.map((block, index) => ({ block, index })).filter(({ block }) => block.type === "heading_2" && blockText(block) === heading);
     if (matches.length !== 1) throw new Error(`Page ${pageId} must contain exactly one ## ${heading}`);
@@ -297,7 +290,15 @@ export class NotionPageStore {
     if (match === undefined) throw new Error(`Page ${pageId} managed heading is missing`);
     const content = blocks[match.index + 1];
     if (content === undefined || content.type !== "code") throw new Error(`## ${heading} must be followed by a code block`);
-    return { content, heading: match.block };
+    return { content };
+  }
+
+  private async filteredPages(table: TableKind, filter: JsonObject): Promise<readonly JsonObject[]> {
+    return collectNotionPages((cursor) => this.transport.request({
+      body: { filter, page_size: 100, ...(cursor === null ? {} : { start_cursor: cursor }) },
+      method: "POST",
+      path: `/v1/data_sources/${this.tables[table]}/query`,
+    }));
   }
 
   private async childBlocks(pageId: string): Promise<readonly JsonObject[]> {
@@ -435,8 +436,13 @@ function richTextValue(value: JsonValue | undefined): string {
 }
 
 function relationIds(property: JsonObject): readonly string[] {
-  if (!Array.isArray(property.relation)) return [];
-  return property.relation.map((item) => requiredString(objectValue(item, "Relation item").id, "Relation id"));
+  if (Array.isArray(property.relation)) {
+    return property.relation.map((item) => requiredString(objectValue(item, "Relation item").id, "Relation id"));
+  }
+  if (property.relation !== null && property.relation !== undefined && typeof property.relation === "object") {
+    return [requiredString(objectValue(property.relation, "Relation item").id, "Relation id")];
+  }
+  return [];
 }
 
 function pageProperty(page: JsonObject, name: string): JsonObject {
@@ -450,8 +456,8 @@ function verifyPropertyText(page: JsonObject, name: string, expected: string): v
 
 function normalizedSet(values: readonly string[]): readonly string[] { return [...new Set(values)].sort(); }
 function sameSet(left: readonly string[], right: readonly string[]): boolean { return normalizedSet(left).join("\0") === normalizedSet(right).join("\0"); }
-function activityStatus(runLeaseIds: readonly string[], taskIds: readonly string[]): "Offline" | "Online" {
-  return runLeaseIds.length === 0 && taskIds.length === 0 ? "Offline" : "Online";
+function activityStatus(runLeaseIds: readonly string[]): "Offline" | "Online" {
+  return runLeaseIds.length === 0 ? "Offline" : "Online";
 }
 function normalizeText(text: string): string { return text.replace(/\r\n?/gu, "\n").normalize("NFC"); }
 

@@ -35,7 +35,7 @@ const TABLES: readonly TableDescriptor[] = [
     managedRanges: [],
     properties: [
       property("title", "Task", "title"),
-      property("status", "Status", "status"),
+      property("status", "Status", "select"),
       property("priority", "Priority", "number", false),
       relation("blockedBy", "Blocked By", "tasks", false),
       property("issueOrPr", "Issue / PR", "url", false),

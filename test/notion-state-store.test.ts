@@ -34,6 +34,7 @@ test("persists replayable leases and restart-visible intent outcomes", async () 
 
   const conflict = await restarted.acquireLease({ ...request, idempotencyKey: "acquire-two", ownerId: "run-2" });
   assert.deepEqual(conflict, { acquired: false, conflictingLeaseId: acquired.leaseId, leaseId: null });
+  assert.equal((await restarted.reconcileIntent("acquire-two")).state, "not_applied");
 });
 
 class ResourceTransport implements NotionTransport {

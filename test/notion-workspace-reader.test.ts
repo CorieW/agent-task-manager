@@ -95,6 +95,27 @@ test("inspects all configured tables into a canonical snapshot", async () => {
   assert.equal(transport.requests.length, 9);
 });
 
+test("rejects logical tables that alias one physical data source", async () => {
+  const transport = new FakeTransport();
+  const aliased = { ...environment(), tables: { errors: IDS.resources, resources: IDS.resources, subAgents: IDS.resources, tasks: IDS.resources } };
+  const reader = new NotionWorkspaceReader(aliased, createNotionWorkspaceSchema(), transport);
+  await assert.rejects(reader.inspectWorkspaceSchema(), /must use distinct data sources/u);
+});
+
+test("aborts Notion HTTP calls at the configured deadline", async () => {
+  const transport = new NotionHttpTransport({
+    fetch: async (_input, init) => new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+    }),
+    timeoutMilliseconds: 5,
+    token: "token",
+  });
+  await assert.rejects(
+    transport.request({ method: "GET", path: "/v1/users/me" }),
+    (error) => error instanceof Error && "code" in error && error.code === "request_timeout",
+  );
+});
+
 function environment(): ProviderEnvironment {
   return {
     bootstrapParent: null,

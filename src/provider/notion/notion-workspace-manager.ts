@@ -13,11 +13,28 @@ import type {
   WorkspaceSchemaRequest,
   WorkspaceSchemaSnapshot,
 } from "../../domain/schema.js";
-import { NotionPageStore, type NotionMutableTableIds } from "./notion-page-store.js";
+import { NotionPageStore } from "./notion-page-store.js";
+import { parseWriteReceipt } from "../write-receipt-codec.js";
 import { normalizeNotionIdentifier, notionSchemaDigest, NotionWorkspaceReader } from "./notion-workspace-reader.js";
 import { collectNotionPages, type NotionTransport } from "./notion-transport.js";
 
 const TABLE_ORDER: readonly TableKind[] = ["resources", "errors", "tasks", "subAgents"];
+
+interface WorkspaceStepRecord {
+  readonly receipt: WriteReceipt | null;
+  readonly schema: "agent-task-manager-workspace-step-v1";
+  readonly state: "applied" | "pending";
+  readonly step: WorkspaceMigrationStep;
+  readonly stepDigest: string;
+}
+
+export interface BootstrapSessionRecord {
+  readonly completedStepIds: readonly string[];
+  readonly nextStepId: string | null;
+  readonly plan: WorkspaceMigrationPlan;
+  readonly schema: "agent-task-manager-bootstrap-session-v1";
+  readonly state: "applying" | "complete";
+}
 
 export class NotionWorkspaceManager {
   readonly #resolved = new Map<TableKind, string>();
@@ -110,29 +127,43 @@ export class NotionWorkspaceManager {
   public async applyWorkspaceStep(step: WorkspaceMigrationStep): Promise<WriteReceipt> {
     await this.resolveTables();
     if (this.#resolved.has("resources")) await this.ensureBootstrapRoot();
-    const prior = await this.readStepReceipt(step.id);
+    const prior = await this.readStepRecord(step.id);
     if (prior !== null) {
-      if (prior.stepDigest !== stepDigest(step)) throw new Error(`Workspace step ${step.id} changed after it was applied`);
-      return prior.receipt;
+      if (prior.stepDigest !== stepDigest(step)) throw new Error(`Workspace step ${step.id} changed after it was journaled`);
+      if (prior.state === "applied" && prior.receipt !== null) return prior.receipt;
+      const recovered = await this.reconcileEffect(prior.step);
+      if (recovered.state === "applied") return this.finalizeRecoveredStep(prior.step);
+      if (recovered.state !== "not_applied") throw new Error(`Workspace step ${step.id} remains indeterminate`);
+    } else if (step.id === `notion:${this.target.version}:create:resources` && this.#resolved.has("resources")) {
+      const recovered = await this.reconcileEffect(step);
+      if (recovered.state === "applied") return this.finalizeRecoveredStep(step);
     }
     for (const dependency of step.dependsOn) {
-      if ((await this.readStepReceipt(dependency)) === null) throw new Error(`Workspace step dependency is incomplete: ${dependency}`);
+      const record = await this.readStepRecord(dependency);
+      if (record?.state !== "applied") throw new Error(`Workspace step dependency is incomplete: ${dependency}`);
     }
     const current = await this.inspectWorkspaceSchema();
     if (current.digest !== step.expectedPreSchemaDigest) throw new Error(`Workspace precondition changed: ${step.id}`);
+    if (this.#resolved.has("resources")) await this.writeStepRecord({
+      receipt: null,
+      schema: "agent-task-manager-workspace-step-v1",
+      state: "pending",
+      step,
+      stepDigest: stepDigest(step),
+    });
 
     if (step.kind === "create_table") await this.createTable(tableKind(step));
     else if (step.kind === "add_property" || step.kind === "add_relation") await this.addProperty(step);
     else if (step.kind === "record_schema_state") await this.recordSchemaState();
     else throw new Error(`Unsupported Notion workspace step: ${step.kind}`);
 
-    const reconciliation = await this.reconcileWorkspaceStep(step.id, step);
+    const reconciliation = await this.reconcileEffect(step);
     if (reconciliation.state !== "applied") throw new Error(`Workspace step post-verification failed: ${step.id}`);
     const verifiedSnapshot = await this.inspectWorkspaceSchema();
     if (verifiedSnapshot.digest !== step.expectedPostSchemaDigest) throw new Error(`Workspace postcondition changed: ${step.id}`);
     const table = tableKind(step);
     const tableId = requiredResolved(this.#resolved, table);
-    const observed = (await this.inspectWorkspaceSchema()).tables.find((candidate) => candidate.kind === table);
+    const observed = verifiedSnapshot.tables.find((candidate) => candidate.kind === table);
     if (observed === undefined) throw new Error(`Workspace step did not produce ${table}`);
     const receipt: WriteReceipt = {
       idempotencyKey: step.id,
@@ -140,14 +171,27 @@ export class NotionWorkspaceManager {
       providerRecord: { id: tableId, table },
       writtenAt: this.now().toISOString(),
     };
-    await this.writeStepReceipt(step, receipt);
+    await this.writeStepRecord({ receipt, schema: "agent-task-manager-workspace-step-v1", state: "applied", step, stepDigest: stepDigest(step) });
     return receipt;
   }
 
   public async reconcileWorkspaceStep(stepId: string, supplied?: WorkspaceMigrationStep): Promise<ReconciliationResult> {
-    const stored = await this.readStepReceipt(stepId);
-    if (stored !== null) return { evidence: { receipt: toJsonValue(stored.receipt), stepDigest: stored.stepDigest }, state: "applied" };
-    if (supplied === undefined) return { evidence: {}, state: "not_applied" };
+    await this.resolveTables();
+    const stored = await this.readStepRecord(stepId);
+    if (stored?.state === "applied" && stored.receipt !== null) {
+      return { evidence: { receipt: toJsonValue(stored.receipt), stepDigest: stored.stepDigest }, state: "applied" };
+    }
+    const effective = supplied ?? stored?.step ?? this.knownUnjournaledStep(stepId);
+    if (effective === null) return { evidence: {}, state: "not_applied" };
+    const result = await this.reconcileEffect(effective);
+    if (stored?.state === "pending" && result.state === "applied") {
+      const receipt = await this.finalizeRecoveredStep(effective);
+      return { evidence: { receipt: toJsonValue(receipt), stepDigest: stepDigest(effective) }, state: "applied" };
+    }
+    return result;
+  }
+
+  private async reconcileEffect(supplied: WorkspaceMigrationStep): Promise<ReconciliationResult> {
     await this.resolveTables();
     const kind = tableKind(supplied);
     if (supplied.kind === "create_table") {
@@ -170,6 +214,36 @@ export class NotionWorkspaceManager {
         : { evidence: {}, state: "not_applied" };
     }
     return { evidence: {}, state: "failed" };
+  }
+
+  private async finalizeRecoveredStep(step: WorkspaceMigrationStep): Promise<WriteReceipt> {
+    const snapshot = await this.inspectWorkspaceSchema();
+    if (snapshot.digest !== step.expectedPostSchemaDigest) throw new Error(`Recovered workspace postcondition does not match: ${step.id}`);
+    const table = tableKind(step);
+    const observed = snapshot.tables.find((candidate) => candidate.kind === table);
+    if (observed === undefined) throw new Error(`Recovered workspace step did not produce ${table}`);
+    const receipt: WriteReceipt = {
+      idempotencyKey: step.id,
+      observedVersion: observed.version,
+      providerRecord: { id: requiredResolved(this.#resolved, table), table },
+      writtenAt: this.now().toISOString(),
+    };
+    await this.writeStepRecord({ receipt, schema: "agent-task-manager-workspace-step-v1", state: "applied", step, stepDigest: stepDigest(step) });
+    return receipt;
+  }
+
+  private knownUnjournaledStep(stepId: string): WorkspaceMigrationStep | null {
+    const expectedId = `notion:${this.target.version}:create:resources`;
+    if (stepId !== expectedId) return null;
+    return {
+      dependsOn: [],
+      expectedPostSchemaDigest: "unknown-without-authorized-plan",
+      expectedPreSchemaDigest: notionSchemaDigest([]),
+      id: expectedId,
+      kind: "create_table",
+      payload: { kind: "resources" },
+      reversibility: "additive",
+    };
   }
 
   public configuredTablePatch(): Readonly<Record<TableKind, string>> {
@@ -208,6 +282,44 @@ export class NotionWorkspaceManager {
     });
   }
 
+  public async readBootstrapSession(mode: WorkspaceMigrationPlan["mode"]): Promise<BootstrapSessionRecord | null> {
+    await this.resolveTables();
+    if (!this.#resolved.has("resources")) return null;
+    const located = await this.pageStore().findUniqueByTitle("resources", "Resource", this.bootstrapSessionKey(mode));
+    if (located === null) return null;
+    return parseBootstrapSession(toJsonValue(JSON.parse(await this.pageStore().managedText(located.id, "Resource body"))));
+  }
+
+  public async recordBootstrapSession(
+    plan: WorkspaceMigrationPlan,
+    completedStepIds: readonly string[],
+  ): Promise<void> {
+    await this.resolveTables();
+    const knownStepIds = new Set(plan.steps.map((step) => step.id));
+    const completed = [...new Set(completedStepIds)];
+    if (completed.some((stepId) => !knownStepIds.has(stepId))) throw new Error("Bootstrap session contains an unknown completed step");
+    const nextStep = plan.steps.find((step) => !completed.includes(step.id));
+    const record: BootstrapSessionRecord = {
+      completedStepIds: completed,
+      nextStepId: nextStep?.id ?? null,
+      plan,
+      schema: "agent-task-manager-bootstrap-session-v1",
+      state: nextStep === undefined ? "complete" : "applying",
+    };
+    const body = canonicalize(toJsonValue(record));
+    const key = this.bootstrapSessionKey(plan.mode);
+    await this.pageStore().createResource({
+      body,
+      dependencies: [],
+      digest: sha256(body),
+      idempotencyKey: `${key}:${sha256(body)}`,
+      key,
+      kind: "system/bootstrap-session",
+      state: "active",
+      version: "v1",
+    });
+  }
+
   private async resolveTables(): Promise<void> {
     for (const kind of TABLE_ORDER) {
       if (this.#resolved.has(kind)) continue;
@@ -229,7 +341,7 @@ export class NotionWorkspaceManager {
     const results = await collectNotionPages((cursor) =>
       this.transport.request({
         body: {
-          filter: { property: "object", value: "database" },
+          filter: { property: "object", value: "data_source" },
           page_size: 100,
           query: title,
           ...(cursor === null ? {} : { start_cursor: cursor }),
@@ -238,13 +350,17 @@ export class NotionWorkspaceManager {
         path: "/v1/search",
       }),
     );
-    const matches = results.filter((database) => database.object === "database" && richText(database.title) === title && parentIdentity(database.parent) === parentId);
+    const candidates = results.filter((source) => source.object === "data_source" && richText(source.title) === title);
+    const matches: JsonObject[] = [];
+    for (const source of candidates) {
+      const sourceParent = objectValue(source.parent, `${title} data source parent`);
+      const databaseId = requiredString(sourceParent.database_id, `${title} parent database id`);
+      const database = await this.transport.request({ method: "GET", path: `/v1/databases/${databaseId}` });
+      if (parentIdentity(database.parent) === parentId) matches.push(source);
+    }
     if (matches.length > 1) throw new Error(`Bootstrap parent contains multiple ${title} databases`);
-    const database = matches[0];
-    if (database === undefined) return null;
-    const sources = database.data_sources;
-    if (!Array.isArray(sources) || sources.length !== 1) throw new Error(`${title} database must contain exactly one data source`);
-    return requiredString(objectValue(requiredValue(sources[0]), `${title} data source`).id, `${title} data source id`);
+    const source = matches[0];
+    return source === undefined ? null : requiredString(source.id, `${title} data source id`);
   }
 
   private async createTable(kind: TableKind): Promise<void> {
@@ -290,6 +406,11 @@ export class NotionWorkspaceManager {
       resourcesDataSourceId: resources,
       schema: "agent-task-manager-bootstrap-root-v1",
     }));
+    const existing = await pages.findUniqueByTitle("resources", "Resource", key);
+    if (existing !== null) {
+      if ((await pages.managedText(existing.id, "Resource body")) !== body) throw new Error("bootstrap-root-v1 conflicts with the configured workspace");
+      return;
+    }
     await pages.createResource({ body, dependencies: [], digest: sha256(body), idempotencyKey: key, key, kind: "system/bootstrap", state: "active", version: "v1" });
   }
 
@@ -306,17 +427,16 @@ export class NotionWorkspaceManager {
     return objectValue(toJsonValue(JSON.parse(await this.pageStore().managedText(located.id, "Resource body"))), "Schema state");
   }
 
-  private async readStepReceipt(stepId: string): Promise<{ readonly receipt: WriteReceipt; readonly stepDigest: string } | null> {
+  private async readStepRecord(stepId: string): Promise<WorkspaceStepRecord | null> {
     if (!this.#resolved.has("resources")) return null;
     const located = await this.pageStore().findUniqueByTitle("resources", "Resource", stepReceiptKey(stepId));
     if (located === null) return null;
-    const value = objectValue(toJsonValue(JSON.parse(await this.pageStore().managedText(located.id, "Resource body"))), "Workspace step receipt");
-    return { receipt: parseWriteReceipt(objectValue(value.receipt, "Workspace receipt")), stepDigest: requiredString(value.stepDigest, "Workspace step digest") };
+    return parseWorkspaceStepRecord(toJsonValue(JSON.parse(await this.pageStore().managedText(located.id, "Resource body"))));
   }
 
-  private async writeStepReceipt(step: WorkspaceMigrationStep, receipt: WriteReceipt): Promise<void> {
-    const key = stepReceiptKey(step.id);
-    const body = canonicalize(toJsonValue({ receipt, schema: "agent-task-manager-workspace-step-receipt-v1", stepDigest: stepDigest(step) }));
+  private async writeStepRecord(record: WorkspaceStepRecord): Promise<void> {
+    const key = stepReceiptKey(record.step.id);
+    const body = canonicalize(toJsonValue(record));
     await this.pageStore().createResource({ body, dependencies: [], digest: sha256(body), idempotencyKey: key, key, kind: "system/workspace-step", state: "active", version: "v1" });
   }
 
@@ -328,6 +448,10 @@ export class NotionWorkspaceManager {
       subAgents: this.#resolved.get("subAgents") ?? fallback,
       tasks: this.#resolved.get("tasks") ?? fallback,
     }, this.transport, this.now);
+  }
+
+  private bootstrapSessionKey(mode: WorkspaceMigrationPlan["mode"]): string {
+    return `system/bootstrap-session/${sha256(`${this.environmentId}\0${mode}\0${this.target.version}`)}`;
   }
 
   private resolvedEnvironment(): ProviderEnvironment {
@@ -405,7 +529,6 @@ function selectOptions(table: TableKind, property: string): readonly string[] {
   if (table === "resources" && property === "State") return ["active", "draft", "retired"];
   if (table === "errors" && property === "Severity") return ["critical", "high", "medium", "low"];
   if (table === "subAgents" && property === "Status") return ["Online", "Offline"];
-  if (table === "tasks" && property === "Status") return ["Todo"];
   return [];
 }
 
@@ -424,16 +547,83 @@ function tableKind(step: WorkspaceMigrationStep): TableKind {
 function stepDigest(step: WorkspaceMigrationStep): string { return sha256(canonicalize(toJsonValue(step))); }
 function stepReceiptKey(stepId: string): string { return `system/workspace-step/${sha256(stepId)}`; }
 
-function parseWriteReceipt(value: JsonObject): WriteReceipt {
-  const providerRecord = objectValue(value.providerRecord, "Provider record");
-  const table = requiredString(providerRecord.table, "Provider record table");
-  if (!TABLE_KINDS.includes(table as TableKind)) throw new TypeError("Provider record table is invalid");
+function parseWorkspaceStepRecord(value: JsonValue): WorkspaceStepRecord {
+  const object = objectValue(value, "Workspace step record");
+  const expectedKeys = ["receipt", "schema", "state", "step", "stepDigest"];
+  if (Object.keys(object).sort().join("\0") !== expectedKeys.sort().join("\0")) throw new TypeError("Workspace step record has unexpected or missing fields");
+  if (object.schema !== "agent-task-manager-workspace-step-v1" || (object.state !== "pending" && object.state !== "applied")) throw new TypeError("Workspace step record schema or state is invalid");
+  const receipt = object.receipt === null ? null : parseWriteReceipt(object.receipt ?? null);
+  if ((object.state === "applied") !== (receipt !== null)) throw new TypeError("Workspace step record state and receipt disagree");
+  const step = parseWorkspaceStep(objectValue(object.step, "Workspace step"));
+  const digest = requiredString(object.stepDigest, "Workspace step digest");
+  if (digest !== stepDigest(step)) throw new TypeError("Workspace step record digest is invalid");
+  return { receipt, schema: object.schema, state: object.state, step, stepDigest: digest };
+}
+
+function parseWorkspaceStep(value: JsonObject): WorkspaceMigrationStep {
+  const expectedKeys = ["dependsOn", "expectedPostSchemaDigest", "expectedPreSchemaDigest", "id", "kind", "payload", "reversibility"];
+  if (Object.keys(value).sort().join("\0") !== expectedKeys.sort().join("\0")) throw new TypeError("Workspace step has unexpected or missing fields");
+  const kind = requiredString(value.kind, "Workspace step kind");
+  const allowedKinds: WorkspaceMigrationStep["kind"][] = ["add_managed_range", "add_option", "add_property", "add_relation", "create_table", "record_schema_state"];
+  if (!allowedKinds.includes(kind as WorkspaceMigrationStep["kind"])) throw new TypeError("Workspace step kind is invalid");
+  const dependencies = value.dependsOn;
+  if (!Array.isArray(dependencies) || dependencies.some((dependency) => typeof dependency !== "string" || dependency === "")) throw new TypeError("Workspace step dependencies are invalid");
+  if (value.reversibility !== "additive" && value.reversibility !== "manual") throw new TypeError("Workspace step reversibility is invalid");
   return {
-    idempotencyKey: requiredString(value.idempotencyKey, "Receipt idempotency key"),
-    observedVersion: requiredString(value.observedVersion, "Receipt observed version"),
-    providerRecord: { id: requiredString(providerRecord.id, "Provider record id"), table: table as TableKind },
-    writtenAt: requiredString(value.writtenAt, "Receipt written at"),
+    dependsOn: dependencies as string[],
+    expectedPostSchemaDigest: requiredString(value.expectedPostSchemaDigest, "Workspace post digest"),
+    expectedPreSchemaDigest: requiredString(value.expectedPreSchemaDigest, "Workspace pre digest"),
+    id: requiredString(value.id, "Workspace step id"),
+    kind: kind as WorkspaceMigrationStep["kind"],
+    payload: objectValue(value.payload, "Workspace step payload"),
+    reversibility: value.reversibility,
   };
+}
+
+function parseBootstrapSession(value: JsonValue): BootstrapSessionRecord {
+  const object = objectValue(value, "Bootstrap session");
+  const expectedKeys = ["completedStepIds", "nextStepId", "plan", "schema", "state"];
+  if (Object.keys(object).sort().join("\0") !== expectedKeys.sort().join("\0")) throw new TypeError("Bootstrap session has unexpected or missing fields");
+  if (object.schema !== "agent-task-manager-bootstrap-session-v1" || (object.state !== "applying" && object.state !== "complete")) {
+    throw new TypeError("Bootstrap session schema or state is invalid");
+  }
+  const completed = stringArray(object.completedStepIds, "Bootstrap completed steps");
+  const plan = parseWorkspacePlan(objectValue(object.plan, "Bootstrap plan"));
+  const known = new Set(plan.steps.map((step) => step.id));
+  if (completed.some((stepId) => !known.has(stepId)) || new Set(completed).size !== completed.length) {
+    throw new TypeError("Bootstrap completed steps are invalid");
+  }
+  const nextStep = plan.steps.find((step) => !completed.includes(step.id));
+  const nextStepId = object.nextStepId === null ? null : requiredString(object.nextStepId, "Bootstrap next step");
+  if ((nextStep?.id ?? null) !== nextStepId || (nextStep === undefined) !== (object.state === "complete")) {
+    throw new TypeError("Bootstrap session progress is inconsistent");
+  }
+  return { completedStepIds: completed, nextStepId, plan, schema: object.schema, state: object.state };
+}
+
+function parseWorkspacePlan(value: JsonObject): WorkspaceMigrationPlan {
+  const expectedKeys = ["digest", "environmentId", "mode", "observedSchemaDigest", "parentIdentity", "providerIdentity", "steps", "targetSchemaDigest", "targetSchemaVersion"];
+  if (Object.keys(value).sort().join("\0") !== expectedKeys.sort().join("\0")) throw new TypeError("Workspace plan has unexpected or missing fields");
+  if (value.mode !== "bootstrap" && value.mode !== "migration") throw new TypeError("Workspace plan mode is invalid");
+  if (value.parentIdentity !== null && typeof value.parentIdentity !== "string") throw new TypeError("Workspace plan parent identity is invalid");
+  if (!Array.isArray(value.steps)) throw new TypeError("Workspace plan steps must be an array");
+  const plan = finalizeMigrationPlan({
+    environmentId: requiredString(value.environmentId, "Workspace plan environment"),
+    mode: value.mode,
+    observedSchemaDigest: requiredString(value.observedSchemaDigest, "Workspace plan observed digest"),
+    parentIdentity: value.parentIdentity,
+    providerIdentity: requiredString(value.providerIdentity, "Workspace plan provider identity"),
+    steps: value.steps.map((step) => parseWorkspaceStep(objectValue(step, "Workspace plan step"))),
+    targetSchemaDigest: requiredString(value.targetSchemaDigest, "Workspace plan target digest"),
+    targetSchemaVersion: requiredString(value.targetSchemaVersion, "Workspace plan target version"),
+  });
+  if (plan.digest !== requiredString(value.digest, "Workspace plan digest")) throw new TypeError("Workspace plan digest is invalid");
+  return plan;
+}
+
+function stringArray(value: JsonValue | undefined, label: string): string[] {
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string" || item === "")) throw new TypeError(`${label} must be non-empty strings`);
+  return value as string[];
 }
 
 function richTextPayload(text: string): JsonValue[] { return [{ text: { content: text }, type: "text" }]; }

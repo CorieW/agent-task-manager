@@ -100,6 +100,10 @@ export class NotionRecordReader {
 
   public async readPageMarkdown(pageId: string): Promise<string> {
     const blocks = await this.readChildBlocks(pageId);
+    if (blocks.length === 1 && blocks[0]?.type === "code") {
+      const code = objectValue(blocks[0].code, "Task body code");
+      if (code.language === "markdown") return blockText(blocks[0]).replace(/\r\n?/gu, "\n").normalize("NFC");
+    }
     const lines: string[] = [];
     for (const block of blocks) {
       lines.push(await this.blockMarkdown(block));
@@ -109,7 +113,6 @@ export class NotionRecordReader {
 
   private async subAgentDefinition(page: JsonObject): Promise<SubAgentDefinition> {
     const id = requiredString(page.id, "Sub-agent page id");
-    const properties = objectValue(page.properties, "Sub-agent properties");
     const manifest = await this.managedJson(id, "Sub-agent definition");
     const definition = parseDefinitionManifest(manifest);
     const name = propertyText(page, "Name");
@@ -119,7 +122,6 @@ export class NotionRecordReader {
     if (definition.name !== name || definition.enabled !== enabled || definition.revision !== revision || definition.model !== model) {
       throw new Error(`Sub-agent ${id} manifest does not match its authoritative properties`);
     }
-    if (Object.keys(properties).length === 0) throw new Error(`Sub-agent ${id} has no properties`);
     return { ...definition, id };
   }
 

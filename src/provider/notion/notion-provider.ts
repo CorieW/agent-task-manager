@@ -44,6 +44,7 @@ import type { NotionTransport } from "./notion-transport.js";
 import { NotionWorkspaceManager } from "./notion-workspace-manager.js";
 import { NotionWorkspaceReader } from "./notion-workspace-reader.js";
 import { SingleHostMutex } from "./single-host-mutex.js";
+import { parseWriteReceipt } from "../write-receipt-codec.js";
 
 export interface NotionProviderOptions {
   readonly environment: ProviderEnvironment;
@@ -124,8 +125,9 @@ export class NotionProvider implements AgentTaskProvider {
     return runtime.state.runExclusive(async () => {
       const prior = await runtime.state.beginIntent(change.idempotencyKey, "agent_activity", change);
       if (prior !== undefined) return parseWriteReceipt(prior);
-      const activeRuns = await runtime.state.activeLeaseIds("agent_run", change.subAgentId);
-      const activeTasks = await runtime.state.activeTaskIds(change.subAgentId);
+      const projection = await runtime.state.activeProjection(change.subAgentId);
+      const activeRuns = projection.runLeaseIds;
+      const activeTasks = projection.taskIds;
       if (!sameSet(activeRuns, change.nextRunLeaseIds) || !sameSet(activeTasks, change.nextTaskIds)) {
         throw new Error("Sub-agent activity must equal the provider's active lease projection");
       }
@@ -144,14 +146,7 @@ export class NotionProvider implements AgentTaskProvider {
   }
 
   public async applyTaskMutation(mutation: ConditionalTaskMutation): Promise<WriteReceipt> {
-    const runtime = await this.runtime();
-    return runtime.state.runExclusive(async () => {
-      const prior = await runtime.state.beginIntent(mutation.idempotencyKey, "task", mutation);
-      if (prior !== undefined) return parseWriteReceipt(prior);
-      const receipt = await runtime.pages.applyTaskMutation(mutation);
-      await runtime.state.completeIntent(mutation.idempotencyKey, "task", mutation, receipt);
-      return receipt;
-    });
+    return this.executeReceiptIntent(mutation.idempotencyKey, "task", mutation, (runtime) => runtime.pages.applyTaskMutation(mutation));
   }
 
   public async getResources(refs: readonly ResourceRef[]): Promise<readonly ResourceRecord[]> {
@@ -160,14 +155,7 @@ export class NotionProvider implements AgentTaskProvider {
 
   public async putResource(record: ResourceMutation): Promise<WriteReceipt> {
     if (record.key.startsWith("system/")) throw new Error("system/ Resource keys are reserved by Agent Task Manager");
-    const runtime = await this.runtime();
-    return runtime.state.runExclusive(async () => {
-      const prior = await runtime.state.beginIntent(record.idempotencyKey, "resource", record);
-      if (prior !== undefined) return parseWriteReceipt(prior);
-      const receipt = await runtime.pages.createResource(record);
-      await runtime.state.completeIntent(record.idempotencyKey, "resource", record, receipt);
-      return receipt;
-    });
+    return this.executeReceiptIntent(record.idempotencyKey, "resource", record, (runtime) => runtime.pages.createResource(record));
   }
 
   public async acquireLease(request: LeaseRequest): Promise<LeaseResult> {
@@ -183,14 +171,7 @@ export class NotionProvider implements AgentTaskProvider {
   }
 
   public async createOrUpdateError(error: ErrorMutation): Promise<WriteReceipt> {
-    const runtime = await this.runtime();
-    return runtime.state.runExclusive(async () => {
-      const prior = await runtime.state.beginIntent(error.idempotencyKey, "error", error);
-      if (prior !== undefined) return parseWriteReceipt(prior);
-      const receipt = await runtime.pages.createOrUpdateError(error);
-      await runtime.state.completeIntent(error.idempotencyKey, "error", error, receipt);
-      return receipt;
-    });
+    return this.executeReceiptIntent(error.idempotencyKey, "error", error, (runtime) => runtime.pages.createOrUpdateError(error));
   }
 
   public async reconcileIntent(intentId: string): Promise<ReconciliationResult> {
@@ -206,10 +187,11 @@ export class NotionProvider implements AgentTaskProvider {
     idempotencyKey: string,
   ): Promise<ReconciliationResult> {
     const runtime = await this.runtime();
-    const activeRunLeaseIds = await runtime.state.activeLeaseIds("agent_run", subAgentId);
-    const activeTaskIds = await runtime.state.activeTaskIds(subAgentId);
+    const projection = await runtime.state.activeProjection(subAgentId);
+    const activeRunLeaseIds = projection.runLeaseIds;
+    const activeTaskIds = projection.taskIds;
     const observed = await runtime.pages.getSubAgentActivity(subAgentId);
-    const expectedStatus = activeRunLeaseIds.length === 0 && activeTaskIds.length === 0 ? "Offline" : "Online";
+    const expectedStatus = activeRunLeaseIds.length === 0 ? "Offline" : "Online";
     if (observed.status === expectedStatus && sameSet(observed.taskIds, activeTaskIds)) {
       return {
         evidence: jsonObject(toJsonValue({ activeRunLeaseIds, activeTaskIds, status: expectedStatus }), "Activity evidence"),
@@ -250,30 +232,28 @@ export class NotionProvider implements AgentTaskProvider {
       state: new NotionStateStore(pages, this.#mutex, this.#now),
     };
   }
-}
 
-function parseWriteReceipt(value: JsonValue): WriteReceipt {
-  const object = jsonObject(value, "Write receipt");
-  const providerRecord = jsonObject(object.providerRecord, "Provider record");
-  const table = stringValue(providerRecord.table, "Provider record table");
-  if (!TABLE_KINDS.includes(table as TableKind)) throw new TypeError("Provider record table is invalid");
-  return {
-    idempotencyKey: stringValue(object.idempotencyKey, "Receipt idempotencyKey"),
-    observedVersion: stringValue(object.observedVersion, "Receipt observedVersion"),
-    providerRecord: { id: stringValue(providerRecord.id, "Provider record id"), table: table as TableKind },
-    writtenAt: stringValue(object.writtenAt, "Receipt writtenAt"),
-  };
+  private async executeReceiptIntent(
+    idempotencyKey: string,
+    operation: string,
+    payload: unknown,
+    effect: (runtime: RuntimeServices) => Promise<WriteReceipt>,
+  ): Promise<WriteReceipt> {
+    const runtime = await this.runtime();
+    return runtime.state.runExclusive(async () => {
+      const prior = await runtime.state.beginIntent(idempotencyKey, operation, payload);
+      if (prior !== undefined) return parseWriteReceipt(prior);
+      const receipt = await effect(runtime);
+      await runtime.state.completeIntent(idempotencyKey, operation, payload, receipt);
+      return receipt;
+    });
+  }
 }
 
 function jsonObject(value: JsonValue | undefined, label: string): JsonObject {
   const checked = toJsonValue(value);
   if (checked === null || typeof checked !== "object" || Array.isArray(checked)) throw new TypeError(`${label} must be an object`);
   return checked;
-}
-
-function stringValue(value: JsonValue | undefined, label: string): string {
-  if (typeof value !== "string" || value === "") throw new TypeError(`${label} must be a non-empty string`);
-  return value;
 }
 
 function sameSet(left: readonly string[], right: readonly string[]): boolean {

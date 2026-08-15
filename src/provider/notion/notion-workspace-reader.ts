@@ -79,6 +79,11 @@ export class NotionWorkspaceReader {
       const configured = this.environment.tables[kind];
       if (configured !== null) resolved.set(kind, await this.resolveDataSourceId(configured));
     }
+    const ids = [...resolved.values()];
+    if (new Set(ids).size !== ids.length) {
+      const duplicates = ids.filter((id, index) => ids.indexOf(id) !== index);
+      throw new Error(`Logical Notion tables must use distinct data sources; duplicated: ${[...new Set(duplicates)].join(", ")}`);
+    }
 
     const tables: ObservedTable[] = [];
     for (const kind of TABLE_KINDS) {

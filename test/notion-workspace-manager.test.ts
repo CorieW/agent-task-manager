@@ -40,6 +40,39 @@ test("plans Resources-first bootstrap with deferred relations and no writes", as
   assert.equal(transport.requests.every((request) => request.method === "GET" || request.path === "/v1/search"), true);
 });
 
+test("rediscovers current data-source search results under the configured parent", async () => {
+  const transport: NotionTransport = {
+    async request(request) {
+      if (request.path === "/v1/search") {
+        const body = request.body !== null && typeof request.body === "object" && !Array.isArray(request.body) ? request.body : {};
+        return body.query === "Resources"
+          ? {
+              has_more: false,
+              next_cursor: null,
+              results: [{
+                id: "11111111-1111-1111-1111-111111111111",
+                object: "data_source",
+                parent: { database_id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", type: "database_id" },
+                title: [{ plain_text: "Resources" }],
+              }],
+            }
+          : { has_more: false, next_cursor: null, results: [] };
+      }
+      if (request.path === "/v1/databases/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb") {
+        return { id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", object: "database", parent: { page_id: PARENT, type: "page_id" } };
+      }
+      if (request.path === "/v1/users/me") return { id: "bot", object: "user" };
+      if (request.path === "/v1/data_sources/11111111-1111-1111-1111-111111111111") {
+        return { id: "11111111-1111-1111-1111-111111111111", object: "data_source", properties: {}, title: [{ plain_text: "Resources" }] };
+      }
+      throw new Error(`Unexpected ${request.method} ${request.path}`);
+    },
+  };
+  const manager = new NotionWorkspaceManager("demo", environment(), createNotionWorkspaceSchema(), transport, () => new Date(0));
+  const snapshot = await manager.inspectWorkspaceSchema();
+  assert.equal(snapshot.tables[0]?.kind, "resources");
+});
+
 function environment(): ProviderEnvironment {
   return {
     bootstrapParent: PARENT,

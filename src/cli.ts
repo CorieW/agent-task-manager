@@ -20,9 +20,9 @@ const HELP = `Agent Task Manager
 Usage:
   agent-task-manager validate [--json] [--config <path>]
   agent-task-manager init --plan [--json] [--config <path>]
-  agent-task-manager init --apply --expected-plan-digest <sha256> [--write-environment]
+  agent-task-manager init --apply --expected-plan-digest <sha256> [--write-environment] [--config <path>]
   agent-task-manager migrate --plan [--json] [--config <path>]
-  agent-task-manager migrate --apply --expected-plan-digest <sha256> [--write-environment]
+  agent-task-manager migrate --apply --expected-plan-digest <sha256> [--write-environment] [--config <path>]
   agent-task-manager providers
 
 Planning and validation are read-only. Schema apply is human-only and requires
@@ -111,24 +111,39 @@ export async function main(args: readonly string[] = process.argv.slice(2)): Pro
     const config = parseEnvironmentConfig(JSON.parse(raw) as JsonValue);
     const provider = notionProvider(config);
     const target = createNotionWorkspaceSchema();
-    const observed = await provider.inspectWorkspaceSchema();
     const mode = command === "init" ? "bootstrap" : "migration";
-    const plan = await provider.planWorkspaceChanges({ environmentId: config.environmentId, mode, observed, target });
+    const manager = provider.workspaceManager();
+    const session = await manager.readBootstrapSession(mode);
+    if (session !== null && (session.plan.environmentId !== config.environmentId || session.plan.targetSchemaDigest !== target.digest)) {
+      throw new Error("Active workspace session does not match this command or environment");
+    }
+    const observed = await provider.inspectWorkspaceSchema();
+    const expectedDigest = applying ? option(args, "--expected-plan-digest") : null;
+    const plan = applying && session?.plan.digest === expectedDigest
+      ? session.plan
+      : await provider.planWorkspaceChanges({ environmentId: config.environmentId, mode, observed, target });
     if (planning) {
       process.stdout.write(`${args.includes("--json") ? `${canonicalize(toJsonValue(plan))}\n` : `Plan ${plan.digest}\n${plan.steps.map((step) => `- ${step.kind}: ${step.id}`).join("\n")}\n`}`);
       return 0;
     }
-    const expectedDigest = option(args, "--expected-plan-digest");
-    assertAuthorizedPlan(plan, expectedDigest);
-    for (const step of plan.steps) await provider.applyWorkspaceStep(step);
+    assertAuthorizedPlan(plan, expectedDigest ?? "");
+    const completed = new Set(session?.plan.digest === plan.digest ? session.completedStepIds : []);
+    if ((await manager.resolveTableIds()).resources !== undefined && completed.size === 0) {
+      await manager.recordBootstrapSession(plan, []);
+    }
+    for (const step of plan.steps) {
+      await provider.applyWorkspaceStep(step);
+      completed.add(step.id);
+      await manager.recordBootstrapSession(plan, [...completed]);
+    }
     const verified = await provider.validateTables();
     if (verified.state !== "ready") throw new Error(`Authorized ${command} did not converge: ${verified.state}`);
     const startingFileDigest = sha256(raw);
-    const tablePatch = provider.workspaceManager().configuredTablePatch();
-    await provider.workspaceManager().recordEnvironmentPatch(startingFileDigest, "pending_human");
+    const tablePatch = manager.configuredTablePatch();
+    await manager.recordEnvironmentPatch(startingFileDigest, "pending_human");
     if (args.includes("--write-environment")) {
       await writeEnvironmentPatch(path, raw, config.raw, tablePatch);
-      await provider.workspaceManager().recordEnvironmentPatch(startingFileDigest, "applied");
+      await manager.recordEnvironmentPatch(startingFileDigest, "applied");
     }
     process.stdout.write(`${canonicalize(toJsonValue({ environmentPatch: { provider: { tables: tablePatch } }, planDigest: plan.digest, state: "ready" }))}\n`);
     return 0;

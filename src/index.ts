@@ -23,4 +23,5 @@ export * from "./provider/notion/notion-transport.js";
 export * from "./provider/notion/notion-workspace-reader.js";
 export * from "./provider/notion/notion-workspace-manager.js";
 export * from "./provider/provider-registry.js";
+export * from "./provider/write-receipt-codec.js";
 export * from "./provider/notion/single-host-mutex.js";
