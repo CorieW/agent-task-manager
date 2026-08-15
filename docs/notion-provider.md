@@ -12,10 +12,18 @@ fails closed.
 
 | Table | Required properties |
 | --- | --- |
-| Tasks | `Task` title; `Status`, `Resolution`, and `Type` selects; adapter-internal `Manager Mutation`; numeric `Priority`; `Scope`, `Acceptance Criteria`, `GitHub Links`, `Required Approval`, and `Outcome Summary` text; self-relation `Dependencies`; `Owner` people; `Created At` and `Closed At` timestamps |
-| Sub-agents | `Name` title; `Enabled` checkbox; `Revision`, `Model`, `Responsibilities`, and `Boundaries` text; `Status` select; `Working On` Tasks relation; `Last Run` last-edited time |
-| Errors | `Error` title; `Error Key` rich text; `Severity` and `Status` selects; `Task` and `Sub-agent` relations; optional `Run ID`; `Owner`, `GitHub Links`, `Created At`, and `Fixed At` tracking |
-| Resources | `Resource` title; `Kind`, `State` select; `Version`, `Digest`, `Dependencies`; `Owner`, `Source`, and `Review Date` tracking |
+| Tasks | `Task` title; provider-defined `Status` select; adapter-internal `Manager Mutation` rich text; self-relation `Dependencies`; optional numeric `Priority` |
+| Sub-agents | `Name` title; `Enabled` checkbox; numeric `Revision`; `Model` rich text; `Status` select; `Working On` Tasks relation; `Last Run` last-edited time |
+| Errors | `Error` title; `Error Key` rich text; `Severity` and `Status` selects; `Task` and `Sub-agent` relations; optional `Run ID` |
+| Resources | `Resource` title; `Kind` and `State` selects; `Version`, `Digest`, and `Dependencies` rich text |
+
+Project-specific columns are additive and remain provider data rather than core
+role logic. The Perfect Project v4 workspace additionally uses Task governance
+fields (`Resolution`, `Type`, `Scope`, `Acceptance Criteria`, `GitHub Links`,
+`Owner`, `Required Approval`, `Outcome Summary`, `Created At`, and `Closed At`),
+Sub-agent `Responsibilities` and `Boundaries`, Error ownership/fix tracking,
+and Resource ownership/source/review tracking. The adapter tolerates and can
+round-trip these extra properties without imposing them on another project.
 
 Provider-managed page bodies use exact level-two headings:
 

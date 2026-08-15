@@ -538,9 +538,6 @@ function selectOptions(table: TableKind, property: string): readonly string[] {
   ];
   if (table === "errors" && property === "Severity") return ["critical", "high", "medium", "low"];
   if (table === "errors" && property === "Status") return ["Not Fixed", "Fixing", "Fixed"];
-  if (table === "tasks" && property === "Status") return ["Backlog", "Ready", "In progress", "Blocked", "In review", "Completed"];
-  if (table === "tasks" && property === "Resolution") return ["Completed", "Cancelled", "Duplicate", "Not reproducible", "Superseded"];
-  if (table === "tasks" && property === "Type") return ["Vulnerability", "Bug", "Feature", "Cleanup"];
   if (table === "subAgents" && property === "Status") return ["Online", "Offline"];
   return [];
 }
