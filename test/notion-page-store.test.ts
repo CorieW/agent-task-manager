@@ -86,6 +86,7 @@ class MutableTransport implements NotionTransport {
 
   public seedTask(): void {
     this.pages.set("task-1", this.newPage("task-1", "tasks", {
+      "Manager Mutation": { id: "manager-mutation", rich_text: [], type: "rich_text" },
       Status: { id: "status", select: { name: "Todo" }, type: "select" },
       Task: { id: "title", title: [{ text: { content: "Task" }, type: "text" }], type: "title" },
     }));
@@ -153,6 +154,7 @@ test("uses one canonical Status value for Task mutation and verification", async
   await store.applyTaskMutation({ expectedVersion: "2026-01-01T00:00:01.000Z", idempotencyKey: "task-status", nextBody: null, nextProperties: { Status: "Todo" }, nextStatus: "Coding", taskId: "task-1" });
   const page = transport.pages.get("task-1");
   assert.equal(propertyValue(required(page), "Status"), "Coding");
+  assert.match(propertyValue(required(page), "Manager Mutation"), /^[a-f0-9]{64}$/u);
 });
 
 test("recognizes the exact Error target after an interrupted intent", async () => {

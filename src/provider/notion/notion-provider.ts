@@ -39,9 +39,10 @@ import type {
 } from "../../domain/schema.js";
 import type { AgentTaskProvider } from "../agent-task-provider.js";
 import { compareWorkspaceSchema } from "../../core/schema-diff.js";
+import { taskPropertiesWithStatus } from "../../core/task-properties.js";
 import { NotionPageStore, type NotionMutableTableIds } from "./notion-page-store.js";
 import { NotionRecordReader } from "./notion-record-codec.js";
-import { createNotionWorkspaceSchema } from "./notion-schema.js";
+import { createNotionWorkspaceSchema, NOTION_TASK_MUTATION_PROPERTY } from "./notion-schema.js";
 import { IndeterminateProviderIntentError, NotionStateStore } from "./notion-state-store.js";
 import type { NotionTransport } from "./notion-transport.js";
 import { NotionWorkspaceManager } from "./notion-workspace-manager.js";
@@ -294,6 +295,11 @@ export class NotionProvider implements AgentTaskProvider {
 
   private async repairPendingTaskIntent(runtime: RuntimeServices, mutation: ConditionalTaskMutation): Promise<WriteReceipt> {
     const current = await runtime.reader.getTaskSnapshot(mutation.taskId);
+    if (current.properties[NOTION_TASK_MUTATION_PROPERTY] === digestJson(toJsonValue(mutation)) && taskMatchesTarget(current, mutation)) {
+      const receipt = await runtime.pages.taskReceipt(mutation.taskId, mutation.idempotencyKey);
+      await runtime.state.completeIntent(mutation.idempotencyKey, "task", mutation, receipt);
+      return receipt;
+    }
     if (current.version !== mutation.expectedVersion) {
       throw new IndeterminateProviderIntentError(`Pending Task intent conflicts with newer state: ${mutation.taskId}`);
     }
@@ -329,4 +335,20 @@ function sameSet(left: readonly string[], right: readonly string[]): boolean {
 
 function sameResource(current: ResourceRecord, requested: ResourceMutation): boolean {
   return current.body === requested.body && current.digest === requested.digest && current.key === requested.key && current.kind === requested.kind && current.state === requested.state && current.version === requested.version && digestJson(toJsonValue(current.dependencies)) === digestJson(toJsonValue(requested.dependencies));
+}
+
+function taskMatchesTarget(current: TaskSnapshot, mutation: ConditionalTaskMutation): boolean {
+  if (mutation.nextBody !== null && normalizeText(current.body) !== normalizeText(mutation.nextBody)) return false;
+  const targetStatus = mutation.nextStatus ?? current.status;
+  if (current.status !== targetStatus) return false;
+  for (const [name, target] of Object.entries(taskPropertiesWithStatus(mutation.nextProperties, targetStatus))) {
+    if (name === NOTION_TASK_MUTATION_PROPERTY) continue;
+    const observed = current.properties[name];
+    if (observed === undefined || digestJson(observed) !== digestJson(target)) return false;
+  }
+  return true;
+}
+
+function normalizeText(value: string): string {
+  return value.replace(/\r\n?/gu, "\n").normalize("NFC");
 }

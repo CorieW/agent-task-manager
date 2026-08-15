@@ -129,6 +129,8 @@ providers use the provider-neutral library APIs until CLI provider-registry
 wiring is added. Inspect the lease first: release requires its exact lease,
 owner, and version identities, so a concurrent renewal fails the compare-and-set
 instead of revoking live work. The manager never guesses that a lease is stale.
+Released snapshots remain inspectable until the same logical provider lease
+slot is reacquired; active projections always exclude released snapshots.
 
 ## Managed Notion schema
 
@@ -138,7 +140,7 @@ workspace apply, while incompatible or destructive drift fails closed.
 
 | Table | Required properties |
 | --- | --- |
-| Tasks | `Task` title; `Status` select; optional managed `Priority` number, self-relation `Blocked By`, and `Issue / PR` URL |
+| Tasks | `Task` title; `Status` select; machine-owned `Manager Mutation` rich text; optional managed `Priority` number, self-relation `Blocked By`, and `Issue / PR` URL |
 | Sub-agents | `Name` title; `Enabled` checkbox; `Revision`, `Model` rich text; `Status` select; `Working On` Tasks relation; `Last Run` last-edited time |
 | Errors | `Error` title; `Error Key` rich text; `Severity` select; `Task` and `Sub-agent` relations; optional `Run ID` rich text |
 | Resources | `Resource` title; `Kind`, `State` select; `Version`, `Digest`, `Dependencies` rich text |
@@ -241,8 +243,8 @@ catalog supplied for that selection turn.
 ## Human interaction and recovery
 
 `OutcomeTransitionBroker` is the workflow boundary for applying a role result.
-It resolves the target through the provider-defined transition map. A standardized
-human-resolution outcome is rejected unless it carries a complete resolution request;
+It resolves the target through the provider-defined transition map. A
+provider-declared human-resolution outcome is rejected unless it carries a complete resolution request;
 the broker then uses `HumanRecoveryManager` to persist the stable Error, immutable
 blank slot baseline, and visible slot before changing Task Status. Ordinary
 outcomes cannot smuggle a resolution request through the same interface.
@@ -281,7 +283,7 @@ one of its frozen `routes` keys:
 Blank requests are created through the broker/`HumanRecoveryManager`; there is
 no CLI request command. Workflow hosts apply role outcomes through
 `OutcomeTransitionBroker`, not directly through the provider mutation SPI, so a
-blocked route cannot move to its waiting status before the stable Error,
+provider-declared human-resolution outcome cannot move to its waiting status before the stable Error,
 baseline, and blank resolution slot are durable.
 
 `inspectHumanRecovery` returns Task status/version/archive state and, for each

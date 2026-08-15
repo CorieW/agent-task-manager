@@ -1,5 +1,5 @@
 // Owns deterministic Notion page lookup, managed-content writes, and post-verification.
-import { sha256 } from "../../core/digest.js";
+import { digestJson, sha256 } from "../../core/digest.js";
 import { taskPropertiesWithStatus } from "../../core/task-properties.js";
 import { toJsonValue, type JsonObject, type JsonValue } from "../../domain/json.js";
 import type {
@@ -9,6 +9,7 @@ import type {
   ResourceMutation,
 } from "../../domain/records.js";
 import type { TableKind, WriteReceipt } from "../../domain/provider.js";
+import { NOTION_TASK_MUTATION_PROPERTY } from "./notion-schema.js";
 import { collectNotionPages, type NotionTransport } from "./notion-transport.js";
 
 export interface NotionMutableTableIds {
@@ -198,7 +199,10 @@ export class NotionPageStore {
     if (current.version !== mutation.expectedVersion) throw new Error("Task version conflict");
     const currentStatus = propertyOption(current.page, "Status");
     if (currentStatus === null) throw new Error("Task Status is missing");
-    const targetProperties = taskPropertiesWithStatus(mutation.nextProperties, mutation.nextStatus ?? currentStatus);
+    const targetProperties = {
+      ...taskPropertiesWithStatus(mutation.nextProperties, mutation.nextStatus ?? currentStatus),
+      [NOTION_TASK_MUTATION_PROPERTY]: digestJson(toJsonValue(mutation)),
+    };
     const nextProperties = encodeGenericProperties(targetProperties, current.page);
     await this.transport.request({
       body: { properties: nextProperties },

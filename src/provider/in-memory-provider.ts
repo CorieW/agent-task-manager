@@ -62,6 +62,13 @@ function requiredLeaseTask(lease: MemoryLease): string {
   return lease.taskId;
 }
 
+function sameLeaseSlot(left: MemoryLease, right: LeaseRequest): boolean {
+  if (left.scope !== right.scope) return false;
+  return left.scope === "agent_run"
+    ? left.subAgentId === right.subAgentId && left.ownerId === right.ownerId
+    : left.taskId === right.taskId;
+}
+
 const TABLE_ORDER: readonly TableKind[] = ["resources", "errors", "tasks", "subAgents"];
 const TASK_SUMMARY_KEYS = new Set(["archived", "id", "priority", "status", "title", "version"]);
 
@@ -550,7 +557,10 @@ export class InMemoryProvider implements AgentTaskProvider {
       conflict === undefined
         ? { acquired: true, conflictingLeaseId: null, leaseId: randomUUID() }
         : { acquired: false, conflictingLeaseId: conflict.id, leaseId: null };
-    if (result.leaseId !== null) this.#leases.set(result.leaseId, { ...clone(request), id: result.leaseId });
+    if (result.leaseId !== null) {
+      for (const [leaseId, released] of this.#releasedLeases) if (sameLeaseSlot(released, request)) this.#releasedLeases.delete(leaseId);
+      this.#leases.set(result.leaseId, { ...clone(request), id: result.leaseId });
+    }
     this.recordIdempotent(
       request.idempotencyKey,
       "lease_acquire",

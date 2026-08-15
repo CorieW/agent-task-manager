@@ -3,6 +3,8 @@ import { digestJson } from "../../core/digest.js";
 import { toJsonValue } from "../../domain/json.js";
 import type { TableDescriptor, WorkspaceSchemaDescriptor } from "../../domain/schema.js";
 
+export const NOTION_TASK_MUTATION_PROPERTY = "Manager Mutation";
+
 const TABLES: readonly TableDescriptor[] = [
   {
     kind: "resources",
@@ -36,6 +38,7 @@ const TABLES: readonly TableDescriptor[] = [
     properties: [
       property("title", "Task", "title"),
       property("status", "Status", "select"),
+      property("managerMutation", NOTION_TASK_MUTATION_PROPERTY, "rich_text"),
       property("priority", "Priority", "number", false),
       relation("blockedBy", "Blocked By", "tasks", false),
       property("issueOrPr", "Issue / PR", "url", false),

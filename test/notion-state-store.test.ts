@@ -14,6 +14,7 @@ import type { NotionRequest, NotionTransport } from "../src/provider/notion/noti
 import { SingleHostMutex } from "../src/provider/notion/single-host-mutex.js";
 
 const TABLES = { errors: "errors", resources: "resources", subAgents: "agents", tasks: "tasks" };
+const NOTION_TABLES = { errors: "11111111-1111-1111-1111-111111111111", resources: "22222222-2222-2222-2222-222222222222", subAgents: "33333333-3333-3333-3333-333333333333", tasks: "44444444-4444-4444-4444-444444444444" };
 
 test("persists replayable leases and restart-visible intent outcomes", async () => {
   const transport = new ResourceTransport();
@@ -63,6 +64,25 @@ test("does not persist an intent when its known precondition fails", async () =>
   assert.equal((await state.reconcileIntent("precondition")).state, "not_applied");
 });
 
+test("repairs only the exact marked pending Notion Task mutation", async () => {
+  const transport = new ResourceTransport(); transport.seedTask(NOTION_TABLES.tasks); const now = () => new Date("2026-01-01T00:00:00.000Z");
+  const pages = new NotionPageStore(NOTION_TABLES, transport, now); const state = new NotionStateStore(pages, new SingleHostMutex(`state-${randomUUID()}`), now);
+  const provider = new NotionProvider({ environment: notionEnvironment(), environmentId: `recovery-${randomUUID()}`, now, transport });
+  const task = await provider.getTaskSnapshot("task-1");
+  const mutation = { expectedVersion: task.version, idempotencyKey: "task-interrupted", nextBody: null, nextProperties: task.properties, nextStatus: "Done", taskId: task.id };
+  await state.beginIntent(mutation.idempotencyKey, "task", mutation); await pages.applyTaskMutation(mutation);
+  assert.equal((await provider.applyTaskMutation(mutation)).providerRecord.id, task.id);
+  assert.equal((await provider.reconcileIntent(mutation.idempotencyKey)).state, "applied");
+
+  const another = new ResourceTransport(); another.seedTask(NOTION_TABLES.tasks); const anotherPages = new NotionPageStore(NOTION_TABLES, another, now); const anotherState = new NotionStateStore(anotherPages, new SingleHostMutex(`state-${randomUUID()}`), now);
+  const anotherProvider = new NotionProvider({ environment: notionEnvironment(), environmentId: `recovery-${randomUUID()}`, now, transport: another });
+  const original = await anotherProvider.getTaskSnapshot("task-1");
+  const pending = { expectedVersion: original.version, idempotencyKey: "task-pending", nextBody: null, nextProperties: original.properties, nextStatus: "Done", taskId: original.id };
+  await anotherState.beginIntent(pending.idempotencyKey, "task", pending);
+  await anotherPages.applyTaskMutation({ ...pending, idempotencyKey: "unrelated-same-target" });
+  await assert.rejects(anotherProvider.applyTaskMutation(pending), /conflicts with newer state/u);
+});
+
 test("repairs a pending Notion Resource intent from its exact target state", async () => {
   const transport = new ResourceTransport(); const now = () => new Date("2026-01-01T00:00:00.000Z");
   const pages = new NotionPageStore(TABLES, transport, now); const state = new NotionStateStore(pages, new SingleHostMutex(`state-${randomUUID()}`), now);
@@ -102,6 +122,17 @@ class ResourceTransport implements NotionTransport {
   readonly #pages = new Map<string, JsonObject>();
   #clock = 0;
 
+  public seedTask(parent = "tasks"): void {
+    this.#pages.set("task-1", this.page("task-1", {
+      "Blocked By": { has_more: false, id: "blocked-by", relation: [], type: "relation" },
+      "Manager Mutation": { id: "manager-mutation", rich_text: [], type: "rich_text" },
+      Priority: { id: "priority", number: null, type: "number" },
+      Status: { id: "status", select: { name: "Todo" }, type: "select" },
+      Task: { id: "title", title: [{ text: { content: "Task" }, type: "text" }], type: "title" },
+    }, parent));
+    this.#blocks.set("task-1", []);
+  }
+
   public async request(request: NotionRequest): Promise<JsonObject> {
     const dataSource = /^\/v1\/data_sources\/([^/]+)$/u.exec(request.path);
     if (request.method === "GET" && dataSource?.[1] !== undefined) return { id: dataSource[1], object: "data_source" };
@@ -115,7 +146,7 @@ class ResourceTransport implements NotionTransport {
     if (request.method === "POST" && request.path === "/v1/pages") {
       const body = objectValue(request.body);
       const id = `resource-${this.#pages.size + 1}`;
-      const page = this.page(id, objectValue(body.properties));
+      const page = this.page(id, objectValue(body.properties), String(objectValue(body.parent).data_source_id));
       this.#pages.set(id, page);
       this.#blocks.set(id, (body.children as JsonObject[]).map((block, index) => ({ ...block, id: `${id}-${index}` })));
       return page;
@@ -125,7 +156,7 @@ class ResourceTransport implements NotionTransport {
       const current = required(this.#pages.get(pageMatch[1]));
       if (request.method === "GET") return current;
       const body = objectValue(request.body);
-      const next = this.page(pageMatch[1], mergeProperties(objectValue(current.properties), objectValue(body.properties)));
+      const next = this.page(pageMatch[1], mergeProperties(objectValue(current.properties), objectValue(body.properties)), String(objectValue(current.parent).data_source_id));
       this.#pages.set(pageMatch[1], next);
       return next;
     }
@@ -140,7 +171,7 @@ class ResourceTransport implements NotionTransport {
         if (index >= 0) {
           blocks[index] = { ...required(blocks[index]), ...objectValue(request.body) };
           const current = required(this.#pages.get(pageId));
-          this.#pages.set(pageId, this.page(pageId, objectValue(current.properties)));
+          this.#pages.set(pageId, this.page(pageId, objectValue(current.properties), String(objectValue(current.parent).data_source_id)));
           return required(blocks[index]);
         }
       }
@@ -148,10 +179,10 @@ class ResourceTransport implements NotionTransport {
     throw new Error(`Unexpected ${request.method} ${request.path}`);
   }
 
-  private page(id: string, properties: JsonObject): JsonObject {
+  private page(id: string, properties: JsonObject, parent = "resources"): JsonObject {
     this.#clock += 1;
     const normalized = Object.fromEntries(Object.entries(properties).map(([name, value]) => { const property = objectValue(value); return [name, property.type === undefined ? { ...property, type: Object.keys(property)[0] ?? "unknown" } : property]; }));
-    return { id, last_edited_time: `2026-01-01T00:00:${String(this.#clock).padStart(2, "0")}.000Z`, object: "page", properties: normalized };
+    return { id, last_edited_time: `2026-01-01T00:00:${String(this.#clock).padStart(2, "0")}.000Z`, object: "page", parent: { data_source_id: parent, type: "data_source_id" }, properties: normalized };
   }
 }
 
@@ -183,5 +214,5 @@ function required<T>(value: T | undefined): T {
 }
 
 function notionEnvironment(): ProviderEnvironment {
-  return { bootstrapParent: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", connection: { authEnvironmentVariable: "NOTION_TOKEN" }, tables: { errors: "11111111-1111-1111-1111-111111111111", resources: "22222222-2222-2222-2222-222222222222", subAgents: "33333333-3333-3333-3333-333333333333", tasks: "44444444-4444-4444-4444-444444444444" }, type: "notion" };
+  return { bootstrapParent: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", connection: { authEnvironmentVariable: "NOTION_TOKEN" }, tables: NOTION_TABLES, type: "notion" };
 }

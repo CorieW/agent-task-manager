@@ -221,6 +221,9 @@ test("manual lease release requires the exact inspected lease version", async ()
   await provider.releaseLease({ expectedVersion: after!.version, leaseId: acquired.leaseId!, ownerId: "owner" });
   const released = await provider.getLeaseSnapshot(acquired.leaseId!);
   assert.equal(released?.released, true);
+  const reacquired = await provider.acquireLease({ expiresAt: "2026-01-01T00:30:00.000Z", idempotencyKey: "manual-reacquire", ownerId: "owner", scope: "agent_run", subAgentId: "worker", taskId: null });
+  assert.equal(reacquired.acquired, true);
+  assert.equal(await provider.getLeaseSnapshot(acquired.leaseId!), null);
 });
 
 test("sub-agent activity is conditionally replaced", async () => {
