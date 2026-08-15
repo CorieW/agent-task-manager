@@ -1,3 +1,4 @@
+/** Resolves provider implementations from trusted environment type identifiers. */
 import type { ProviderEnvironment } from "../domain/provider.js";
 import type { AgentTaskProvider } from "./agent-task-provider.js";
 

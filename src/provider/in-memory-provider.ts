@@ -1,3 +1,4 @@
+/** Implements the deterministic in-memory reference provider used for conformance and orchestration tests. */
 import { randomUUID } from "node:crypto";
 
 import { digestJson } from "../core/digest.js";

@@ -1,4 +1,4 @@
-// Verifies assignment-bound dispatch, strict contracts, streaming limits, and cleanup.
+/** Verifies assignment-bound dispatch, strict contracts, streaming limits, and cleanup. */
 import assert from "node:assert/strict";
 import test from "node:test";
 

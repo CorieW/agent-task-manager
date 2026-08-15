@@ -1,4 +1,4 @@
-// Builds a provider-neutral execution preview using read-only provider operations.
+/** Builds a provider-neutral execution preview using read-only provider operations. */
 import { digestJson } from "./digest.js";
 import { scheduleInvocations } from "./invocation-scheduler.js";
 import { toJsonValue } from "../domain/json.js";

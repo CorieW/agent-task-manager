@@ -1,4 +1,4 @@
-// Emulates a remote provider boundary by serializing every request and response.
+/** Provides a test-only JSON round-trip wrapper that checks provider serialization without adding durability. */
 import type {
   ActivityMutation,
   ConditionalTaskMutation,

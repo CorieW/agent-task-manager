@@ -1,3 +1,4 @@
+/** Exercises canonical JSON, environment validation, plan authorization, provider registration, and schema classification. */
 import assert from "node:assert/strict";
 import { test } from "node:test";
 

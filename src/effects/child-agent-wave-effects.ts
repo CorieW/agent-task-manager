@@ -1,4 +1,4 @@
-// Supervises independent child-agent DAG nodes with provider-backed node receipts.
+/** Supervises independent child-agent DAG nodes with provider-backed node receipts. */
 import { canonicalize } from "../core/canonical-json.js";
 import { digestJson, sha256 } from "../core/digest.js";
 import { toJsonValue, type JsonObject } from "../domain/json.js";

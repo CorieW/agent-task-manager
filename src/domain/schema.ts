@@ -1,3 +1,4 @@
+/** Defines canonical workspace schemas, observed schema snapshots, differences, and migration plans. */
 import type { JsonObject } from "./json.js";
 import type { TableKind, ValidationIssue } from "./provider.js";
 

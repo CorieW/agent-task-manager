@@ -1,4 +1,4 @@
-// Verifies provider-owned Notion writes are uniquely addressed and post-verified.
+/** Verifies provider-owned Notion writes are uniquely addressed and post-verified. */
 import assert from "node:assert/strict";
 import test from "node:test";
 

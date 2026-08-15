@@ -1,4 +1,4 @@
-// Validates the deliberately small, closed JSON-Schema dialect used by provider Resources.
+/** Validates the deliberately small, closed JSON-Schema dialect used by provider Resources. */
 import type { JsonObject, JsonValue } from "../domain/json.js";
 
 export interface SchemaValidationIssue {

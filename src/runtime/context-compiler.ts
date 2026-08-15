@@ -1,4 +1,4 @@
-// Compiles one bounded immutable work context from activated provider data.
+/** Compiles one bounded immutable work context from activated provider data. */
 import { toJsonValue, type JsonObject } from "../domain/json.js";
 import type { AgentTaskProvider } from "../provider/agent-task-provider.js";
 import type { ActivatedDefinition } from "../core/definition-activation.js";

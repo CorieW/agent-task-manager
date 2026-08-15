@@ -1,4 +1,4 @@
-// Defines bounded provider-neutral task candidate queries loaded from Resources.
+/** Defines bounded provider-neutral task candidate queries loaded from Resources. */
 import { digestJson } from "./digest.js";
 import { toJsonValue, type JsonObject, type JsonValue } from "../domain/json.js";
 import type { SubAgentDefinition, TaskQuery, TaskSummary } from "../domain/records.js";

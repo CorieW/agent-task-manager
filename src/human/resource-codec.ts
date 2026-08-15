@@ -1,4 +1,4 @@
-// Encodes and validates provider-backed human slot baselines and consumption records.
+/** Encodes and validates provider-backed human slot baselines and consumption records. */
 import { canonicalize } from "../core/canonical-json.js";
 import { digestJson, sha256 } from "../core/digest.js";
 import { toJsonValue, type JsonObject } from "../domain/json.js";

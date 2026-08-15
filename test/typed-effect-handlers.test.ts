@@ -1,4 +1,4 @@
-// Verifies that external effects accept only closed, bounded, deterministic payloads.
+/** Verifies that external effects accept only closed, bounded, deterministic payloads. */
 import assert from "node:assert/strict";
 import test from "node:test";
 

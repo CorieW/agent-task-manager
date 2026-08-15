@@ -1,4 +1,4 @@
-// Verifies coordinator handoff and self-selection promotion through provider leases.
+/** Verifies coordinator handoff and self-selection promotion through provider leases. */
 import assert from "node:assert/strict";
 import test from "node:test";
 

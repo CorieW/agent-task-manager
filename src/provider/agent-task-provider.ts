@@ -1,3 +1,4 @@
+/** Defines the complete provider contract for schema management, workflow records, leases, Resources, and recovery. */
 import type {
   ActivityMutation,
   ConditionalTaskMutation,
@@ -32,6 +33,14 @@ import type {
   WorkspaceSchemaSnapshot,
 } from "../domain/schema.js";
 
+/**
+ * Defines the durable serialization boundary for workflow state.
+ *
+ * Implementations provide detached JSON-compatible reads, opaque conditional
+ * versions, payload-bound idempotency, deterministic pagination, and
+ * evidence-based reconciliation. They must satisfy the shared provider
+ * conformance matrix.
+ */
 export interface AgentTaskProvider {
   getCapabilities(): Promise<ProviderCapabilities>;
   validateEnvironment(environment: ProviderEnvironment): Promise<ValidationReport>;

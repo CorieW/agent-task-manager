@@ -1,4 +1,4 @@
-// Stores complete external-effect intents and receipts in provider Resources.
+/** Stores complete external-effect intents and receipts in provider Resources. */
 import { canonicalize } from "../core/canonical-json.js";
 import { randomUUID } from "node:crypto";
 import { sha256 } from "../core/digest.js";

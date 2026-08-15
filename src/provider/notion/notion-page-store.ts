@@ -1,4 +1,4 @@
-// Owns deterministic Notion page lookup, managed-content writes, and post-verification.
+/** Owns deterministic Notion page lookup, managed-content writes, and post-verification. */
 import { digestJson, sha256 } from "../../core/digest.js";
 import { taskPropertiesWithStatus } from "../../core/task-properties.js";
 import { toJsonValue, type JsonObject, type JsonValue } from "../../domain/json.js";

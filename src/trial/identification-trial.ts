@@ -1,4 +1,4 @@
-// Plans and records a read-only, fail-closed identification trial over ten provider Tasks.
+/** Builds and advances an in-memory, fail-closed identification trial over exactly ten Tasks without provider writes. */
 import { digestJson } from "../core/digest.js";
 import { resolveLoadedDefinition } from "../core/definition-resolver.js";
 import { toJsonValue } from "../domain/json.js";

@@ -1,4 +1,4 @@
-// Verifies Notion transport and schema discovery without requiring a live workspace.
+/** Verifies Notion transport and schema discovery without requiring a live workspace. */
 import assert from "node:assert/strict";
 import test from "node:test";
 

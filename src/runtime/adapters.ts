@@ -1,4 +1,4 @@
-// Defines pluggable trusted model, tool-isolation, runner, and process-lifecycle boundaries.
+/** Defines pluggable trusted model, tool-isolation, runner, and process-lifecycle boundaries. */
 import type { JsonObject } from "../domain/json.js";
 import type { RunContext } from "./contracts.js";
 

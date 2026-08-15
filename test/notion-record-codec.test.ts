@@ -1,4 +1,4 @@
-// Exercises exhaustive Notion row decoding and closed managed-content contracts.
+/** Exercises exhaustive Notion row decoding and closed managed-content contracts. */
 import assert from "node:assert/strict";
 import test from "node:test";
 

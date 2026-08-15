@@ -1,4 +1,4 @@
-// Parses provider write receipts with one closed runtime contract.
+/** Parses provider write receipts with one closed runtime contract. */
 import { TABLE_KINDS, type TableKind, type WriteReceipt } from "../domain/provider.js";
 import type { JsonObject, JsonValue } from "../domain/json.js";
 

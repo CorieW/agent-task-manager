@@ -1,4 +1,4 @@
-// Exercises the provider-neutral safety contract against the in-memory reference adapter.
+/** Exercises the provider contract against direct memory and the serialized boundary emulator. */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";

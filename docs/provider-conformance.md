@@ -1,5 +1,25 @@
 # Provider conformance and identification trials
 
+## Provider implementation contract
+
+A provider crosses a serialization boundary and must return detached,
+JSON-compatible values. Summary pagination and ordering are deterministic;
+unsupported predicates fail closed. Versions are opaque compare-and-set
+tokens. Mutation idempotency identities bind both the operation and its
+complete payload: exact replay returns the original result, while conflicting
+reuse fails.
+
+Leases are exclusive, expiry-aware, replayable, and released only against the
+exact inspected version. Activity projection is conditionally replaced from
+live leases. Resource reads enforce exact pins; Error entity identity remains
+separate from mutation identity; and workspace migration receipts form a
+digest- and dependency-verified chain. Reconciliation reports durable observed
+evidence without guessing or replaying an indeterminate write.
+
+Every provider implementation must pass the shared conformance matrix. The
+serialized emulator should also wrap seedable implementations to exercise the
+JSON boundary, but it does not prove external durability.
+
 ## Serialized provider emulator
 
 `SerializedProviderEmulator` is a test-only serialization boundary around a
@@ -46,5 +66,4 @@ agents. The first blocker stops the report and returns a stable high-severity
 store the report, or continue to later Tasks.
 
 There is no trial CLI command. A separately authorized host must supply real
-observations and explicitly persist any report or Error proposal. The live
-Management Tasks 001–010 trial was not run during implementation.
+observations and explicitly persist any report or Error proposal.

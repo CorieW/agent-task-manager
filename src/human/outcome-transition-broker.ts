@@ -1,4 +1,4 @@
-// Applies provider-defined outcome routes while enforcing blocker-first human recovery.
+/** Applies provider-defined outcome routes while enforcing blocker-first human recovery. */
 import { routeOutcome } from "../core/outcome-router.js";
 import { taskPropertiesWithStatus } from "../core/task-properties.js";
 import type { ErrorMutation, SubAgentDefinition } from "../domain/records.js";

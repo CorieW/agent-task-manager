@@ -11,6 +11,16 @@ pnpm build
 node dist/src/cli.js --help
 ```
 
+To expose the built CLI globally from this source checkout:
+
+```powershell
+pnpm link --global
+agent-task-manager --help
+```
+
+The link targets `dist`; run `pnpm build` after source changes before using
+the global command.
+
 ## Notion onboarding
 
 1. Create a Notion internal integration and put its token in the local
@@ -46,6 +56,8 @@ human-authorized operation requiring the exact SHA-256 digest returned by a
 fresh plan.
 
 ```powershell
+node dist/src/cli.js providers
+node dist/src/cli.js validate [--json] [--config <path>]
 node dist/src/cli.js init --plan --json [--config <path>]
 node dist/src/cli.js init --apply --expected-plan-digest <sha256> [--write-environment] [--config <path>]
 node dist/src/cli.js migrate --plan --json [--config <path>]
@@ -57,6 +69,10 @@ node dist/src/cli.js reconcile activity --sub-agent <definition-id> --json [--co
 node dist/src/cli.js reconcile human --task <task-id> --slot <sha256> --json [--config <path>]
 node dist/src/cli.js reconcile lease --lease <lease-id> --owner <owner-id> --expected-version <sha256> --json [--config <path>]
 ```
+
+`providers` is configuration-free and prints the built-in provider types
+without contacting a provider. Commands that accept `--config` default to
+`agent-task-manager.environment.json`.
 
 Apply stores provider-backed step intents and receipts around every mutation.
 Once Resources exists, the full authorized bootstrap session can resume after
@@ -71,9 +87,9 @@ repair:
 - human reconciliation consumes one already-completed slot; and
 - lease reconciliation releases one exact lease/owner/version tuple.
 
-These commands do not discover work or dispatch a sub-agent. Phase 6 recovery
-CLI commands currently support Notion environments; other providers use the
-provider-neutral library APIs until CLI provider-registry wiring is added.
+These commands do not discover work or dispatch a sub-agent. Recovery CLI
+commands support Notion environments; other providers use the provider-neutral
+library APIs until CLI provider-registry wiring is added.
 
 Inspect a lease before releasing it. A concurrent renewal changes its opaque
 version and makes the compare-and-set fail. Released snapshots remain

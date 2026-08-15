@@ -1,4 +1,4 @@
-// Provides the narrow, injectable HTTP boundary used by the Notion provider.
+/** Provides the single-attempt, deadline-bound HTTP boundary used by the Notion provider. */
 import type { JsonObject, JsonValue } from "../../domain/json.js";
 import { toJsonValue } from "../../domain/json.js";
 

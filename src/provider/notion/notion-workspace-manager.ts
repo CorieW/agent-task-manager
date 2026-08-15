@@ -1,4 +1,4 @@
-// Plans, applies, and reconciles additive Notion workspace bootstrap operations.
+/** Plans, applies, and reconciles additive Notion workspace bootstrap operations. */
 import { canonicalize } from "../../core/canonical-json.js";
 import { finalizeMigrationPlan } from "../../core/migration-plan.js";
 import { compareWorkspaceSchema } from "../../core/schema-diff.js";

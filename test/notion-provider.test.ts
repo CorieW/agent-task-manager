@@ -1,4 +1,4 @@
-// Keeps the concrete Notion adapter aligned with the provider-neutral contract.
+/** Keeps the concrete Notion adapter aligned with the provider-neutral contract. */
 import assert from "node:assert/strict";
 import test from "node:test";
 

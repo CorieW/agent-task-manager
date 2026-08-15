@@ -1,4 +1,4 @@
-// Selects due provider-defined roles without ranking or selecting their Tasks.
+/** Selects due provider-defined roles without ranking or selecting their Tasks. */
 import type { SubAgentDefinition } from "../domain/records.js";
 import { validateDefinitionSet } from "./sub-agent-definition.js";
 

@@ -1,4 +1,4 @@
-// Maps arbitrary typed outcomes through provider-defined transition data.
+/** Maps arbitrary typed outcomes through provider-defined transition data. */
 import type { SubAgentDefinition } from "../domain/records.js";
 
 export function routeOutcome(input: {

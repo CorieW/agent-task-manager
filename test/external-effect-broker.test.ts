@@ -1,4 +1,4 @@
-// Verifies provider-backed external-effect intent ordering, recovery, and authorization.
+/** Verifies provider-backed external-effect intent ordering, recovery, and authorization. */
 import assert from "node:assert/strict";
 import test from "node:test";
 

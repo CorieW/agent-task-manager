@@ -1,4 +1,4 @@
-// Activates only definitions whose Resources, capabilities, intents, and routes verify.
+/** Activates only definitions whose Resources, capabilities, intents, and routes verify. */
 import { compileCapabilityGrant, type CapabilityGrant } from "./capability-compiler.js";
 import { digestJson } from "./digest.js";
 import { toJsonValue } from "../domain/json.js";

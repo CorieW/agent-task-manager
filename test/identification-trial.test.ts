@@ -1,4 +1,4 @@
-// Exercises the read-only ten-Task trial planner with provider-defined custom roles.
+/** Exercises the read-only ten-Task trial planner with provider-defined custom roles. */
 import assert from "node:assert/strict";
 import test from "node:test";
 

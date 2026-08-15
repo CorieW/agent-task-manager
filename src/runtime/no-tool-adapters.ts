@@ -1,4 +1,4 @@
-// Provides a concrete safe runtime stack for context-only agents with no tool authority.
+/** Provides a concrete safe runtime stack for context-only agents with no tool authority. */
 import { digestJson } from "../core/digest.js";
 import { toJsonValue, type JsonObject } from "../domain/json.js";
 import type {

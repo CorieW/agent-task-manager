@@ -1,3 +1,4 @@
+/** Defines provider capabilities, environments, validation, write receipts, and reconciliation results. */
 import type { JsonObject, JsonValue } from "./json.js";
 
 export const TABLE_KINDS = ["tasks", "subAgents", "errors", "resources"] as const;

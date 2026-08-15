@@ -1,4 +1,4 @@
-// Creates resolvable human requests and consumes each verified response exactly once.
+/** Creates resolvable human requests and consumes each verified response exactly once. */
 import { canonicalize } from "../core/canonical-json.js";
 import { digestJson, sha256 } from "../core/digest.js";
 import { taskPropertiesWithStatus } from "../core/task-properties.js";

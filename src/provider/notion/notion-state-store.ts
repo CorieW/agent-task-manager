@@ -1,4 +1,4 @@
-// Persists intents and leases as canonical Resource rows for restart-safe reconciliation.
+/** Persists intents and leases as canonical Resource rows for restart-safe reconciliation. */
 import { randomUUID } from "node:crypto";
 
 import { canonicalize } from "../../core/canonical-json.js";

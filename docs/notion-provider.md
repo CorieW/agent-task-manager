@@ -29,11 +29,11 @@ of duplicate table properties. The adapter tolerates and can round-trip these
 extra properties without imposing them on another project.
 
 The Task page body preserves the initial description. When a Task reaches a
-terminal status, the responsible role appends a concise `## Outcome Summary`
-section to that body rather than replacing the description or writing a
-separate property. Error evidence, including relevant GitHub links, belongs in
-the managed Error description or resolution body instead of a dedicated
-property.
+terminal status, the responsible role proposes a concise
+`## Outcome Summary`; the manager appends it through the accepted Task
+mutation without replacing the description or using a separate property.
+Error evidence, including relevant GitHub links, belongs in the managed Error
+description or resolution body instead of a dedicated property.
 
 Provider-managed page bodies use exact level-two headings:
 
@@ -41,10 +41,11 @@ Provider-managed page bodies use exact level-two headings:
 - Resources and internal journals: `## Resource body`
 - Errors: `## Error Description` and `## Error Resolution`
 
-Every manager-created Error begins as `Not Fixed`. An idempotent update for
-the same `Error Key` may move it to `Fixing` or `Fixed`; humans may apply those
-same values directly in Notion. Status is part of the exact write target and
-crash-reconciliation check.
+`Status` accepts `Not Fixed`, `Fixing`, and `Fixed`. Built-in failure paths
+create `Not Fixed`; a later write for the same `Error Key`, using a new
+idempotency key bound to the changed payload, may set `Fixing` or `Fixed`.
+Humans may apply the same values directly in Notion. Status is part of the
+exact write target and crash-reconciliation check.
 
 Resource keys beginning with `system/` are reserved for manager-owned schema,
 intent, lease, bootstrap-session, and recovery records.
@@ -68,8 +69,18 @@ authoritative. The adapter-internal `Manager Mutation` property lets recovery
 finish an interrupted body-first/property-second update only when the exact
 target or original precondition is still visible.
 
+## Transport behavior
+
+`NotionHttpTransport` performs one HTTP request per call and defaults to a
+30-second deadline. It does not retry automatically. HTTP failures, caller
+aborts, and deadline expiry surface as `NotionApiError`; hosts decide whether
+and when to retry using its status, code, and `retryAfterSeconds` evidence.
+
 ## Deployment constraint
 
-NotionProvider v1 is single-host. Its local mutex prevents overlap only inside
-one Node.js process. Deploy exactly one manager instance per environment until
-a provider-backed distributed run lock with atomic acquisition is implemented.
+NotionProvider v1 supports one host. Its in-process queue serializes local
+operations, while an exclusive lock file rejects a live writer in another
+process sharing the same lock directory and identity and clears a verifiably
+stale owner. It does not coordinate across hosts. Deploy one manager host per
+environment until a provider-backed distributed run lock with atomic
+acquisition is implemented.

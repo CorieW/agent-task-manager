@@ -1,4 +1,4 @@
-// Resolves exact adapters and compiles tool authority only from trusted environment configuration.
+/** Resolves exact adapters and compiles tool authority only from trusted environment configuration. */
 import { isAbsolute, parse, relative, resolve } from "node:path";
 
 import type { EnvironmentConfig, RuntimeEnvironmentConfig } from "../config/environment.js";

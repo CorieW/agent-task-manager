@@ -1,3 +1,4 @@
+/** Parses the closed environment definition that supplies trusted provider, runtime-adapter, and external-effect configuration. */
 import type { JsonObject, JsonValue } from "../domain/json.js";
 import { TABLE_KINDS, type ProviderEnvironment } from "../domain/provider.js";
 import { EXTERNAL_EFFECT_KINDS, type ExternalEffectKind } from "../effects/typed-effect-handlers.js";

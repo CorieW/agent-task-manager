@@ -1,4 +1,4 @@
-// Verifies independent child nodes, dependency receipts, and provider-backed resume.
+/** Verifies independent child nodes, dependency receipts, and provider-backed resume. */
 import assert from "node:assert/strict";
 import test from "node:test";
 

@@ -1,4 +1,4 @@
-// Verifies trusted Git configuration, hook denial, and deterministic worktree commands.
+/** Verifies trusted Git configuration, hook denial, and deterministic worktree commands. */
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";

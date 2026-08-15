@@ -1,3 +1,4 @@
+/** Finalizes digest-bound workspace migration plans and verifies explicit human authorization before apply. */
 import { toJsonValue } from "../domain/json.js";
 import type {
   WorkspaceMigrationPlan,

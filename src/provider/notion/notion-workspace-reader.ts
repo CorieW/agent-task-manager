@@ -1,4 +1,4 @@
-// Converts live Notion data-source metadata into canonical provider schema snapshots.
+/** Converts live Notion data-source metadata into canonical provider schema snapshots. */
 import { digestJson } from "../../core/digest.js";
 import { compareWorkspaceSchema } from "../../core/schema-diff.js";
 import { toJsonValue, type JsonObject, type JsonValue } from "../../domain/json.js";

@@ -1,4 +1,4 @@
-// Verifies that blocked outcome routing cannot bypass durable human recovery.
+/** Verifies that blocked outcome routing cannot bypass durable human recovery. */
 import assert from "node:assert/strict";
 import test from "node:test";
 

@@ -1,4 +1,4 @@
-// Resolves exactly one trusted handler for each provider-defined intent kind.
+/** Resolves exactly one trusted handler for each provider-defined intent kind. */
 import type { ExternalEffectHandler } from "./contracts.js";
 
 export class ExternalEffectHandlerRegistry {

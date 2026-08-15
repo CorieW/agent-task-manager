@@ -1,4 +1,4 @@
-// Executes authorized agent intents through crash-reconcilable provider-backed handlers.
+/** Executes authorized agent intents through crash-reconcilable provider-backed handlers. */
 import { digestJson } from "../core/digest.js";
 import { toJsonValue } from "../domain/json.js";
 import type { AgentResult } from "../runtime/contracts.js";

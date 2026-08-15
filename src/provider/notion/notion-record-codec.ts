@@ -1,4 +1,4 @@
-// Decodes provider-owned Notion rows and managed content into domain records.
+/** Decodes provider-owned Notion rows and managed content into domain records. */
 import { sha256 } from "../../core/digest.js";
 import { pageAfter } from "../../core/pagination.js";
 import { parseSubAgentDefinitionManifest } from "../../core/sub-agent-definition.js";

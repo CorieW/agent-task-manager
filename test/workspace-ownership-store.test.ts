@@ -1,4 +1,4 @@
-// Verifies provider-backed workspace ownership is durable, exclusive, and releasable.
+/** Verifies provider-backed workspace ownership is durable, exclusive, and releasable. */
 import assert from "node:assert/strict";
 import test from "node:test";
 

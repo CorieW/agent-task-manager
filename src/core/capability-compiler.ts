@@ -1,4 +1,4 @@
-// Compiles one least-privilege capability grant from definition and runtime facts.
+/** Compiles one least-privilege capability grant from definition and runtime facts. */
 import type { ProviderCapabilities } from "../domain/provider.js";
 import type { SubAgentDefinition } from "../domain/records.js";
 

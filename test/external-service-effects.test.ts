@@ -1,4 +1,4 @@
-// Verifies environment-defined commands, publication targets, and browser boundaries.
+/** Verifies environment-defined commands, publication targets, and browser boundaries. */
 import assert from "node:assert/strict";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";

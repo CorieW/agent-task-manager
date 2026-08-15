@@ -1,4 +1,4 @@
-// Serializes Notion compare-observe-write sequences on one configured host.
+/** Serializes in-process Notion writes and rejects live same-host writers through a shared lock file. */
 import { open, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

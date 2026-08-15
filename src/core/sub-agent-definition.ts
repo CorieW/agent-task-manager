@@ -1,4 +1,4 @@
-// Parses and validates provider-owned Sub-agent definitions without role-name logic.
+/** Parses and validates provider-owned Sub-agent definitions without role-name logic. */
 import type { JsonObject, JsonValue } from "../domain/json.js";
 import type {
   InvocationPolicy,

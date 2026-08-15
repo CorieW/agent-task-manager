@@ -1,4 +1,4 @@
-// Revalidates live role, assignment, Task, and lease authority before each effect.
+/** Revalidates live role, assignment, Task, and lease authority before each effect. */
 import type { ActivatedDefinition } from "../core/definition-activation.js";
 import type { ActivationRuntime, AssignmentPromotion } from "../core/selection-coordinator.js";
 import type { AgentTaskProvider } from "../provider/agent-task-provider.js";

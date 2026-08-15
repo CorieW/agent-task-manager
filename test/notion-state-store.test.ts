@@ -1,4 +1,4 @@
-// Verifies Resource-backed intent and lease state across provider object restarts.
+/** Verifies Resource-backed intent and lease state across provider object restarts. */
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import test from "node:test";

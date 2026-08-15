@@ -1,4 +1,4 @@
-// Defines immutable, digest-bound context, runtime receipts, and agent results.
+/** Defines immutable, digest-bound context, runtime receipts, and agent results. */
 import { digestJson } from "../core/digest.js";
 import { toJsonValue, type JsonObject, type JsonValue } from "../domain/json.js";
 import type { CapabilityGrant } from "../core/capability-compiler.js";

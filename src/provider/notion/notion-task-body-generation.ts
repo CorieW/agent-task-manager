@@ -1,4 +1,4 @@
-// Defines the single parser and ordering rule for append-only Notion Task bodies.
+/** Defines the single parser and ordering rule for append-only Notion Task bodies. */
 import type { JsonObject, JsonValue } from "../../domain/json.js";
 import { NOTION_TASK_MUTATION_CAPTION_PREFIX } from "./notion-schema.js";
 

@@ -1,4 +1,4 @@
-// Resolves external-effect handlers only from the closed environment definition.
+/** Resolves external-effect handlers only from the closed environment definition. */
 import type { EnvironmentConfig } from "../config/environment.js";
 import { digestJson } from "../core/digest.js";
 import { toJsonValue } from "../domain/json.js";

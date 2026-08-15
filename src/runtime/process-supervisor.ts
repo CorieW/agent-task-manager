@@ -1,4 +1,4 @@
-// Streams bounded output and guarantees terminate, kill, reap, and cleanup attempts.
+/** Streams bounded output and guarantees terminate, kill, reap, and cleanup attempts. */
 import { sha256 } from "../core/digest.js";
 import type { AgentProcessCompletion, AgentProcessOutput, SupervisedAgentProcess } from "./adapters.js";
 

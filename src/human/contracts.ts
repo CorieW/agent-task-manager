@@ -1,4 +1,4 @@
-// Defines provider-neutral human interaction slots and consumed authority.
+/** Defines provider-neutral human interaction slots and consumed authority. */
 import type { JsonObject } from "../domain/json.js";
 
 export type HumanSlotKind = "answer" | "resolution" | "review" | "testing";

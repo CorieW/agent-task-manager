@@ -1,4 +1,4 @@
-// Supplies process-local replay semantics for provider conformance and adapter tests.
+/** Supplies process-local replay semantics for provider conformance and adapter tests. */
 import { digestJson } from "./digest.js";
 import { toJsonValue, type JsonValue } from "../domain/json.js";
 

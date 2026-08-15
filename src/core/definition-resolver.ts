@@ -1,4 +1,4 @@
-// Resolves the immutable Resource graph needed by one provider-defined role.
+/** Resolves the immutable Resource graph needed by one provider-defined role. */
 import { digestJson } from "./digest.js";
 import { toJsonValue, type JsonObject } from "../domain/json.js";
 import type { ResourceRecord, ResourceRef, SubAgentDefinition } from "../domain/records.js";

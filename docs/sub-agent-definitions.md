@@ -41,7 +41,7 @@ model at dispatch.
   "outputSchema": "schema/security-audit-result-v1",
   "capabilities": ["repository.read"],
   "prohibitedCapabilities": ["repository.write"],
-  "requiredProviderCapabilities": ["leases=atomic"],
+  "requiredProviderCapabilities": ["stableRecordIds"],
   "allowedIntents": ["error.upsert", "task.status.transition"],
   "transitions": {
     "succeeded": "Security Review Complete",
@@ -64,6 +64,16 @@ Transitions contain provider-defined Task statuses or `$current`.
 `humanResolutionOutcomes` lists outcomes that must create a durable Error and
 resolution slot before transition. The manager never infers this authority
 from a role or status name.
+
+Provider capability requirements use exact `ProviderCapabilities` property
+names. A bare name, such as `stableRecordIds`, requires that boolean
+capability to be `true`. A `name=value` requirement performs exact string
+matching, such as `leases=advisory`; unknown names fail activation. Supported
+names are `archive`, `attachments`, `conditionalWrites`,
+`deterministicPagination`, `idempotencyLookup`, `leases`,
+`managedContent`, `relations`, `schemaDiscovery`, `schemaMutation`, and
+`stableRecordIds`. The exact enum values are defined by
+`ProviderCapabilities`.
 
 ## Task query Resources
 

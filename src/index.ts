@@ -1,3 +1,4 @@
+/** Publishes the package's supported provider-neutral and Notion integration surface. */
 export * from "./config/environment.js";
 export * from "./core/canonical-json.js";
 export * from "./core/capability-compiler.js";

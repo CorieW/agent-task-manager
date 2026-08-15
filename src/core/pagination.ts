@@ -1,4 +1,4 @@
-// Provides deterministic cursor pagination without exposing provider-specific cursors.
+/** Provides deterministic cursor pagination without exposing provider-specific cursors. */
 export interface PageRequest {
   readonly cursor: string | null;
   readonly limit: number;

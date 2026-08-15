@@ -1,4 +1,4 @@
-// Validates typed selections and promotes them into provider-backed worker leases.
+/** Validates typed selections and promotes them into provider-backed worker leases. */
 import { digestJson, sha256 } from "./digest.js";
 import { assertSelectionAuthority, parseTaskSelectionResult, type TaskSelectionResult } from "./selection-result.js";
 import { finalizeCandidateSet, taskQueryForDefinition, type CandidateSet } from "./task-query-contract.js";

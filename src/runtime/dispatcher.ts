@@ -1,4 +1,4 @@
-// Launches one currently assigned Sub-agent through environment-bound trusted adapters.
+/** Launches one currently assigned Sub-agent through environment-bound trusted adapters. */
 import { digestJson } from "../core/digest.js";
 import { activateDefinitions, type ActivatedDefinition } from "../core/definition-activation.js";
 import { verifyAssignmentPromotion, type ActivationRuntime, type AssignmentPromotion } from "../core/selection-coordinator.js";

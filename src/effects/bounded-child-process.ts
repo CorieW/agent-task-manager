@@ -1,4 +1,4 @@
-// Runs one broker-owned process with shared output, deadline, cancellation, and tree teardown.
+/** Runs one broker-owned process with shared output, deadline, cancellation, and tree teardown. */
 import { spawn } from "node:child_process";
 import { EffectCancellationAcknowledgedError, EffectTerminationUnconfirmedError } from "./contracts.js";
 import { join } from "node:path";

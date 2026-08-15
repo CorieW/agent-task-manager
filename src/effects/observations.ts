@@ -1,4 +1,4 @@
-// Constructs and validates the shared external-effect observation protocol.
+/** Constructs and validates the shared external-effect observation protocol. */
 import { toJsonValue, type JsonObject } from "../domain/json.js";
 import type { ExternalEffectObservation } from "./contracts.js";
 

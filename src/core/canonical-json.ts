@@ -1,3 +1,4 @@
+/** Canonicalizes JSON with normalized strings and deterministic object-key ordering for digest-bound protocols. */
 import type { JsonValue } from "../domain/json.js";
 
 export class CanonicalJsonError extends TypeError {}

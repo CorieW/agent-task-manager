@@ -1,4 +1,4 @@
-// Converts closed provider-defined effect payloads into trusted adapter calls.
+/** Converts closed provider-defined effect payloads into trusted adapter calls. */
 import type { JsonObject, JsonValue } from "../domain/json.js";
 import type { ExternalEffectControl, ExternalEffectHandler, ExternalEffectObservation, ExternalEffectRequest } from "./contracts.js";
 

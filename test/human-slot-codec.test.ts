@@ -1,4 +1,4 @@
-// Verifies canonical human slots and machine-owned allowed-delta boundaries.
+/** Verifies canonical human slots and machine-owned allowed-delta boundaries. */
 import assert from "node:assert/strict";
 import test from "node:test";
 

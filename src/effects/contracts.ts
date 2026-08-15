@@ -1,4 +1,4 @@
-// Defines provider-persisted external-effect intents, observations, and receipts.
+/** Defines provider-persisted external-effect intents, observations, and receipts. */
 import type { JsonObject } from "../domain/json.js";
 
 export type ExternalEffectState = "applied" | "failed" | "indeterminate" | "not_applied" | "pending";

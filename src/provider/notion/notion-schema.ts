@@ -1,4 +1,4 @@
-// Defines the provider-owned minimum schema for a Notion workspace.
+/** Defines the provider-owned minimum schema for a Notion workspace. */
 import { digestJson } from "../../core/digest.js";
 import { toJsonValue } from "../../domain/json.js";
 import type { TableDescriptor, WorkspaceSchemaDescriptor } from "../../domain/schema.js";

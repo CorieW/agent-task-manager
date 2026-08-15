@@ -1,4 +1,4 @@
-// Implements hook-safe, environment-bound local Git and isolated workspace effects.
+/** Implements hook-safe, environment-bound local Git and isolated workspace effects. */
 import { lstat, mkdir, readFile, readdir, realpath, rm, stat } from "node:fs/promises";
 import { isAbsolute, join, parse, relative, resolve } from "node:path";
 import { AsyncLocalStorage } from "node:async_hooks";

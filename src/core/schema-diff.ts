@@ -1,3 +1,4 @@
+/** Classifies observed provider schema drift as ready, additive, bootstrap-required, or incompatible. */
 import type {
   SchemaDifference,
   TableValidationReport,

@@ -1,3 +1,4 @@
+/** Defines provider-neutral Task, Sub-agent, Resource, Error, activity, and lease records. */
 import type { JsonObject } from "./json.js";
 
 export interface TaskSummary {

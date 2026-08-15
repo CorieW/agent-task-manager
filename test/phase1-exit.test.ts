@@ -1,4 +1,4 @@
-// Verifies the provider-neutral Phase 1 exit path without provider writes.
+/** Verifies provider-neutral selection, scheduling, pagination, idempotency, architecture, and the read-only foundation dry run. */
 import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";

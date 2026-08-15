@@ -1,4 +1,4 @@
-// Verifies provider-defined roles, Resource resolution, grants, queries, and routes.
+/** Verifies provider-defined roles, Resource resolution, grants, queries, and routes. */
 import assert from "node:assert/strict";
 import test from "node:test";
 

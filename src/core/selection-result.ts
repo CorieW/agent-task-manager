@@ -1,4 +1,4 @@
-// Validates the closed task-selection result exchanged with provider-defined selectors.
+/** Validates the closed task-selection result exchanged with provider-defined selectors. */
 import { digestJson } from "./digest.js";
 import { toJsonValue, type JsonObject, type JsonValue } from "../domain/json.js";
 import type { SubAgentDefinition } from "../domain/records.js";

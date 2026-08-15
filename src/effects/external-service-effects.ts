@@ -1,4 +1,4 @@
-// Implements configured command, disposable-browser, and draft-publication brokers.
+/** Implements configured command, disposable-browser, and draft-publication brokers. */
 import { readFile } from "node:fs/promises";
 import { isAbsolute, parse, resolve } from "node:path";
 

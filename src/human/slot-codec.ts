@@ -1,4 +1,4 @@
-// Renders, parses, and verifies the only human-editable Task-body slot format.
+/** Renders, parses, and verifies the only human-editable Task-body slot format. */
 import { canonicalize } from "../core/canonical-json.js";
 import { digestJson } from "../core/digest.js";
 import { toJsonValue } from "../domain/json.js";

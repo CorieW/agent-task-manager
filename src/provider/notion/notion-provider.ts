@@ -1,4 +1,4 @@
-// Composes Notion workspace, record, page, and state services behind AgentTaskProvider.
+/** Composes Notion workspace, record, page, and state services behind AgentTaskProvider. */
 import type {
   ActivityMutation,
   ConditionalTaskMutation,

@@ -1,4 +1,4 @@
-// Verifies bootstrap planning is read-only, ordered, and digest-authorized.
+/** Verifies bootstrap planning is read-only, ordered, and digest-authorized. */
 import assert from "node:assert/strict";
 import test from "node:test";
 

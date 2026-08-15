@@ -1,4 +1,4 @@
-// Serializes one external-effect identity in the configured single-host runtime.
+/** Serializes one external-effect identity within the current manager process. */
 const tails = new Map<string, Promise<void>>();
 
 export async function withSingleHostEffectLock<T>(effectId: string, operation: () => Promise<T>): Promise<T> {

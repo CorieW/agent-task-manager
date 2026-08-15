@@ -1,4 +1,4 @@
-// Provides read-only human/lease inspection and explicit provider reconciliation entry points.
+/** Provides read-only human/lease inspection and explicit provider reconciliation entry points. */
 import { digestJson } from "../core/digest.js";
 import { toJsonValue } from "../domain/json.js";
 import type { LeaseSnapshot } from "../domain/records.js";
