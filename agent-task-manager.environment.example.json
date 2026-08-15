@@ -2,9 +2,11 @@
   "schema": "agent-task-manager-environment-v1",
   "environmentId": "local-demo",
   "provider": {
-    "type": "memory",
-    "connection": {},
-    "bootstrapParent": null,
+    "type": "notion",
+    "connection": {
+      "authEnvironmentVariable": "NOTION_TOKEN"
+    },
+    "bootstrapParent": "https://www.notion.so/00000000000000000000000000000000",
     "tables": {
       "tasks": null,
       "subAgents": null,

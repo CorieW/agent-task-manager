@@ -72,11 +72,13 @@ export class NotionWorkspaceManager {
         }
       }
     }
-    drafts.push({
-      id: `notion:${this.target.version}:schema-state`,
-      kind: "record_schema_state",
-      payload: { kind: "resources", targetDigest: this.target.digest, targetVersion: this.target.version },
-    });
+    if (drafts.length > 0) {
+      drafts.push({
+        id: `notion:${this.target.version}:schema-state`,
+        kind: "record_schema_state",
+        payload: { kind: "resources", targetDigest: this.target.digest, targetVersion: this.target.version },
+      });
+    }
 
     let simulated = request.observed;
     const steps: WorkspaceMigrationStep[] = [];
@@ -177,6 +179,33 @@ export class NotionWorkspaceManager {
   public async resolveTableIds(): Promise<Partial<Record<TableKind, string>>> {
     await this.resolveTables();
     return Object.fromEntries(this.#resolved) as Partial<Record<TableKind, string>>;
+  }
+
+  public async recordEnvironmentPatch(
+    startingFileDigest: string,
+    state: "applied" | "pending_human",
+  ): Promise<void> {
+    await this.resolveTables();
+    const tables = this.configuredTablePatch();
+    const key = `system/environment-patch/${sha256(this.environmentId)}`;
+    const body = canonicalize(toJsonValue({
+      environmentId: this.environmentId,
+      schema: "agent-task-manager-environment-patch-v1",
+      startingFileDigest,
+      state,
+      tables,
+      targetSchemaDigest: this.target.digest,
+    }));
+    await this.pageStore().createResource({
+      body,
+      dependencies: [],
+      digest: sha256(body),
+      idempotencyKey: `${key}:${state}`,
+      key,
+      kind: "system/environment-patch",
+      state: "active",
+      version: "v1",
+    });
   }
 
   private async resolveTables(): Promise<void> {

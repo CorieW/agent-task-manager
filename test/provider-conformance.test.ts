@@ -362,5 +362,7 @@ test("CLI help lists only implemented commands", () => {
   const result = spawnSync(process.execPath, [cli, "--help"], { encoding: "utf8" });
   assert.equal(result.status, 0);
   assert.match(result.stdout, /validate/);
-  assert.doesNotMatch(result.stdout, /init --plan|migrate --plan/);
+  assert.match(result.stdout, /init --plan/);
+  assert.match(result.stdout, /migrate --plan/);
+  assert.doesNotMatch(result.stdout, /start|dispatch|tasks eligible/);
 });

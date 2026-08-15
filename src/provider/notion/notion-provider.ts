@@ -196,6 +196,10 @@ export class NotionProvider implements AgentTaskProvider {
     return (await this.runtime()).state.reconcileIntent(intentId);
   }
 
+  public workspaceManager(): NotionWorkspaceManager {
+    return this.#manager;
+  }
+
   private async runtime(): Promise<RuntimeServices> {
     const partial = await this.#manager.resolveTableIds();
     for (const kind of TABLE_KINDS) if (partial[kind] === undefined) throw new Error(`Notion runtime requires configured or discoverable ${kind} table`);
