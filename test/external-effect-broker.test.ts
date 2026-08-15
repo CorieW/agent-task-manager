@@ -51,7 +51,7 @@ test("does not execute unauthorized or conflicting intents", async () => {
 
 function brokerFor(provider: InMemoryProvider, handler: ExternalEffectHandler): ExternalEffectBroker {
   const environmentConfig = {
-    adapters: null, effects: { handlers: { "git.commit": handler.id } }, environmentId: "test", provider: environment,
+    adapters: null, effects: { handlers: { "git.commit": handler.id }, settings: {} }, environmentId: "test", provider: environment,
     raw: {}, runtime: null, schema: "agent-task-manager-environment-v1" as const,
   };
   return new ExternalEffectBroker(resolveExternalEffectEnvironment(environmentConfig, [handler]), new ProviderEffectJournal(provider));

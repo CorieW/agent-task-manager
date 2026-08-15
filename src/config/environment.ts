@@ -14,6 +14,7 @@ export interface EnvironmentConfig {
 
 export interface ExternalEffectEnvironmentConfig {
   readonly handlers: Readonly<Partial<Record<ExternalEffectKind, string>>>;
+  readonly settings: Readonly<Record<string, JsonObject>>;
 }
 
 export interface RuntimeAdapterConfig {
@@ -157,10 +158,10 @@ export function parseEnvironmentConfig(value: JsonValue): EnvironmentConfig {
 }
 
 function parseExternalEffectConfig(value: JsonValue | undefined, issues: string[]): ExternalEffectEnvironmentConfig {
-  if (value === undefined) return { handlers: {} };
-  if (!isObject(value)) { issues.push("effects must be an object"); return { handlers: {} }; }
-  rejectUnknownKeys(value, ["handlers"], "effects", issues);
-  if (!isObject(value.handlers)) { issues.push("effects.handlers must be an object"); return { handlers: {} }; }
+  if (value === undefined) return { handlers: {}, settings: {} };
+  if (!isObject(value)) { issues.push("effects must be an object"); return { handlers: {}, settings: {} }; }
+  rejectUnknownKeys(value, ["handlers", "settings"], "effects", issues);
+  if (!isObject(value.handlers)) { issues.push("effects.handlers must be an object"); return { handlers: {}, settings: {} }; }
   rejectUnknownKeys(value.handlers, EXTERNAL_EFFECT_KINDS, "effects.handlers", issues);
   const handlers: Partial<Record<ExternalEffectKind, string>> = {};
   for (const kind of EXTERNAL_EFFECT_KINDS) {
@@ -170,7 +171,16 @@ function parseExternalEffectConfig(value: JsonValue | undefined, issues: string[
       if (id !== null) handlers[kind] = id;
     }
   }
-  return { handlers };
+  const settingsValue = value.settings;
+  if (!isObject(settingsValue)) issues.push("effects.settings must be an object");
+  const settings: Record<string, JsonObject> = {};
+  if (isObject(settingsValue)) {
+    for (const [adapterId, adapterSettings] of Object.entries(settingsValue)) {
+      if (!/^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$/u.test(adapterId) || !isObject(adapterSettings)) issues.push(`effects.settings.${adapterId} must identify one adapter settings object`);
+      else settings[adapterId] = adapterSettings;
+    }
+  }
+  return { handlers, settings };
 }
 
 function parseRuntimeAdapterConfig(value: JsonValue | undefined, issues: string[]): RuntimeAdapterConfig | null {

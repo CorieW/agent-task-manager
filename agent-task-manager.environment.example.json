@@ -7,6 +7,21 @@
     "publication": null,
     "sandbox": "configured-tool-isolation"
   },
+  "effects": {
+    "handlers": {
+      "browser.run": "configured-browser",
+      "child_agent.wave": "provider-child-agent-wave",
+      "command.run": "configured-command",
+      "git.branch": "local-git",
+      "git.commit": "local-git",
+      "git.observe": "local-git",
+      "git.push": "local-git",
+      "publication.draft_pr": "configured-publication",
+      "workspace.provision": "local-git-workspace",
+      "workspace.release": "local-git-workspace"
+    },
+    "settings": {}
+  },
   "provider": {
     "type": "notion",
     "connection": {

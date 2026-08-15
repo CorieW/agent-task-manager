@@ -300,7 +300,9 @@ not retry.
 The manager streams output under the configured byte limit and attempts
 terminate, kill, reap, output closure, and cleanup on every path. Model and
 isolation sessions close after partial preparation and normal completion. Agent
-results are proposals only; Phase 4 does not execute their intents.
+results are proposals only. External effects execute later through the Phase 5
+brokers described below; the runtime process never receives provider, Git
+publication, browser-control, or child-dispatch authority directly.
 
 ### Runtime wire contracts
 
@@ -326,3 +328,76 @@ basis, invalid adapter receipt, unauthorized tool activity, output limit,
 deadline, unacknowledged cancellation, reap/cleanup failure, and invalid result
 contract. If Error persistence also fails, the caller receives an
 `AggregateError` preserving both failures.
+
+## External-effect brokers
+
+Phase 5 turns authorized `agent-result-v1.proposedIntents` into deterministic,
+crash-reconcilable operations. The environment maps each supported intent kind
+to one installed handler under `effects.handlers`; adapter-specific repository,
+executable, command, browser, publication, and child-runner definitions belong
+under `effects.settings` and must be validated by that adapter. Provider content
+can select logical IDs, but cannot introduce paths, executables, remotes,
+origins, credentials, or handler implementations.
+
+The built-in intent kinds are:
+
+- `workspace.provision` and `workspace.release` for a configured isolated Git
+  worktree or local mirror;
+- `git.observe`, `git.branch`, `git.commit`, and `git.push` with immutable head
+  preconditions;
+- `publication.draft_pr` for an environment-authorized draft target;
+- `command.run` for a hash-pinned, replay-safe command definition;
+- `browser.run` for an isolated disposable environment with an exact origin
+  allowlist; and
+- `child_agent.wave` for a bounded acyclic graph of provider-defined child
+  roles whose immutable contexts are Resources.
+
+```ts
+const effects = resolveExternalEffectEnvironment(config, installedHandlers);
+const broker = new ExternalEffectBroker(
+  effects,
+  new ProviderEffectJournal(provider),
+);
+const executions = await broker.executeResult(
+  agentResult,
+  activated.grant.allowedIntents,
+);
+```
+
+Before invoking a handler, the broker stores the complete canonical
+`external-effect-intent-v1` in Resources. A successful, known-failed, or
+known-not-applied operation stores an `external-effect-receipt-v1` in that same
+row. If a process or provider connection fails after an external system accepts
+the operation, the intent remains indeterminate; the next invocation must
+inspect the external identity and finalize the prior outcome before replay.
+Local files are never the durable journal.
+
+Child waves additionally store one `child-agent-node-intent-v1` Resource per
+node. Each node receives only its own immutable context and the receipts of its
+declared dependencies. Completed nodes are reused after restart; only missing
+or externally reconcilable nodes run again.
+
+### Local Git and command boundaries
+
+`LocalGitEffects` derives workspace paths by hashing the logical workspace key
+under the configured runtime root. It verifies a pinned Git executable, an
+empty hooks directory, configured repository identities, full revisions, exact
+changed paths, commit parent/message, local and remote heads, and configured
+remote names. Every Git invocation disables system/global configuration,
+optional locks, prompts, credential helpers, fsmonitor, and repository hooks.
+Push credentials, if needed, come from a trusted `GitCredentialBroker` and are
+never part of an agent payload.
+
+`ConfiguredCommandEffects` accepts only a logical command key. The environment
+owns its absolute executable, executable digest, argument prefix, deadline,
+output bound, and replay-safe declaration. It launches without a shell or
+inherited environment and records only exit status and output digests. Commands
+that cannot safely be repeated after an unknown crash outcome must not be
+registered.
+
+Browser and publication drivers are provider/vendor-neutral interfaces because
+their concrete transport depends on the deployment. A browser driver must
+enforce disposable isolation and the configured origin set; a publication
+driver must reconcile the exact draft target, repository, branches, and head.
+Handlers are unavailable—and role activation must fail closed—until the host
+registers those enforcing drivers.

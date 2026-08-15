@@ -8,6 +8,7 @@ import { ExternalEffectHandlerRegistry } from "./registry.js";
 export interface ResolvedExternalEffectEnvironment {
   readonly digest: string;
   readonly handlers: ExternalEffectHandlerRegistry;
+  readonly settings: Readonly<Record<string, import("../domain/json.js").JsonObject>>;
 }
 
 export function resolveExternalEffectEnvironment(config: EnvironmentConfig, installed: readonly ExternalEffectHandler[]): ResolvedExternalEffectEnvironment {
@@ -20,5 +21,6 @@ export function resolveExternalEffectEnvironment(config: EnvironmentConfig, inst
     handlers.register(handler);
   }
   const identities = handlers.kinds().map((kind) => { const handler = handlers.get(kind); return { id: handler.id, kind, version: handler.version }; });
-  return { digest: digestJson(toJsonValue({ environmentId: config.environmentId, handlers: identities })), handlers };
+  const settings = structuredClone(config.effects.settings);
+  return { digest: digestJson(toJsonValue({ environmentId: config.environmentId, handlers: identities, settings })), handlers, settings };
 }
