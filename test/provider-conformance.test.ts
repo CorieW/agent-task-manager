@@ -326,6 +326,7 @@ test("errors use distinct entity and operation identities", async () => {
     relatedTaskId: null,
     resolution: "first",
     severity: "medium" as const,
+    status: "Not Fixed" as const,
     title: "Error",
   };
   const first = await provider.createOrUpdateError(base);
@@ -334,6 +335,7 @@ test("errors use distinct entity and operation identities", async () => {
     ...base,
     idempotencyKey: "error-write-2",
     resolution: "second",
+    status: "Fixing",
   });
   assert.equal(second.providerRecord.id, "error-1");
   assert.notEqual(second.observedVersion, first.observedVersion);

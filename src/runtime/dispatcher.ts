@@ -199,6 +199,7 @@ async function recordRuntimeError(input: { readonly activated: ActivatedDefiniti
     relatedTaskId: input.promotion.taskId,
     resolution: "Inspect trusted runtime telemetry and receipts outside the provider. Correct the assignment, adapter, policy, or result contract, then start a new verified attempt.",
     severity: "high",
+    status: "Not Fixed",
     title: `Sub-agent runtime ${code}`,
   });
 }

@@ -124,6 +124,7 @@ export class NotionPageStore {
     const exact = propertyText(current.page, "Error") === error.title
       && propertyText(current.page, "Error Key") === error.errorKey
       && propertyOption(current.page, "Severity") === error.severity
+      && propertyOption(current.page, "Status") === error.status
       && propertyText(current.page, "Run ID") === (error.relatedRunId ?? "")
       && sameSet(await this.relationIds(current.page, "Sub-agent"), error.relatedSubAgentId === null ? [] : [error.relatedSubAgentId])
       && sameSet(await this.relationIds(current.page, "Task"), error.relatedTaskId === null ? [] : [error.relatedTaskId])
@@ -388,6 +389,7 @@ function errorProperties(error: ErrorMutation): JsonObject {
     "Error Key": richTextProperty(error.errorKey),
     "Run ID": richTextProperty(error.relatedRunId ?? ""),
     Severity: selectProperty(error.severity),
+    Status: selectProperty(error.status),
     "Sub-agent": relationProperty(error.relatedSubAgentId === null ? [] : [error.relatedSubAgentId]),
     Task: relationProperty(error.relatedTaskId === null ? [] : [error.relatedTaskId]),
   };

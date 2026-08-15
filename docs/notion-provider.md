@@ -14,7 +14,7 @@ fails closed.
 | --- | --- |
 | Tasks | `Task` title; `Status` select; adapter-internal `Manager Mutation` rich text; optional managed `Priority` number, self-relation `Blocked By`, and `Issue / PR` URL |
 | Sub-agents | `Name` title; `Enabled` checkbox; `Revision`, `Model` rich text; `Status` select; `Working On` Tasks relation; `Last Run` last-edited time |
-| Errors | `Error` title; `Error Key` rich text; `Severity` select; `Task` and `Sub-agent` relations; optional `Run ID` rich text |
+| Errors | `Error` title; `Error Key` rich text; `Severity` select; `Status` select (`Not Fixed`, `Fixing`, or `Fixed`); `Task` and `Sub-agent` relations; optional `Run ID` rich text |
 | Resources | `Resource` title; `Kind`, `State` select; `Version`, `Digest`, `Dependencies` rich text |
 
 Provider-managed page bodies use exact level-two headings:
@@ -22,6 +22,11 @@ Provider-managed page bodies use exact level-two headings:
 - Sub-agent definitions: `## Sub-agent definition`
 - Resources and internal journals: `## Resource body`
 - Errors: `## Error Description` and `## Error Resolution`
+
+Every manager-created Error begins as `Not Fixed`. An idempotent update for
+the same `Error Key` may move it to `Fixing` or `Fixed`; humans may apply those
+same values directly in Notion. Status is part of the exact write target and
+crash-reconciliation check.
 
 Resource keys beginning with `system/` are reserved for manager-owned schema,
 intent, lease, bootstrap-session, and recovery records.

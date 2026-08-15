@@ -165,9 +165,10 @@ test("uses one canonical Status value for Task mutation and verification", async
 
 test("recognizes the exact Error target after an interrupted intent", async () => {
   const transport = new MutableTransport(); const store = new NotionPageStore(TABLES, transport, () => new Date(0));
-  const error = { description: "Failure details", errorKey: "failure/stable", idempotencyKey: "error-write", relatedRunId: "run-1", relatedSubAgentId: null, relatedTaskId: null, resolution: "Repair the environment.", severity: "high" as const, title: "Stable failure" };
+  const error = { description: "Failure details", errorKey: "failure/stable", idempotencyKey: "error-write", relatedRunId: "run-1", relatedSubAgentId: null, relatedTaskId: null, resolution: "Repair the environment.", severity: "high" as const, status: "Not Fixed" as const, title: "Stable failure" };
   const created = await store.createOrUpdateError(error);
   assert.deepEqual(await store.errorTargetReceipt(error), created);
+  assert.equal(propertyValue(required(transport.pages.get(created.providerRecord.id)), "Status"), "Not Fixed");
   await assert.rejects(store.errorTargetReceipt({ ...error, description: "Different details" }), /conflicts with newer state/u);
 });
 

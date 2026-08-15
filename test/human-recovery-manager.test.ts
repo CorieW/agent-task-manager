@@ -9,7 +9,7 @@ const target: WorkspaceSchemaDescriptor = { digest: "target", providerType: "mem
 
 test("creates a stable Error and resolution slot before Needs Human Resolution", async () => {
   const provider = prepared(); const manager = new HumanRecoveryManager(provider);
-  const receipt = await manager.requestResolution({ createdAt: "2026-08-15T10:00:00.000Z", error: { description: "Publication is not configured.", errorKey: "publication/missing", relatedRunId: "run-1", relatedSubAgentId: "coder", resolution: "Configure a draft publication target, then choose resume.", severity: "high", title: "Publication unavailable" }, generation: 1, prompt: "Resolve publication configuration and resume coding.", requestedBy: "coder", resumeStatus: "Coding", taskId: "task-1", waitingStatus: "Needs Human Resolution" });
+  const receipt = await manager.requestResolution({ createdAt: "2026-08-15T10:00:00.000Z", error: { description: "Publication is not configured.", errorKey: "publication/missing", relatedRunId: "run-1", relatedSubAgentId: "coder", resolution: "Configure a draft publication target, then choose resume.", severity: "high", status: "Not Fixed", title: "Publication unavailable" }, generation: 1, prompt: "Resolve publication configuration and resume coding.", requestedBy: "coder", resumeStatus: "Coding", taskId: "task-1", waitingStatus: "Needs Human Resolution" });
   assert.equal(receipt.status, "Needs Human Resolution");
   const stored = await provider.getTaskSnapshot("task-1"); const slots = parseHumanInteractionSlots(stored.body);
   assert.equal(slots.length, 1); assert.equal(slots[0]?.sourceErrorKey, "publication/missing");

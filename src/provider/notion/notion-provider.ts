@@ -248,6 +248,7 @@ export class NotionProvider implements AgentTaskProvider {
       relatedTaskId: null,
       resolution: "The manager reconciled Status and Working On from active provider-backed leases. Investigate the interrupted run or partial provider write.",
       severity: "high",
+      status: "Not Fixed",
       title: "Stale sub-agent activity",
     });
     return { evidence: { basis: toJsonValue(result.basis), receipt: toJsonValue(result.receipt) }, state: "applied" };

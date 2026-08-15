@@ -15,7 +15,7 @@ test("requires and persists human recovery for an explicitly declared outcome", 
   const receipt = await broker.apply({
     resolution: {
       createdAt: "2026-08-15T10:00:00.000Z",
-      error: { description: "The configured publication target is unavailable.", errorKey: "publication-target", relatedRunId: "run-1", relatedSubAgentId: "writer", resolution: "Configure a valid target and resume Coding.", severity: "high", title: "Publication target unavailable" },
+      error: { description: "The configured publication target is unavailable.", errorKey: "publication-target", relatedRunId: "run-1", relatedSubAgentId: "writer", resolution: "Configure a valid target and resume Coding.", severity: "high", status: "Not Fixed", title: "Publication target unavailable" },
       generation: 1,
       prompt: "Configure the publication target, then choose resume.",
       requestedBy: "writer",

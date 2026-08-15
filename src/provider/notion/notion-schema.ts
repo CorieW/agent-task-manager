@@ -27,6 +27,7 @@ const TABLES: readonly TableDescriptor[] = [
       property("title", "Error", "title"),
       property("errorKey", "Error Key", "rich_text"),
       property("severity", "Severity", "select"),
+      property("status", "Status", "select"),
       relation("task", "Task", "tasks"),
       relation("subAgent", "Sub-agent", "subAgents"),
       property("runId", "Run ID", "rich_text", false),

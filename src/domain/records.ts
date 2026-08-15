@@ -118,6 +118,9 @@ export interface ResourceMutation extends ResourceRecord {
   readonly idempotencyKey: string;
 }
 
+export const ERROR_STATUSES = ["Not Fixed", "Fixing", "Fixed"] as const;
+export type ErrorStatus = (typeof ERROR_STATUSES)[number];
+
 export interface ErrorMutation {
   readonly description: string;
   readonly errorKey: string;
@@ -127,6 +130,7 @@ export interface ErrorMutation {
   readonly relatedTaskId: string | null;
   readonly resolution: string;
   readonly severity: "critical" | "high" | "low" | "medium";
+  readonly status: ErrorStatus;
   readonly title: string;
 }
 

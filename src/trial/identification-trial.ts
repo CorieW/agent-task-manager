@@ -273,6 +273,7 @@ function createBlocker(details: BlockerDetails): IdentificationTrialBlocker {
     relatedTaskId: taskId,
     resolution,
     severity: "high",
+    status: "Not Fixed",
     title,
   } as const;
   const operationIdentity = digestJson(toJsonValue(errorCore));

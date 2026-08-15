@@ -528,6 +528,7 @@ function simulateWorkspaceStep(
 function selectOptions(table: TableKind, property: string): readonly string[] {
   if (table === "resources" && property === "State") return ["active", "draft", "retired"];
   if (table === "errors" && property === "Severity") return ["critical", "high", "medium", "low"];
+  if (table === "errors" && property === "Status") return ["Not Fixed", "Fixing", "Fixed"];
   if (table === "subAgents" && property === "Status") return ["Online", "Offline"];
   return [];
 }

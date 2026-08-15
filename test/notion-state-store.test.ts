@@ -119,7 +119,7 @@ test("does not repair an old pending Resource intent over newer state", async ()
 test("repairs a pending Notion Error intent from its exact target state", async () => {
   const transport = new ResourceTransport(); const now = () => new Date("2026-01-01T00:00:00.000Z");
   const pages = new NotionPageStore(TABLES, transport, now); const state = new NotionStateStore(pages, new SingleHostMutex(`state-${randomUUID()}`), now);
-  const error = { description: "Publication is unavailable.", errorKey: "publication/missing", idempotencyKey: "error-interrupted", relatedRunId: "run-1", relatedSubAgentId: null, relatedTaskId: null, resolution: "Configure publication.", severity: "high" as const, title: "Publication unavailable" };
+  const error = { description: "Publication is unavailable.", errorKey: "publication/missing", idempotencyKey: "error-interrupted", relatedRunId: "run-1", relatedSubAgentId: null, relatedTaskId: null, resolution: "Configure publication.", severity: "high" as const, status: "Not Fixed" as const, title: "Publication unavailable" };
   await state.beginIntent(error.idempotencyKey, "error", error); await pages.createOrUpdateError(error);
   const provider = new NotionProvider({ environment: notionEnvironment(), environmentId: `recovery-${randomUUID()}`, now, transport });
   assert.equal((await provider.createOrUpdateError(error)).providerRecord.table, "errors");
