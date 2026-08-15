@@ -67,13 +67,28 @@ export function compareWorkspaceSchema(
       if (
         property.type !== expectedProperty.type ||
         property.writable !== expectedProperty.writable ||
-        property.targetTableId !== expectedProperty.targetTable
+        (expectedProperty.targetTable === null
+          ? property.targetTableId !== null
+          : observed.tables.some((table) => table.kind === expectedProperty.targetTable) &&
+            property.targetTableId !==
+              observed.tables.find((table) => table.kind === expectedProperty.targetTable)?.id)
       ) {
         differences.push({
           code: "incompatible_property",
           kind: "incompatible",
           message: `Property ${expectedProperty.physicalName} has incompatible semantics`,
           path,
+        });
+      }
+    }
+
+    for (const managedRange of expectedTable.managedRanges) {
+      if (!observedTable.managedRanges.includes(managedRange)) {
+        differences.push({
+          code: "missing_managed_range",
+          kind: "additive",
+          message: `Missing managed range ${managedRange}`,
+          path: `tables.${expectedTable.kind}.managedRanges.${managedRange}`,
         });
       }
     }

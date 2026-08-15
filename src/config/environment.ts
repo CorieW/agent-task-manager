@@ -27,23 +27,50 @@ function optionalString(value: JsonValue | undefined, path: string, issues: stri
   return value;
 }
 
+function requiredString(value: JsonValue | undefined, path: string, issues: string[]): string | null {
+  if (typeof value !== "string" || value.trim() === "") {
+    issues.push(`${path} must be a non-empty string`);
+    return null;
+  }
+  return value;
+}
+
+function rejectUnknownKeys(
+  value: JsonObject,
+  allowed: readonly string[],
+  path: string,
+  issues: string[],
+): void {
+  const allowedKeys = new Set(allowed);
+  for (const key of Object.keys(value)) {
+    if (!allowedKeys.has(key)) issues.push(`${path}.${key} is not allowed`);
+  }
+}
+
 export function parseEnvironmentConfig(value: JsonValue): EnvironmentConfig {
   const issues: string[] = [];
   if (!isObject(value)) throw new EnvironmentConfigError(["root must be an object"]);
+  rejectUnknownKeys(
+    value,
+    ["adapters", "environmentId", "provider", "repository", "runtime", "schema"],
+    "root",
+    issues,
+  );
 
   const schema = value.schema;
   if (schema !== "agent-task-manager-environment-v1") {
     issues.push("schema must equal agent-task-manager-environment-v1");
   }
 
-  const environmentId = optionalString(value.environmentId, "environmentId", issues);
+  const environmentId = requiredString(value.environmentId, "environmentId", issues);
   const providerValue = value.provider;
   if (!isObject(providerValue)) {
     issues.push("provider must be an object");
   }
 
   const provider = isObject(providerValue) ? providerValue : {};
-  const type = optionalString(provider.type, "provider.type", issues);
+  rejectUnknownKeys(provider, ["bootstrapParent", "connection", "tables", "type"], "provider", issues);
+  const type = requiredString(provider.type, "provider.type", issues);
   const bootstrapParent = optionalString(
     provider.bootstrapParent,
     "provider.bootstrapParent",
@@ -55,6 +82,7 @@ export function parseEnvironmentConfig(value: JsonValue): EnvironmentConfig {
   const tablesValue = provider.tables;
   if (!isObject(tablesValue)) issues.push("provider.tables must be an object");
   const tableObject = isObject(tablesValue) ? tablesValue : {};
+  rejectUnknownKeys(tableObject, TABLE_KINDS, "provider.tables", issues);
   const tables = Object.fromEntries(
     TABLE_KINDS.map((kind) => [
       kind,

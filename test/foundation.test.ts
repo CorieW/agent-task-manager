@@ -36,6 +36,37 @@ test("environment configuration permits missing tables only as null values", () 
   assert.equal(config.provider.tables.tasks, null);
 });
 
+test("environment configuration is closed and reports missing required fields", () => {
+  assert.throws(
+    () =>
+      parseEnvironmentConfig({
+        environmentId: "demo",
+        provider: {
+          bootstrapParent: null,
+          connection: {},
+          tables: { errors: null, resources: null, subAgents: null, tasks: null },
+          type: "memory",
+        },
+        schema: "agent-task-manager-environment-v1",
+        workflowStatus: "In Coding",
+      }),
+    /root\.workflowStatus is not allowed/,
+  );
+  assert.throws(
+    () =>
+      parseEnvironmentConfig({
+        provider: {
+          bootstrapParent: null,
+          connection: {},
+          tables: { errors: null, resources: null, subAgents: null, tasks: null },
+          type: "memory",
+        },
+        schema: "agent-task-manager-environment-v1",
+      }),
+    /environmentId must be a non-empty string/,
+  );
+});
+
 test("migration authorization rejects a different digest", () => {
   const plan = finalizeMigrationPlan({
     environmentId: "demo",
@@ -95,6 +126,7 @@ test("schema comparison distinguishes bootstrap and incompatible drift", () => {
         {
           id: "tasks",
           kind: "tasks",
+          managedRanges: [],
           properties: [
             { name: "Task", providerMetadata: {}, targetTableId: null, type: "text", writable: true },
           ],

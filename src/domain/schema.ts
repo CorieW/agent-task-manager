@@ -52,6 +52,7 @@ export interface ObservedProperty {
 export interface ObservedTable {
   readonly id: string;
   readonly kind: TableKind | null;
+  readonly managedRanges: readonly string[];
   readonly properties: readonly ObservedProperty[];
   readonly title: string;
   readonly version: string;

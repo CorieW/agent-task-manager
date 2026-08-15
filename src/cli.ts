@@ -10,12 +10,10 @@ const HELP = `Agent Task Manager
 
 Usage:
   agent-task-manager validate [--json] [--config <path>]
-  agent-task-manager init --plan [--config <path>]
-  agent-task-manager migrate --plan [--config <path>]
   agent-task-manager providers
 
-The current foundation validates environment configuration. Provider commands
-become available as their adapters are installed.
+The current foundation validates environment configuration and lists installed
+providers. Bootstrap and migration commands arrive with provider adapters.
 `;
 
 function configPath(args: readonly string[]): string {
