@@ -24,6 +24,7 @@ export * from "./effects/contracts.js";
 export * from "./effects/external-effect-broker.js";
 export * from "./effects/provider-effect-journal.js";
 export * from "./effects/registry.js";
+export * from "./effects/typed-effect-handlers.js";
 export * from "./provider/agent-task-provider.js";
 export * from "./provider/in-memory-provider.js";
 export * from "./provider/notion/notion-schema.js";
