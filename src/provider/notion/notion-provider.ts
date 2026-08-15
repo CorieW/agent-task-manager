@@ -29,7 +29,6 @@ import type {
 import { TABLE_KINDS } from "../../domain/provider.js";
 import { toJsonValue, type JsonObject, type JsonValue } from "../../domain/json.js";
 import { digestJson } from "../../core/digest.js";
-import { taskPropertiesWithStatus } from "../../core/task-properties.js";
 import type {
   TableValidationReport,
   WorkspaceMigrationPlan,
@@ -169,7 +168,17 @@ export class NotionProvider implements AgentTaskProvider {
   }
 
   public async applyTaskMutation(mutation: ConditionalTaskMutation): Promise<WriteReceipt> {
-    return this.executeRepairableReceiptIntent(mutation.idempotencyKey, "task", mutation, (runtime) => runtime.pages.applyTaskMutation(mutation), (runtime) => this.repairPendingTaskIntent(runtime, mutation));
+    return this.executeRepairableReceiptIntent(
+      mutation.idempotencyKey,
+      "task",
+      mutation,
+      (runtime) => runtime.pages.applyTaskMutation(mutation),
+      (runtime) => this.repairPendingTaskIntent(runtime, mutation),
+      async (runtime) => {
+        const current = await runtime.reader.getTaskSnapshot(mutation.taskId);
+        if (current.version !== mutation.expectedVersion) throw new Error("Task version conflict");
+      },
+    );
   }
 
   public async getResources(refs: readonly ResourceRef[]): Promise<readonly ResourceRecord[]> {
@@ -261,11 +270,12 @@ export class NotionProvider implements AgentTaskProvider {
     payload: unknown,
     effect: (runtime: RuntimeServices) => Promise<WriteReceipt>,
     repair: (runtime: RuntimeServices) => Promise<WriteReceipt>,
+    beforeIntent?: (runtime: RuntimeServices) => Promise<void>,
   ): Promise<WriteReceipt> {
     const runtime = await this.runtime();
     return runtime.state.runExclusive(async () => {
       let prior: JsonValue | undefined;
-      try { prior = await runtime.state.beginIntent(idempotencyKey, operation, payload); }
+      try { prior = await runtime.state.beginIntent(idempotencyKey, operation, payload, beforeIntent === undefined ? undefined : () => beforeIntent(runtime)); }
       catch (failure) { if (!(failure instanceof IndeterminateProviderIntentError)) throw failure; return repair(runtime); }
       if (prior !== undefined) return parseWriteReceipt(prior);
       const receipt = await effect(runtime);
@@ -284,11 +294,6 @@ export class NotionProvider implements AgentTaskProvider {
 
   private async repairPendingTaskIntent(runtime: RuntimeServices, mutation: ConditionalTaskMutation): Promise<WriteReceipt> {
     const current = await runtime.reader.getTaskSnapshot(mutation.taskId);
-    if (taskMatchesTarget(current, mutation)) {
-      const receipt = await runtime.pages.taskReceipt(mutation.taskId, mutation.idempotencyKey);
-      await runtime.state.completeIntent(mutation.idempotencyKey, "task", mutation, receipt);
-      return receipt;
-    }
     if (current.version !== mutation.expectedVersion) {
       throw new IndeterminateProviderIntentError(`Pending Task intent conflicts with newer state: ${mutation.taskId}`);
     }
@@ -324,19 +329,4 @@ function sameSet(left: readonly string[], right: readonly string[]): boolean {
 
 function sameResource(current: ResourceRecord, requested: ResourceMutation): boolean {
   return current.body === requested.body && current.digest === requested.digest && current.key === requested.key && current.kind === requested.kind && current.state === requested.state && current.version === requested.version && digestJson(toJsonValue(current.dependencies)) === digestJson(toJsonValue(requested.dependencies));
-}
-
-function taskMatchesTarget(current: TaskSnapshot, mutation: ConditionalTaskMutation): boolean {
-  if (mutation.nextBody !== null && normalizeText(current.body) !== normalizeText(mutation.nextBody)) return false;
-  const targetStatus = mutation.nextStatus ?? current.status;
-  if (current.status !== targetStatus) return false;
-  for (const [name, target] of Object.entries(taskPropertiesWithStatus(mutation.nextProperties, targetStatus))) {
-    const observed = current.properties[name];
-    if (observed === undefined || digestJson(observed) !== digestJson(target)) return false;
-  }
-  return true;
-}
-
-function normalizeText(value: string): string {
-  return value.replace(/\r\n?/gu, "\n").normalize("NFC");
 }

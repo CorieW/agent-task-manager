@@ -48,6 +48,7 @@ export interface SubAgentDefinition {
   readonly deadlineSeconds: number;
   readonly enabled: boolean;
   readonly id: string;
+  readonly humanResolutionOutcomes: readonly string[];
   readonly inputResourceSelectors: readonly string[];
   readonly invocation: InvocationPolicy;
   readonly priority: number;

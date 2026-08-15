@@ -57,6 +57,7 @@ function definition(overrides: Partial<SubAgentDefinition> = {}): SubAgentDefini
     contextBudgetBytes: 100_000,
     deadlineSeconds: 300,
     enabled: true,
+    humanResolutionOutcomes: [],
     id: "planner",
     inputResourceSelectors: [],
     invocation: { mode: "manual", scheduleResource: null },

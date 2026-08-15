@@ -275,7 +275,7 @@ async function preparedProvider(definition = agentDefinition()): Promise<Recordi
 function agentDefinition(): SubAgentDefinition {
   return {
     allowedIntents: ["task.note"], capabilities: ["repository.read"], contextBudgetBytes: 100_000, deadlineSeconds: 60,
-    enabled: true, id: "analyst", inputResourceSelectors: [], invocation: { mode: "manual", scheduleResource: null }, maxAssignmentDepth: 1,
+    enabled: true, humanResolutionOutcomes: [], id: "analyst", inputResourceSelectors: [], invocation: { mode: "manual", scheduleResource: null }, maxAssignmentDepth: 1,
     maxAssignmentsPerRun: 1, maxConcurrency: 1, model: "model", name: "Analyst", outputSchema: "schema/output", priority: 1,
     prohibitedCapabilities: [], promptResources: ["prompt/analyst"], reasoning: "medium", requiredProviderCapabilities: [],
     retry: { maxAttempts: 1, noVerdict: "block" }, revision: 1, runnerProfile: "read-only", schema: "sub-agent-definition-v1",

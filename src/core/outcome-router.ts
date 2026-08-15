@@ -3,7 +3,7 @@ import type { SubAgentDefinition } from "../domain/records.js";
 
 export function routeOutcome(input: {
   readonly currentStatus: string;
-  readonly definition: SubAgentDefinition;
+  readonly definition: Pick<SubAgentDefinition, "transitions">;
   readonly outcome: string;
   readonly validStatuses: readonly string[];
 }): string {

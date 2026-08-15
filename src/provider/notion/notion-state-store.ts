@@ -41,7 +41,7 @@ export class NotionStateStore {
     private readonly now: () => Date = () => new Date(),
   ) {}
 
-  public async beginIntent(idempotencyKey: string, operation: string, payload: unknown): Promise<JsonValue | undefined> {
+  public async beginIntent(idempotencyKey: string, operation: string, payload: unknown, beforeCreate?: () => Promise<void>): Promise<JsonValue | undefined> {
     const payloadDigest = digestJson(toJsonValue(payload));
     const key = intentKey(idempotencyKey);
     const existing = await this.readRecord(key);
@@ -53,6 +53,7 @@ export class NotionStateStore {
       if (intent.state === "applied") return intent.result;
       throw new IndeterminateProviderIntentError(`Intent ${idempotencyKey} has an unresolved pending outcome`);
     }
+    await beforeCreate?.();
     await this.writeRecord(key, {
       idempotencyKey,
       operation,
@@ -145,13 +146,16 @@ export class NotionStateStore {
 
   public async releaseLease(request: LeaseRelease): Promise<WriteReceipt> {
     return this.mutex.run(async () => {
-      const idempotencyKey = `lease-release:${request.leaseId}:${request.ownerId}`;
-      const prior = await this.beginIntent(idempotencyKey, "lease_release", request);
+      const idempotencyKey = `lease-release:${request.leaseId}:${request.ownerId}:${request.expectedVersion ?? "unversioned"}`;
+      const prior = await this.beginIntent(idempotencyKey, "lease_release", request, async () => {
+        const located = await this.findLeaseById(request.leaseId);
+        if (located === null || located.record.ownerId !== request.ownerId || located.record.releasedAt !== null || (request.expectedVersion !== null && request.expectedVersion !== digestJson(toJsonValue(located.record)))) {
+          throw new Error("Lease release conflict");
+        }
+      });
       if (prior !== undefined) return parseReleaseResult(prior);
       const located = await this.findLeaseById(request.leaseId);
-      if (located === null || located.record.ownerId !== request.ownerId || located.record.releasedAt !== null || (request.expectedVersion !== null && request.expectedVersion !== digestJson(toJsonValue(located.record)))) {
-        throw new Error("Lease release conflict");
-      }
+      if (located === null || located.record.ownerId !== request.ownerId || located.record.releasedAt !== null || (request.expectedVersion !== null && request.expectedVersion !== digestJson(toJsonValue(located.record)))) throw new IndeterminateProviderIntentError("Lease changed after its release intent was stored");
       const receipt = await this.writeRecord(
         located.key,
         { ...located.record, releasedAt: this.now().toISOString() },

@@ -9,7 +9,7 @@ import type {
 
 const DEFINITION_KEYS = [
   "allowedIntents", "capabilities", "contextBudgetBytes", "deadlineSeconds", "enabled", "id",
-  "inputResourceSelectors", "invocation", "maxAssignmentDepth", "maxAssignmentsPerRun", "maxConcurrency",
+  "humanResolutionOutcomes", "inputResourceSelectors", "invocation", "maxAssignmentDepth", "maxAssignmentsPerRun", "maxConcurrency",
   "model", "name", "outputSchema", "priority", "prohibitedCapabilities", "promptResources", "reasoning",
   "requiredProviderCapabilities", "retry", "revision", "runnerProfile", "schema", "selection", "transitions",
 ] as const;
@@ -33,6 +33,7 @@ export function parseSubAgentDefinitionManifest(
     deadlineSeconds: positiveInteger(value.deadlineSeconds, "deadlineSeconds"),
     enabled: booleanValue(value.enabled, "enabled"),
     id: requiredString(value.id, "id"),
+    humanResolutionOutcomes: uniqueStrings(value.humanResolutionOutcomes, "humanResolutionOutcomes"),
     inputResourceSelectors: uniqueStrings(value.inputResourceSelectors, "inputResourceSelectors"),
     invocation: parseInvocation(objectValue(value.invocation, "invocation")),
     priority: integer(value.priority, "priority"),
@@ -85,6 +86,9 @@ export function validateSubAgentDefinition(
   if (definition.deadlineSeconds > 86_400) issues.push(issue("deadline_too_large", "Deadline cannot exceed 86400 seconds", "deadlineSeconds"));
   if (definition.retry.maxAttempts > 5) issues.push(issue("retry_limit_too_large", "Retry attempts cannot exceed 5", "retry.maxAttempts"));
   if (Object.keys(definition.transitions).length === 0) issues.push(issue("transitions_missing", "At least one outcome transition is required", "transitions"));
+  for (const outcome of definition.humanResolutionOutcomes) {
+    if (!Object.hasOwn(definition.transitions, outcome)) issues.push(issue("human_resolution_transition_missing", `Human-resolution outcome ${outcome} has no transition`, "humanResolutionOutcomes"));
+  }
   return issues;
 }
 

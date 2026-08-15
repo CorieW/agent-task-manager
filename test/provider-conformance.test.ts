@@ -219,7 +219,8 @@ test("manual lease release requires the exact inspected lease version", async ()
   await assert.rejects(provider.releaseLease({ expectedVersion: before!.version, leaseId: acquired.leaseId!, ownerId: "owner" }), /release conflict/u);
   const after = await provider.getLeaseSnapshot(acquired.leaseId!); assert.notEqual(after, null);
   await provider.releaseLease({ expectedVersion: after!.version, leaseId: acquired.leaseId!, ownerId: "owner" });
-  assert.equal(await provider.getLeaseSnapshot(acquired.leaseId!), null);
+  const released = await provider.getLeaseSnapshot(acquired.leaseId!);
+  assert.equal(released?.released, true);
 });
 
 test("sub-agent activity is conditionally replaced", async () => {
@@ -232,6 +233,7 @@ test("sub-agent activity is conditionally replaced", async () => {
     contextBudgetBytes: 100_000,
     deadlineSeconds: 300,
     enabled: true,
+    humanResolutionOutcomes: [],
     id: "worker",
     inputResourceSelectors: [],
     invocation: { mode: "manual", scheduleResource: null },

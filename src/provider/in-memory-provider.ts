@@ -186,6 +186,7 @@ export class InMemoryProvider implements AgentTaskProvider {
   readonly #idempotency = new IdempotencyLedger();
   readonly #intentOutcomes = new Map<string, ReconciliationResult>();
   readonly #leases = new Map<string, MemoryLease>();
+  readonly #releasedLeases = new Map<string, MemoryLease>();
   readonly #resources = new Map<string, ResourceRecord>();
   readonly #tasks = new Map<string, TaskSnapshot>();
   readonly #taskStatusOptions = new Set<string>();
@@ -394,17 +395,19 @@ export class InMemoryProvider implements AgentTaskProvider {
   }
 
   public async getLeaseSnapshot(leaseId: string): Promise<LeaseSnapshot | null> {
-    const lease = this.#leases.get(leaseId);
+    const active = this.#leases.get(leaseId);
+    const lease = active ?? this.#releasedLeases.get(leaseId);
     if (lease === undefined) return null;
+    const released = active === undefined;
     return {
       expiresAt: lease.expiresAt,
       leaseId: lease.id,
       ownerId: lease.ownerId,
-      released: false,
+      released,
       scope: lease.scope,
       subAgentId: lease.subAgentId,
       taskId: lease.taskId,
-      version: digestJson(toJsonValue(lease)),
+      version: digestJson(toJsonValue({ ...lease, released })),
     };
   }
 
@@ -589,14 +592,15 @@ export class InMemoryProvider implements AgentTaskProvider {
   }
 
   public async releaseLease(request: LeaseRelease): Promise<WriteReceipt> {
-    const key = `lease-release:${request.leaseId}:${request.ownerId}`;
+    const key = `lease-release:${request.leaseId}:${request.ownerId}:${request.expectedVersion ?? "unversioned"}`;
     const prior = this.lookupIdempotent<WriteReceipt>(key, "lease_release", request);
     if (prior !== undefined) return prior;
     const lease = this.#leases.get(request.leaseId);
-    if (lease === undefined || lease.ownerId !== request.ownerId || (request.expectedVersion !== null && request.expectedVersion !== digestJson(toJsonValue(lease)))) {
+    if (lease === undefined || lease.ownerId !== request.ownerId || (request.expectedVersion !== null && request.expectedVersion !== digestJson(toJsonValue({ ...lease, released: false })))) {
       throw new Error("Lease release conflict");
     }
     this.#leases.delete(request.leaseId);
+    this.#releasedLeases.set(request.leaseId, lease);
     const receipt = this.receipt("resources", lease.id, key, lease.expiresAt);
     this.recordIdempotent(key, "lease_release", request, receipt);
     return clone(receipt);

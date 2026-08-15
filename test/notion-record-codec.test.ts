@@ -117,6 +117,7 @@ function definition(): JsonObject {
     contextBudgetBytes: 100000,
     deadlineSeconds: 300,
     enabled: true,
+    humanResolutionOutcomes: [],
     id: "coordinator",
     inputResourceSelectors: [],
     invocation: { mode: "manual", scheduleResource: null },

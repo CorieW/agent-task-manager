@@ -1,9 +1,9 @@
 // Applies provider-defined outcome routes while enforcing blocker-first human recovery.
-import { taskPropertiesWithStatus } from "./task-properties.js";
-import { routeOutcome } from "./outcome-router.js";
+import { routeOutcome } from "../core/outcome-router.js";
+import { taskPropertiesWithStatus } from "../core/task-properties.js";
 import type { ErrorMutation, SubAgentDefinition } from "../domain/records.js";
 import type { AgentTaskProvider } from "../provider/agent-task-provider.js";
-import { HumanRecoveryManager } from "../human/recovery-manager.js";
+import { HumanRecoveryManager } from "./recovery-manager.js";
 
 export interface BlockedOutcomeResolution {
   readonly createdAt: string;
@@ -14,20 +14,34 @@ export interface BlockedOutcomeResolution {
   readonly resumeStatus: string;
 }
 
-export interface OutcomeTransitionInput {
-  readonly blockedResolution: BlockedOutcomeResolution | null;
-  readonly definition: SubAgentDefinition;
-  readonly idempotencyKey: string;
+interface OutcomeTransitionBase {
+  readonly definition: Pick<SubAgentDefinition, "humanResolutionOutcomes" | "transitions">;
   readonly outcome: string;
   readonly taskId: string;
 }
 
-export interface OutcomeTransitionReceipt {
-  readonly humanSlotId: string | null;
-  readonly kind: "human_resolution" | "task_transition";
+export interface HumanResolutionTransitionInput extends OutcomeTransitionBase {
+  readonly kind: "human_resolution";
+  readonly resolution: BlockedOutcomeResolution;
+}
+
+export interface OrdinaryTransitionInput extends OutcomeTransitionBase {
+  readonly idempotencyKey: string;
+  readonly kind: "task_transition";
+}
+
+export type OutcomeTransitionInput = HumanResolutionTransitionInput | OrdinaryTransitionInput;
+export type OutcomeTransitionReceipt = {
+  readonly humanSlotId: string;
+  readonly kind: "human_resolution";
   readonly targetStatus: string;
   readonly taskVersion: string;
-}
+} | {
+  readonly humanSlotId: null;
+  readonly kind: "task_transition";
+  readonly targetStatus: string;
+  readonly taskVersion: string;
+};
 
 export class OutcomeTransitionBroker {
   private readonly humanRecovery: HumanRecoveryManager;
@@ -40,29 +54,25 @@ export class OutcomeTransitionBroker {
     const task = await this.provider.getTaskSnapshot(input.taskId);
     if (task.archived) throw new Error("Cannot route an outcome for an archived Task");
     const statuses = await this.provider.listTaskStatusOptions();
-    const targetStatus = routeOutcome({
-      currentStatus: task.status,
-      definition: input.definition,
-      outcome: input.outcome,
-      validStatuses: statuses,
-    });
+    const targetStatus = routeOutcome({ currentStatus: task.status, definition: input.definition, outcome: input.outcome, validStatuses: statuses });
+    const requiresHumanResolution = input.definition.humanResolutionOutcomes.includes(input.outcome);
 
-    if (input.outcome === "blocked") {
-      if (input.blockedResolution === null) throw new Error("Blocked outcomes require a durable human resolution request");
+    if (input.kind === "human_resolution") {
+      if (!requiresHumanResolution) throw new Error(`Outcome ${input.outcome} is not declared as a human-resolution outcome`);
       const request = await this.humanRecovery.requestResolution({
-        createdAt: input.blockedResolution.createdAt,
-        error: input.blockedResolution.error,
-        generation: input.blockedResolution.generation,
-        prompt: input.blockedResolution.prompt,
-        requestedBy: input.blockedResolution.requestedBy,
-        resumeStatus: input.blockedResolution.resumeStatus,
+        createdAt: input.resolution.createdAt,
+        error: input.resolution.error,
+        generation: input.resolution.generation,
+        prompt: input.resolution.prompt,
+        requestedBy: input.resolution.requestedBy,
+        resumeStatus: input.resolution.resumeStatus,
         taskId: input.taskId,
         waitingStatus: targetStatus,
       });
       return { humanSlotId: request.slot.slotId, kind: "human_resolution", targetStatus: request.status, taskVersion: request.taskVersion };
     }
 
-    if (input.blockedResolution !== null) throw new Error("Only blocked outcomes may carry a human resolution request");
+    if (requiresHumanResolution) throw new Error(`Outcome ${input.outcome} requires a durable human resolution request`);
     if (targetStatus === task.status) return { humanSlotId: null, kind: "task_transition", targetStatus, taskVersion: task.version };
     await this.provider.applyTaskMutation({
       expectedVersion: task.version,

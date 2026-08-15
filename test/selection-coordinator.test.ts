@@ -151,7 +151,7 @@ test("promotes a trusted explicit assignment without an AI selector role", async
 function definition(id: string, name: string, mode: "coordinator" | "self", accepts: SubAgentDefinition["selection"]["acceptsAssignmentsFrom"], capabilities: string[]): SubAgentDefinition {
   return {
     allowedIntents: ["task.assignment.request"], capabilities, maxConcurrency: 1, maxAssignmentsPerRun: 1, contextBudgetBytes: 100000,
-    deadlineSeconds: 600, enabled: true, id, inputResourceSelectors: [], invocation: { mode: "manual", scheduleResource: null },
+    deadlineSeconds: 600, enabled: true, humanResolutionOutcomes: [], id, inputResourceSelectors: [], invocation: { mode: "manual", scheduleResource: null },
     priority: 1, maxAssignmentDepth: 2, model: "model", name, prohibitedCapabilities: [],
     promptResources: [`prompt/${id}`], reasoning: "medium", requiredProviderCapabilities: ["leases=atomic"],
     retry: { maxAttempts: 1, noVerdict: "block" }, revision: 1, runnerProfile: "readonly", schema: "sub-agent-definition-v1",

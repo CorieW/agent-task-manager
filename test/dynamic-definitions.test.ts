@@ -103,6 +103,7 @@ test("supports arbitrary provider-defined role names without core changes", () =
   const security = parseSubAgentDefinitionManifest(manifest());
   const localization = parseSubAgentDefinitionManifest({
     ...manifest(),
+    humanResolutionOutcomes: [],
     id: "localization-curator",
     name: "Localization Curator",
     promptResources: ["prompt/localization"],
@@ -120,6 +121,7 @@ function manifest(): JsonObject {
     contextBudgetBytes: 100000,
     deadlineSeconds: 600,
     enabled: true,
+    humanResolutionOutcomes: ["blocked"],
     id: "security-auditor",
     inputResourceSelectors: [],
     invocation: { mode: "manual", scheduleResource: null },

@@ -103,7 +103,7 @@ class InterruptingProvider extends InMemoryProvider {
 function definitionManifest(): JsonObject {
   return {
     allowedIntents: [], capabilities: [], contextBudgetBytes: 1000, deadlineSeconds: 60, enabled: true,
-    id: "worker", inputResourceSelectors: [], invocation: { mode: "manual", scheduleResource: null },
+    humanResolutionOutcomes: [], id: "worker", inputResourceSelectors: [], invocation: { mode: "manual", scheduleResource: null },
     maxAssignmentDepth: 1, maxAssignmentsPerRun: 1, maxConcurrency: 1, model: "model", name: "Worker",
     outputSchema: "schema/output", priority: 1, prohibitedCapabilities: [], promptResources: ["prompt/worker"],
     reasoning: "medium", requiredProviderCapabilities: [], retry: { maxAttempts: 1, noVerdict: "block" }, revision: 1,

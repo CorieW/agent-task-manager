@@ -42,6 +42,27 @@ test("persists replayable leases and restart-visible intent outcomes", async () 
   assert.equal((await restarted.reconcileIntent("acquire-two")).state, "applied");
 });
 
+test("does not strand stale lease release preconditions in a pending intent", async () => {
+  let current = Date.parse("2026-01-01T00:00:00.000Z");
+  const transport = new ResourceTransport(); const now = () => new Date(current);
+  const pages = new NotionPageStore(TABLES, transport, now); const state = new NotionStateStore(pages, new SingleHostMutex(`state-${randomUUID()}`), now);
+  const acquired = await state.acquireLease({ expiresAt: "2026-01-01T00:10:00.000Z", idempotencyKey: "release-acquire", ownerId: "owner", scope: "agent_run", subAgentId: "agent-1", taskId: null });
+  const before = await state.leaseSnapshot(acquired.leaseId!); assert.notEqual(before, null);
+  current += 1_000;
+  await state.renewLease({ expectedExpiresAt: before!.expiresAt, idempotencyKey: "release-renew", leaseId: acquired.leaseId!, nextExpiresAt: "2026-01-01T00:20:00.000Z", ownerId: "owner" });
+  await assert.rejects(state.releaseLease({ expectedVersion: before!.version, leaseId: acquired.leaseId!, ownerId: "owner" }), /release conflict/u);
+  const after = await state.leaseSnapshot(acquired.leaseId!); assert.notEqual(after, null);
+  await state.releaseLease({ expectedVersion: after!.version, leaseId: acquired.leaseId!, ownerId: "owner" });
+  assert.equal((await state.leaseSnapshot(acquired.leaseId!))?.released, true);
+});
+
+test("does not persist an intent when its known precondition fails", async () => {
+  const transport = new ResourceTransport(); const now = () => new Date("2026-01-01T00:00:00.000Z");
+  const pages = new NotionPageStore(TABLES, transport, now); const state = new NotionStateStore(pages, new SingleHostMutex(`state-${randomUUID()}`), now);
+  await assert.rejects(state.beginIntent("precondition", "task", { taskId: "task-1" }, async () => { throw new Error("Task version conflict"); }), /version conflict/u);
+  assert.equal((await state.reconcileIntent("precondition")).state, "not_applied");
+});
+
 test("repairs a pending Notion Resource intent from its exact target state", async () => {
   const transport = new ResourceTransport(); const now = () => new Date("2026-01-01T00:00:00.000Z");
   const pages = new NotionPageStore(TABLES, transport, now); const state = new NotionStateStore(pages, new SingleHostMutex(`state-${randomUUID()}`), now);

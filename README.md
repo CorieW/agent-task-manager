@@ -172,6 +172,7 @@ must exactly match their row properties.
   "id": "security-auditor",
   "name": "Security Auditor",
   "enabled": true,
+  "humanResolutionOutcomes": ["blocked"],
   "revision": 1,
   "model": "gpt-5.6-sol",
   "reasoning": "high",
@@ -208,6 +209,9 @@ is `coordinator`, `self`, or `explicit`. Coordinators require
 `dispatch.coordinate`. Assignment sources are `coordinator`, `self`, and
 `explicit`; `no_work` is a selection result, not a role or selection mode.
 Transitions use provider-defined Task status names or `$current`.
+`humanResolutionOutcomes` explicitly marks the outcomes that must create a
+durable Error and resolution slot before their transition; the manager never
+infers this authority from a status name.
 
 The referenced query Resource has kind `task-query` and a closed body such as:
 
@@ -238,9 +242,9 @@ catalog supplied for that selection turn.
 
 `OutcomeTransitionBroker` is the workflow boundary for applying a role result.
 It resolves the target through the provider-defined transition map. A standardized
-`blocked` outcome is rejected unless it carries a complete resolution request;
+human-resolution outcome is rejected unless it carries a complete resolution request;
 the broker then uses `HumanRecoveryManager` to persist the stable Error, immutable
-blank slot baseline, and visible slot before changing Task Status. Non-blocked
+blank slot baseline, and visible slot before changing Task Status. Ordinary
 outcomes cannot smuggle a resolution request through the same interface.
 
 `HumanRecoveryManager` is the lower-level workflow helper for requesting or consuming human
@@ -318,8 +322,9 @@ and scheduling primitives, and the complete Notion adapter surface:
   `ProviderChildAgentWaveEffects`, and their driver contracts
 - Human recovery APIs: `OutcomeTransitionBroker`, `HumanRecoveryManager`, slot creation/parsing/rendering
   and allowed-delta verification, `inspectHumanRecovery`,
-  `inspectSubAgentActivity`, `reconcileHumanResponse`, `reconcileActivity`, and
-  `reconcileLease`
+  `inspectSubAgentActivity`, `inspectLease`, `reconcileHumanResponse`,
+  `reconcileActivity`, and `reconcileLease`. Exact lease inspection is backed by
+  `AgentTaskProvider.getLeaseSnapshot`.
 
 ```ts
 import {
