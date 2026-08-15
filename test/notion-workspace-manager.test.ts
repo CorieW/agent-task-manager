@@ -36,7 +36,7 @@ test("plans Resources-first bootstrap with deferred relations and no writes", as
   assert.ok(firstRelation > lastCreate);
   assert.equal(plan.steps.at(-1)?.kind, "record_schema_state");
   assert.equal(plan.steps[0]?.expectedPreSchemaDigest, observed.digest);
-  assert.equal(plan.steps[1]?.expectedPreSchemaDigest, null);
+  assert.equal(plan.steps[1]?.expectedPreSchemaDigest, plan.steps[0]?.expectedPostSchemaDigest);
   assert.equal(transport.requests.every((request) => request.method === "GET" || request.path === "/v1/search"), true);
 });
 

@@ -97,8 +97,8 @@ export type MigrationStepKind =
 
 export interface WorkspaceMigrationStep {
   readonly dependsOn: readonly string[];
-  readonly expectedPostSchemaDigest: string | null;
-  readonly expectedPreSchemaDigest: string | null;
+  readonly expectedPostSchemaDigest: string;
+  readonly expectedPreSchemaDigest: string;
   readonly id: string;
   readonly kind: MigrationStepKind;
   readonly payload: JsonObject;

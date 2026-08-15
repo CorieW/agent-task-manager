@@ -96,7 +96,7 @@ export class NotionWorkspaceReader {
       .sort((left, right) => left.kind?.localeCompare(right.kind ?? "") ?? -1);
     return {
       capturedAt: this.now().toISOString(),
-      digest: digestJson(toJsonValue(normalized)),
+      digest: notionSchemaDigest(normalized),
       providerIdentity,
       tables: normalized,
     };
@@ -154,6 +154,22 @@ export class NotionWorkspaceReader {
       writable: !READ_ONLY_TYPES.has(type),
     };
   }
+}
+
+export function notionSchemaDigest(tables: readonly ObservedTable[]): string {
+  const kindsById = new Map(tables.map((table) => [table.id, table.kind]));
+  const semantics = tables.map((table) => ({
+    kind: table.kind,
+    managedRanges: [...table.managedRanges].sort(),
+    properties: table.properties.map((property) => ({
+      name: property.name,
+      target: property.targetTableId === null ? null : kindsById.get(property.targetTableId) ?? `external:${property.targetTableId}`,
+      type: property.type,
+      writable: property.writable,
+    })).sort((left, right) => left.name.localeCompare(right.name)),
+    title: table.title,
+  })).sort((left, right) => (left.kind ?? "").localeCompare(right.kind ?? ""));
+  return digestJson(toJsonValue(semantics));
 }
 
 export function normalizeNotionIdentifier(value: string): string {

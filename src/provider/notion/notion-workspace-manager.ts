@@ -14,7 +14,7 @@ import type {
   WorkspaceSchemaSnapshot,
 } from "../../domain/schema.js";
 import { NotionPageStore, type NotionMutableTableIds } from "./notion-page-store.js";
-import { normalizeNotionIdentifier, NotionWorkspaceReader } from "./notion-workspace-reader.js";
+import { normalizeNotionIdentifier, notionSchemaDigest, NotionWorkspaceReader } from "./notion-workspace-reader.js";
 import { collectNotionPages, type NotionTransport } from "./notion-transport.js";
 
 const TABLE_ORDER: readonly TableKind[] = ["resources", "errors", "tasks", "subAgents"];
@@ -78,15 +78,21 @@ export class NotionWorkspaceManager {
       payload: { kind: "resources", targetDigest: this.target.digest, targetVersion: this.target.version },
     });
 
-    const steps = drafts.map((draft, index): WorkspaceMigrationStep => ({
-      dependsOn: index === 0 ? [] : [requiredDraft(drafts[index - 1]).id],
-      expectedPostSchemaDigest: null,
-      expectedPreSchemaDigest: index === 0 ? request.observed.digest : null,
-      id: draft.id,
-      kind: draft.kind,
-      payload: draft.payload,
-      reversibility: "additive",
-    }));
+    let simulated = request.observed;
+    const steps: WorkspaceMigrationStep[] = [];
+    for (const [index, draft] of drafts.entries()) {
+      const next = simulateWorkspaceStep(simulated, draft, this.target);
+      steps.push({
+        dependsOn: index === 0 ? [] : [requiredDraft(drafts[index - 1]).id],
+        expectedPostSchemaDigest: next.digest,
+        expectedPreSchemaDigest: simulated.digest,
+        id: draft.id,
+        kind: draft.kind,
+        payload: draft.payload,
+        reversibility: "additive",
+      });
+      simulated = next;
+    }
     return finalizeMigrationPlan({
       environmentId: request.environmentId,
       mode: request.mode,
@@ -110,10 +116,8 @@ export class NotionWorkspaceManager {
     for (const dependency of step.dependsOn) {
       if ((await this.readStepReceipt(dependency)) === null) throw new Error(`Workspace step dependency is incomplete: ${dependency}`);
     }
-    if (step.expectedPreSchemaDigest !== null) {
-      const current = await this.inspectWorkspaceSchema();
-      if (current.digest !== step.expectedPreSchemaDigest) throw new Error(`Workspace precondition changed: ${step.id}`);
-    }
+    const current = await this.inspectWorkspaceSchema();
+    if (current.digest !== step.expectedPreSchemaDigest) throw new Error(`Workspace precondition changed: ${step.id}`);
 
     if (step.kind === "create_table") await this.createTable(tableKind(step));
     else if (step.kind === "add_property" || step.kind === "add_relation") await this.addProperty(step);
@@ -122,6 +126,8 @@ export class NotionWorkspaceManager {
 
     const reconciliation = await this.reconcileWorkspaceStep(step.id, step);
     if (reconciliation.state !== "applied") throw new Error(`Workspace step post-verification failed: ${step.id}`);
+    const verifiedSnapshot = await this.inspectWorkspaceSchema();
+    if (verifiedSnapshot.digest !== step.expectedPostSchemaDigest) throw new Error(`Workspace postcondition changed: ${step.id}`);
     const table = tableKind(step);
     const tableId = requiredResolved(this.#resolved, table);
     const observed = (await this.inspectWorkspaceSchema()).tables.find((candidate) => candidate.kind === table);
@@ -317,6 +323,53 @@ function propertySchema(property: PropertyDescriptor, table: TableKind, resolved
   if (property.type === "select") return { select: { options: selectOptions(table, property.physicalName).map((name) => ({ name })) } };
   if (property.type === "status") return { status: { options: selectOptions(table, property.physicalName).map((name) => ({ name })) } };
   throw new Error(`Unsupported Notion property type: ${property.type}`);
+}
+
+function simulateWorkspaceStep(
+  snapshot: WorkspaceSchemaSnapshot,
+  step: Pick<WorkspaceMigrationStep, "kind" | "payload">,
+  target: WorkspaceSchemaDescriptor,
+): WorkspaceSchemaSnapshot {
+  const kind = tableKind({ ...step, dependsOn: [], expectedPostSchemaDigest: "", expectedPreSchemaDigest: "", id: "simulation", reversibility: "additive" });
+  let tables = [...structuredClone(snapshot.tables)];
+  if (step.kind === "create_table") {
+    if (!tables.some((table) => table.kind === kind)) {
+      const descriptor = tableDescriptor(target, kind);
+      tables.push({
+        id: `planned:${kind}`,
+        kind,
+        managedRanges: [],
+        properties: descriptor.properties.filter((property) => property.targetTable === null).map((property) => ({
+          name: property.physicalName,
+          providerMetadata: {},
+          targetTableId: null,
+          type: property.type,
+          writable: property.writable,
+        })),
+        title: descriptor.title,
+        version: "planned",
+      });
+    }
+  } else if (step.kind === "add_property" || step.kind === "add_relation") {
+    const name = requiredString(step.payload.physicalName, "Workspace property name");
+    const descriptor = tableDescriptor(target, kind).properties.find((property) => property.physicalName === name);
+    if (descriptor === undefined) throw new Error(`Unknown target property ${kind}.${name}`);
+    const targetId = descriptor.targetTable === null ? null : tables.find((table) => table.kind === descriptor.targetTable)?.id;
+    if (descriptor.targetTable !== null && targetId === undefined) throw new Error(`Unresolved relation target ${descriptor.targetTable}`);
+    tables = tables.map((table) => table.kind !== kind || table.properties.some((property) => property.name === name) ? table : {
+      ...table,
+      properties: [...table.properties, {
+        name,
+        providerMetadata: {},
+        targetTableId: targetId ?? null,
+        type: descriptor.type,
+        writable: descriptor.writable,
+      }],
+    });
+  } else if (step.kind !== "record_schema_state") {
+    throw new Error(`Unsupported simulated Notion step: ${step.kind}`);
+  }
+  return { ...snapshot, digest: notionSchemaDigest(tables), tables };
 }
 
 function selectOptions(table: TableKind, property: string): readonly string[] {
