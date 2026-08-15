@@ -10,6 +10,7 @@ import type {
 } from "../../domain/records.js";
 import type { TableKind, WriteReceipt } from "../../domain/provider.js";
 import { NOTION_TASK_MUTATION_CAPTION_PREFIX, NOTION_TASK_MUTATION_PROPERTY } from "./notion-schema.js";
+import { activeTaskBodyGeneration } from "./notion-task-body-generation.js";
 import { collectNotionPages, type NotionTransport } from "./notion-transport.js";
 
 export interface NotionMutableTableIds {
@@ -306,16 +307,16 @@ export class NotionPageStore {
 
   private async readManagedTaskBody(pageId: string): Promise<string | null> {
     const blocks = await this.childBlocks(pageId);
-    const generated = blocks.filter((block) => taskBodyGenerationMarker(block) !== null);
-    const active = generated.at(-1) ?? (blocks.length === 1 ? blocks[0] : undefined);
+    const generated = activeTaskBodyGeneration(blocks);
+    if (generated !== null) return generated.body;
+    const active = blocks.length === 1 ? blocks[0] : undefined;
     if (active?.type !== "code") return null;
     const code = objectValue(active.code, "Task body code");
     return code.language === "markdown" ? blockText(active) : null;
   }
 
   private async taskBodyGenerationMarker(pageId: string): Promise<string | null> {
-    const generated = (await this.childBlocks(pageId)).map(taskBodyGenerationMarker).filter((value): value is string => value !== null);
-    return generated.at(-1) ?? null;
+    return activeTaskBodyGeneration(await this.childBlocks(pageId))?.digest ?? null;
   }
 
   private async relationIds(page: JsonObject, propertyName: string): Promise<readonly string[]> {
@@ -453,14 +454,6 @@ function managedCode(text: string, language = "json", caption: string | null = n
 
 function codeValue(text: string, language = "json", caption: string | null = null): JsonObject {
   return { ...(caption === null ? {} : { caption: richText(caption) }), language, rich_text: richText(normalizeText(text)) };
-}
-
-function taskBodyGenerationMarker(block: JsonObject): string | null {
-  if (block.type !== "code") return null;
-  const caption = richTextValue(objectValue(block.code, "Task body code").caption);
-  if (!caption.startsWith(NOTION_TASK_MUTATION_CAPTION_PREFIX)) return null;
-  const digest = caption.slice(NOTION_TASK_MUTATION_CAPTION_PREFIX.length);
-  return /^[a-f0-9]{64}$/u.test(digest) ? digest : null;
 }
 
 function richText(text: string): JsonValue[] {
