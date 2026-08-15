@@ -41,7 +41,7 @@ import { compareWorkspaceSchema } from "../../core/schema-diff.js";
 import { NotionPageStore, type NotionMutableTableIds } from "./notion-page-store.js";
 import { NotionRecordReader } from "./notion-record-codec.js";
 import { createNotionWorkspaceSchema } from "./notion-schema.js";
-import { NotionStateStore } from "./notion-state-store.js";
+import { IndeterminateProviderIntentError, NotionStateStore } from "./notion-state-store.js";
 import type { NotionTransport } from "./notion-transport.js";
 import { NotionWorkspaceManager } from "./notion-workspace-manager.js";
 import { NotionWorkspaceReader } from "./notion-workspace-reader.js";
@@ -176,7 +176,16 @@ export class NotionProvider implements AgentTaskProvider {
 
   public async putResource(record: ResourceMutation): Promise<WriteReceipt> {
     if (record.key.startsWith("system/")) throw new Error("system/ Resource keys are reserved by Agent Task Manager");
-    return this.executeReceiptIntent(record.idempotencyKey, "resource", record, (runtime) => runtime.pages.createResource(record));
+    const runtime = await this.runtime();
+    return runtime.state.runExclusive(async () => {
+      let prior: JsonValue | undefined;
+      try { prior = await runtime.state.beginIntent(record.idempotencyKey, "resource", record); }
+      catch (error) { if (!(error instanceof IndeterminateProviderIntentError)) throw error; return this.repairPendingResourceIntent(runtime, record); }
+      if (prior !== undefined) return parseWriteReceipt(prior);
+      const receipt = await runtime.pages.createResource(record);
+      await runtime.state.completeIntent(record.idempotencyKey, "resource", record, receipt);
+      return receipt;
+    });
   }
 
   public async acquireLease(request: LeaseRequest): Promise<LeaseResult> {
@@ -272,6 +281,12 @@ export class NotionProvider implements AgentTaskProvider {
       await runtime.state.completeIntent(idempotencyKey, operation, payload, receipt);
       return receipt;
     });
+  }
+
+  private async repairPendingResourceIntent(runtime: RuntimeServices, record: ResourceMutation): Promise<WriteReceipt> {
+    const receipt = await runtime.pages.createResource(record);
+    await runtime.state.completeIntent(record.idempotencyKey, "resource", record, receipt);
+    return receipt;
   }
 }
 

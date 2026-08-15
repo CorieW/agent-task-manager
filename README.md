@@ -240,6 +240,7 @@ and scheduling primitives, and the complete Notion adapter surface:
 - Safe context-only adapters: `NoToolModelTransportAdapter`,
   `NoToolIsolationAdapter`, and `NoToolAgentRunnerAdapter`
 - Effects APIs: `ExternalEffectBroker`, `ProviderEffectJournal`,
+  `WorkspaceOwnershipStore`, `ProviderWorkspaceOwnershipStore`,
   `AssignmentEffectAuthority`, `resolveExternalEffectEnvironment`, typed
   handler factories, `LocalGitEffects`, `ConfiguredCommandEffects`,
   `DisposableBrowserEffects`, `DraftPublicationEffects`,
@@ -382,7 +383,7 @@ const executions = await broker.executeResult(
 ```
 
 Before invoking a handler, the broker stores the complete canonical
-`external-effect-intent-v1` in Resources and acquires a provider-backed effect
+`external-effect-intent-v2` in Resources and acquires a provider-backed effect
 claim. An `applied` or known `failed` observation receives an
 `external-effect-receipt-v1`; `not_applied` authorizes the broker to call
 `apply`. An indeterminate observation is persisted without a receipt and blocks
@@ -411,6 +412,13 @@ remote names. Every Git invocation disables system/global configuration,
 optional locks, prompts, credential helpers, fsmonitor, and repository hooks.
 Push credentials, if needed, come from a trusted `GitCredentialBroker` and are
 never part of an agent payload.
+
+The host must wire provider-backed ownership when it constructs this handler:
+
+```ts
+const ownership = new ProviderWorkspaceOwnershipStore(provider);
+const git = await LocalGitEffects.create(gitConfig, { ownership });
+```
 
 `ConfiguredCommandEffects` accepts only a logical command key. The environment
 owns its absolute executable, executable digest, argument prefix, deadline,

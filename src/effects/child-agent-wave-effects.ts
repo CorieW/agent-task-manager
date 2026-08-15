@@ -48,21 +48,21 @@ export class ProviderChildAgentWaveEffects implements ReconcilableEffectAdapter<
   public constructor(private readonly provider: AgentTaskProvider, private readonly driver: ChildAgentNodeDriver) {}
 
   public async reconcile({ control, effectId, payload }: { readonly control: ExternalEffectControl; readonly effectId: string; readonly payload: ChildAgentWavePayload }): Promise<ExternalEffectObservation> {
-    const receipts = new Map<string, ChildAgentNodeReceipt>(); let missing = false;
+    const receipts = new Map<string, ChildAgentNodeReceipt>();
     for (const node of payload.nodes) {
       const record = await this.readNode(effectId, node);
-      if (record === null) { missing = true; continue; }
+      if (record === null) continue;
       const context = await this.context(node);
       if (record.receipt !== null) { receipts.set(node.nodeKey, record.receipt); continue; }
       const dependencies = node.dependsOn.map((key) => receipts.get(key)).filter((receipt): receipt is ChildAgentNodeReceipt => receipt !== undefined);
-      if (dependencies.length !== node.dependsOn.length) { missing = true; continue; }
+      if (dependencies.length !== node.dependsOn.length) continue;
       const observation = await this.driver.reconcile({ context, control, dependencyReceipts: dependencies, node, nodeEffectId: record.nodeEffectId, waveEffectId: effectId });
       const finalized = await this.updateFromObservation(record, observation);
-      if (finalized.receipt !== null) receipts.set(node.nodeKey, finalized.receipt); else missing = true;
+      if (finalized.receipt !== null) receipts.set(node.nodeKey, finalized.receipt);
     }
     if ([...receipts.values()].some((receipt) => receipt.state === "failed")) return failedWave(receipts);
     if (receipts.size === payload.nodes.length) return appliedWave(effectId, receipts);
-    return missing ? notApplied({ completedNodes: receipts.size, totalNodes: payload.nodes.length }) : indeterminate({ completedNodes: receipts.size });
+    return notApplied({ completedNodes: receipts.size, totalNodes: payload.nodes.length });
   }
 
   public async apply({ control, effectId, payload }: { readonly control: ExternalEffectControl; readonly effectId: string; readonly payload: ChildAgentWavePayload }): Promise<ExternalEffectObservation> {

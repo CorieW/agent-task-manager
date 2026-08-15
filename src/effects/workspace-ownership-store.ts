@@ -55,4 +55,17 @@ export class ProviderWorkspaceOwnershipStore implements WorkspaceOwnershipStore 
   }
 }
 function key(workspaceKey: string): string { return `workspace-ownership/${sha256(workspaceKey)}`; }
-function parse(value: unknown, workspaceKey: string): WorkspaceOwnershipRecord { if (value === null || typeof value !== "object" || Array.isArray(value)) throw new TypeError("Workspace ownership must be an object"); const found = value as Record<string, unknown>; if (Object.keys(found).sort().join("\0") !== ["mode", "provisionEffectId", "releaseEffectId", "repositoryId", "schema", "state", "workspaceKey"].sort().join("\0") || found.schema !== "workspace-ownership-v1" || (found.mode !== "mirror" && found.mode !== "worktree") || (found.state !== "active" && found.state !== "released") || typeof found.provisionEffectId !== "string" || !/^[a-f0-9]{64}$/u.test(found.provisionEffectId) || (found.releaseEffectId !== null && (typeof found.releaseEffectId !== "string" || !/^[a-f0-9]{64}$/u.test(found.releaseEffectId))) || typeof found.repositoryId !== "string" || found.repositoryId === "" || found.workspaceKey !== workspaceKey) throw new TypeError("Workspace ownership is malformed"); return structuredClone(found) as unknown as WorkspaceOwnershipRecord; }
+const OWNERSHIP_KEYS = ["mode", "provisionEffectId", "releaseEffectId", "repositoryId", "schema", "state", "workspaceKey"] as const;
+function parse(value: unknown, workspaceKey: string): WorkspaceOwnershipRecord {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) throw new TypeError("Workspace ownership must be an object");
+  const found = value as Record<string, unknown>; requireClosedKeys(found); const mode = requireMode(found.mode); const state = requireState(found.state);
+  const provisionEffectId = requireDigest(found.provisionEffectId, "provisionEffectId");
+  const releaseEffectId = found.releaseEffectId === null ? null : requireDigest(found.releaseEffectId, "releaseEffectId");
+  if (found.schema !== "workspace-ownership-v1" || typeof found.repositoryId !== "string" || found.repositoryId === "" || found.workspaceKey !== workspaceKey) throw new TypeError("Workspace ownership identity is malformed");
+  if ((state === "active" && releaseEffectId !== null) || (state === "released" && releaseEffectId === null)) throw new TypeError("Workspace ownership lifecycle is malformed");
+  return { mode, provisionEffectId, releaseEffectId, repositoryId: found.repositoryId, schema: "workspace-ownership-v1", state, workspaceKey };
+}
+function requireClosedKeys(value: Record<string, unknown>): void { if (Object.keys(value).sort().join("\0") !== [...OWNERSHIP_KEYS].sort().join("\0")) throw new TypeError("Workspace ownership fields are malformed"); }
+function requireDigest(value: unknown, field: string): string { if (typeof value !== "string" || !/^[a-f0-9]{64}$/u.test(value)) throw new TypeError(`Workspace ownership ${field} is malformed`); return value; }
+function requireMode(value: unknown): WorkspaceOwnershipRecord["mode"] { if (value !== "mirror" && value !== "worktree") throw new TypeError("Workspace ownership mode is malformed"); return value; }
+function requireState(value: unknown): WorkspaceOwnershipRecord["state"] { if (value !== "active" && value !== "released") throw new TypeError("Workspace ownership state is malformed"); return value; }

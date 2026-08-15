@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { LocalGitEffects, sha256, type GitCommandExecutor } from "../src/index.js";
+import { LocalGitEffects, sha256, type GitCommandExecutor, type WorkspaceOwnershipRecord, type WorkspaceOwnershipStore } from "../src/index.js";
 
 test("binds every Git call to empty hooks, closed config, and configured roots", async () => {
   const root = await mkdtemp(join(tmpdir(), "agent-task-manager-git-"));
@@ -13,8 +13,12 @@ test("binds every Git call to empty hooks, closed config, and configured roots",
   await Promise.all([mkdir(hooks), mkdir(repository), mkdir(runtime), writeFile(executable, "pinned")]);
   const calls: { args: readonly string[]; cwd: string; environment: Readonly<Record<string, string>> }[] = [];
   const executor: GitCommandExecutor = { async run(input) { calls.push(input); if (input.args.includes("--version")) return { exitCode: 0, stderr: "", stdout: "git version test" }; return { exitCode: 1, stderr: "absent", stdout: "" }; } };
-  const owners = new Map<string, any>();
-  const ownership = { async claim(input: any) { const value = { ...input, releaseEffectId: null, schema: "workspace-ownership-v1" as const, state: "active" as const }; owners.set(input.workspaceKey, value); return value; }, async get(key: string) { return owners.get(key) ?? null; }, async release(input: any) { const current = owners.get(input.workspaceKey); const value = { ...current, releaseEffectId: input.releaseEffectId, state: "released" as const }; owners.set(input.workspaceKey, value); return value; } };
+  const owners = new Map<string, WorkspaceOwnershipRecord>();
+  const ownership: WorkspaceOwnershipStore = {
+    async claim(input) { const value: WorkspaceOwnershipRecord = { ...input, releaseEffectId: null, schema: "workspace-ownership-v1", state: "active" }; owners.set(input.workspaceKey, value); return value; },
+    async get(key) { return owners.get(key) ?? null; },
+    async release(input) { const current = owners.get(input.workspaceKey); if (current === undefined) throw new Error("Missing test owner"); const value: WorkspaceOwnershipRecord = { ...current, releaseEffectId: input.releaseEffectId, state: "released" }; owners.set(input.workspaceKey, value); return value; },
+  };
   const effects = await LocalGitEffects.create({
     executable: { path: executable, sha256: sha256("pinned"), version: "git version test" }, hooksDirectory: hooks,
     identity: { email: "agent@example.invalid", name: "Agent Task Manager" }, repositories: [{ id: "repo", remotes: ["origin"], root: repository }], runtimeRoot: runtime,

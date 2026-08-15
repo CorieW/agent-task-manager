@@ -3,8 +3,12 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
 
+import { sha256 } from "../src/core/digest.js";
 import type { JsonObject } from "../src/domain/json.js";
+import type { ProviderEnvironment } from "../src/domain/provider.js";
+import type { ResourceMutation } from "../src/domain/records.js";
 import { NotionPageStore } from "../src/provider/notion/notion-page-store.js";
+import { NotionProvider } from "../src/provider/notion/notion-provider.js";
 import { NotionStateStore } from "../src/provider/notion/notion-state-store.js";
 import type { NotionRequest, NotionTransport } from "../src/provider/notion/notion-transport.js";
 import { SingleHostMutex } from "../src/provider/notion/single-host-mutex.js";
@@ -38,13 +42,28 @@ test("persists replayable leases and restart-visible intent outcomes", async () 
   assert.equal((await restarted.reconcileIntent("acquire-two")).state, "applied");
 });
 
+test("repairs a pending Notion Resource intent from its exact target state", async () => {
+  const transport = new ResourceTransport(); const now = () => new Date("2026-01-01T00:00:00.000Z");
+  const pages = new NotionPageStore(TABLES, transport, now); const state = new NotionStateStore(pages, new SingleHostMutex(`state-${randomUUID()}`), now);
+  const body = '{"schema":"test-resource-v1"}';
+  const record: ResourceMutation = { body, dependencies: [], digest: sha256(body), idempotencyKey: "resource-interrupted", key: "test/recovered", kind: "test", state: "active", version: "v1" };
+  await state.beginIntent(record.idempotencyKey, "resource", record);
+  const environment: ProviderEnvironment = { bootstrapParent: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", connection: { authEnvironmentVariable: "NOTION_TOKEN" }, tables: { errors: "11111111-1111-1111-1111-111111111111", resources: "22222222-2222-2222-2222-222222222222", subAgents: "33333333-3333-3333-3333-333333333333", tasks: "44444444-4444-4444-4444-444444444444" }, type: "notion" };
+  const provider = new NotionProvider({ environment, environmentId: `recovery-${randomUUID()}`, now, transport });
+  await provider.putResource(record);
+  assert.deepEqual(await provider.getOptionalResource(record.key), { body, dependencies: [], digest: record.digest, key: record.key, kind: record.kind, state: record.state, version: record.version });
+  assert.equal((await provider.reconcileIntent(record.idempotencyKey)).state, "applied");
+});
+
 class ResourceTransport implements NotionTransport {
   readonly #blocks = new Map<string, JsonObject[]>();
   readonly #pages = new Map<string, JsonObject>();
   #clock = 0;
 
   public async request(request: NotionRequest): Promise<JsonObject> {
-    if (request.path === "/v1/data_sources/resources/query") {
+    const dataSource = /^\/v1\/data_sources\/([^/]+)$/u.exec(request.path);
+    if (request.method === "GET" && dataSource?.[1] !== undefined) return { id: dataSource[1], object: "data_source" };
+    if (/^\/v1\/data_sources\/[^/]+\/query$/u.test(request.path)) {
       const filter = objectValue(objectValue(request.body).filter);
       const property = String(filter.property);
       const expected = String(objectValue(filter.title).equals ?? objectValue(filter.select).equals);
@@ -89,7 +108,8 @@ class ResourceTransport implements NotionTransport {
 
   private page(id: string, properties: JsonObject): JsonObject {
     this.#clock += 1;
-    return { id, last_edited_time: `2026-01-01T00:00:${String(this.#clock).padStart(2, "0")}.000Z`, object: "page", properties };
+    const normalized = Object.fromEntries(Object.entries(properties).map(([name, value]) => { const property = objectValue(value); return [name, property.type === undefined ? { ...property, type: Object.keys(property)[0] ?? "unknown" } : property]; }));
+    return { id, last_edited_time: `2026-01-01T00:00:${String(this.#clock).padStart(2, "0")}.000Z`, object: "page", properties: normalized };
   }
 }
 

@@ -33,11 +33,12 @@ export interface ExternalEffectReceipt extends ExternalEffectObservation {
 }
 
 export interface ExternalEffectIntentRecord extends ExternalEffectRequest {
+  readonly automaticReplayBlocked: boolean;
   readonly handlerId: string;
   readonly handlerVersion: string;
   readonly lastObservation: ExternalEffectObservation | null;
   readonly receipt: ExternalEffectReceipt | null;
-  readonly schema: "external-effect-intent-v1";
+  readonly schema: "external-effect-intent-v2";
   readonly state: ExternalEffectState;
 }
 
@@ -57,4 +58,9 @@ export interface ExternalEffectExecution {
   readonly receipt: ExternalEffectReceipt | null;
   readonly request: ExternalEffectRequest;
   readonly state: Exclude<ExternalEffectState, "pending">;
+}
+
+export class EffectCancellationAcknowledgedError extends Error {}
+export class EffectTerminationUnconfirmedError extends AggregateError {
+  public readonly effectExecutionMayContinue = true;
 }

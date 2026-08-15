@@ -7,7 +7,7 @@ import type { ResourceRecord } from "../domain/records.js";
 import type { AgentTaskProvider } from "../provider/agent-task-provider.js";
 import type { ExternalEffectIntentRecord } from "./contracts.js";
 
-const EFFECT_RESOURCE_VERSION = "v1";
+const EFFECT_RESOURCE_VERSION = "v2";
 
 export class ProviderEffectJournal {
   public constructor(private readonly provider: AgentTaskProvider) {}
@@ -63,7 +63,7 @@ function parseIntent(body: string): ExternalEffectIntentRecord {
 }
 
 function validateIntent(value: ExternalEffectIntentRecord): void {
-  if (value.schema !== "external-effect-intent-v1" || !digest(value.effectId) || !digest(value.payloadDigest)) throw new TypeError("External-effect intent identity is invalid");
+  if (value.schema !== "external-effect-intent-v2" || typeof value.automaticReplayBlocked !== "boolean" || !digest(value.effectId) || !digest(value.payloadDigest)) throw new TypeError("External-effect intent identity is invalid");
   if (value.handlerId === "" || value.handlerVersion === "" || value.kind === "") throw new TypeError("External-effect handler identity is invalid");
   if (!["applied", "failed", "indeterminate", "not_applied", "pending"].includes(value.state)) throw new TypeError("External-effect intent state is invalid");
   if (value.source.runId === "" || !digest(value.source.contextDigest) || !digest(value.source.definitionDigest) || !digest(value.source.resultDigest) || !Number.isSafeInteger(value.source.intentIndex) || value.source.intentIndex < 0) throw new TypeError("External-effect source is invalid");
