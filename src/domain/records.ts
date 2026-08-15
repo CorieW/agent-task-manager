@@ -29,21 +29,52 @@ export interface SelectionPolicy {
   readonly taskQueryResource: string | null;
 }
 
+export interface InvocationPolicy {
+  readonly mode: "event" | "manual" | "scheduled";
+  readonly scheduleResource: string | null;
+}
+
+export interface RetryPolicy {
+  readonly maxAttempts: number;
+  readonly noVerdict: "block" | "retry";
+}
+
 export interface SubAgentDefinition {
   readonly allowedIntents: readonly string[];
   readonly capabilities: readonly string[];
   readonly concurrency: number;
+  readonly contextBudgetBytes: number;
+  readonly deadlineSeconds: number;
   readonly enabled: boolean;
   readonly id: string;
+  readonly inputResourceSelectors: readonly string[];
+  readonly invocation: InvocationPolicy;
   readonly invocationPriority: number;
+  readonly maxAssignmentDepth: number;
   readonly model: string;
   readonly name: string;
   readonly promptResources: readonly string[];
+  readonly prohibitedCapabilities: readonly string[];
   readonly reasoning: string;
+  readonly requiredProviderCapabilities: readonly string[];
   readonly revision: number;
+  readonly retry: RetryPolicy;
+  readonly runnerProfile: string;
   readonly selection: SelectionPolicy;
   readonly transitions: Readonly<Record<string, string>>;
   readonly workResultSchemaResource: string;
+}
+
+export interface SubAgentActivity {
+  readonly status: "Offline" | "Online";
+  readonly taskIds: readonly string[];
+  readonly version: string;
+}
+
+export interface LeaseProjection {
+  readonly runLeaseIds: readonly string[];
+  readonly taskIds: readonly string[];
+  readonly taskLeaseIds: readonly string[];
 }
 
 export interface ActivityMutation {

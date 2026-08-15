@@ -7,10 +7,12 @@ import type {
   LeaseRenewal,
   LeaseRequest,
   LeaseResult,
+  LeaseProjection,
   ResourceMutation,
   ResourceRecord,
   ResourceRef,
   SubAgentDefinition,
+  SubAgentActivity,
   TaskQuery,
   TaskSnapshot,
   TaskSummary,
@@ -118,6 +120,16 @@ export class NotionProvider implements AgentTaskProvider {
 
   public async getSubAgentDefinition(id: string): Promise<SubAgentDefinition> {
     return (await this.runtime()).reader.getSubAgentDefinition(id);
+  }
+
+  public async getSubAgentActivity(id: string): Promise<SubAgentActivity> {
+    const observed = await (await this.runtime()).pages.getSubAgentActivity(id);
+    if (observed.status !== "Online" && observed.status !== "Offline") throw new Error(`Sub-agent activity Status is invalid: ${observed.status}`);
+    return { status: observed.status, taskIds: observed.taskIds, version: observed.version };
+  }
+
+  public async getLeaseProjection(id: string): Promise<LeaseProjection> {
+    return (await this.runtime()).state.activeProjection(id);
   }
 
   public async updateSubAgentActivity(change: ActivityMutation): Promise<WriteReceipt> {

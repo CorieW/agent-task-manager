@@ -14,9 +14,11 @@ import type {
   LeaseRenewal,
   LeaseRequest,
   LeaseResult,
+  LeaseProjection,
   ResourceMutation,
   ResourceRecord,
   ResourceRef,
+  SubAgentActivity,
   SubAgentDefinition,
   TaskQuery,
   TaskSnapshot,
@@ -51,6 +53,11 @@ interface MemoryLease extends LeaseRequest {
 interface MemoryActivity {
   readonly runLeaseIds: readonly string[];
   readonly taskIds: readonly string[];
+}
+
+function requiredLeaseTask(lease: MemoryLease): string {
+  if (lease.taskId === null) throw new Error("Task-assignment lease is missing its Task");
+  return lease.taskId;
 }
 
 const TABLE_ORDER: readonly TableKind[] = ["resources", "errors", "tasks", "subAgents"];
@@ -355,6 +362,26 @@ export class InMemoryProvider implements AgentTaskProvider {
     return clone(definition);
   }
 
+  public async getSubAgentActivity(id: string): Promise<SubAgentActivity> {
+    if (!this.#definitions.has(id)) throw new Error(`Unknown Sub-agent definition: ${id}`);
+    const activity = this.#activities.get(id) ?? { runLeaseIds: [], taskIds: [] };
+    return {
+      status: activity.runLeaseIds.length === 0 ? "Offline" : "Online",
+      taskIds: clone(activity.taskIds),
+      version: String(this.#entityVersions.get(`subAgents:${id}`) ?? 0),
+    };
+  }
+
+  public async getLeaseProjection(id: string): Promise<LeaseProjection> {
+    this.pruneExpiredLeases();
+    const leases = [...this.#leases.values()].filter((lease) => lease.subAgentId === id);
+    return {
+      runLeaseIds: leases.filter((lease) => lease.scope === "agent_run").map((lease) => lease.id).sort(),
+      taskIds: [...new Set(leases.filter((lease) => lease.scope === "task_assignment").map((lease) => requiredLeaseTask(lease)))].sort(),
+      taskLeaseIds: leases.filter((lease) => lease.scope === "task_assignment").map((lease) => lease.id).sort(),
+    };
+  }
+
   public async updateSubAgentActivity(change: ActivityMutation): Promise<WriteReceipt> {
     const prior = this.lookupIdempotent<WriteReceipt>(change.idempotencyKey, "agent_activity", change);
     if (prior !== undefined) return prior;
@@ -462,7 +489,7 @@ export class InMemoryProvider implements AgentTaskProvider {
     const conflict = [...this.#leases.values()].find((lease) =>
       request.scope === "task_assignment"
         ? lease.scope === request.scope && lease.taskId === request.taskId
-        : lease.scope === request.scope && lease.subAgentId === request.subAgentId,
+        : lease.scope === request.scope && lease.ownerId === request.ownerId && lease.subAgentId === request.subAgentId,
     );
     const result: LeaseResult =
       conflict === undefined

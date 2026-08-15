@@ -32,9 +32,10 @@ test("persists replayable leases and restart-visible intent outcomes", async () 
   assert.deepEqual(await restarted.activeLeaseIds("agent_run", "agent-1"), [acquired.leaseId]);
   assert.equal((await restarted.reconcileIntent("acquire-one")).state, "applied");
 
-  const conflict = await restarted.acquireLease({ ...request, idempotencyKey: "acquire-two", ownerId: "run-2" });
-  assert.deepEqual(conflict, { acquired: false, conflictingLeaseId: acquired.leaseId, leaseId: null });
-  assert.equal((await restarted.reconcileIntent("acquire-two")).state, "not_applied");
+  const concurrent = await restarted.acquireLease({ ...request, idempotencyKey: "acquire-two", ownerId: "run-2" });
+  assert.equal(concurrent.acquired, true);
+  assert.deepEqual(await restarted.activeLeaseIds("agent_run", "agent-1"), [acquired.leaseId, concurrent.leaseId].sort());
+  assert.equal((await restarted.reconcileIntent("acquire-two")).state, "applied");
 });
 
 class ResourceTransport implements NotionTransport {

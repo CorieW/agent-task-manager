@@ -6,10 +6,12 @@ import type {
   LeaseRenewal,
   LeaseRequest,
   LeaseResult,
+  LeaseProjection,
   ResourceMutation,
   ResourceRecord,
   ResourceRef,
   SubAgentDefinition,
+  SubAgentActivity,
   TaskQuery,
   TaskSnapshot,
   TaskSummary,
@@ -40,6 +42,8 @@ export interface AgentTaskProvider {
 
   listSubAgentDefinitions(): Promise<readonly SubAgentDefinition[]>;
   getSubAgentDefinition(id: string): Promise<SubAgentDefinition>;
+  getSubAgentActivity(id: string): Promise<SubAgentActivity>;
+  getLeaseProjection(id: string): Promise<LeaseProjection>;
   updateSubAgentActivity(change: ActivityMutation): Promise<WriteReceipt>;
 
   listTaskSummaries(query: TaskQuery): Promise<readonly TaskSummary[]>;

@@ -96,7 +96,7 @@ export class NotionStateStore {
       const prior = await this.beginIntent(request.idempotencyKey, "lease_acquire", request);
       if (prior !== undefined) return parseLeaseResult(prior);
       validateLeaseRequest(request, this.now());
-      const key = leaseKey(request.scope, request.scope === "agent_run" ? request.subAgentId : requiredTaskId(request));
+      const key = leaseKey(request.scope, request.scope === "agent_run" ? `${request.subAgentId}\0${request.ownerId}` : requiredTaskId(request));
       const currentValue = await this.readRecord(key);
       const current = currentValue === null ? null : parseLease(currentValue);
       let result: LeaseResult;
@@ -203,7 +203,7 @@ export class NotionStateStore {
     const leases = await this.loadLeases();
     const matches: Array<{ key: string; record: LeaseRecord }> = [];
     for (const record of leases) {
-      if (record.leaseId === leaseId) matches.push({ key: leaseKey(record.scope, record.scope === "agent_run" ? record.subAgentId : requiredTaskId(record)), record });
+      if (record.leaseId === leaseId) matches.push({ key: leaseKey(record.scope, record.scope === "agent_run" ? `${record.subAgentId}\0${record.ownerId}` : requiredTaskId(record)), record });
     }
     if (matches.length > 1) throw new Error(`Lease ${leaseId} is duplicated`);
     return matches[0] ?? null;

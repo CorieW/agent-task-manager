@@ -1,11 +1,11 @@
 // Decodes provider-owned Notion rows and managed content into domain records.
 import { sha256 } from "../../core/digest.js";
 import { pageAfter } from "../../core/pagination.js";
+import { parseSubAgentDefinitionManifest } from "../../core/sub-agent-definition.js";
 import { toJsonValue, type JsonObject, type JsonValue } from "../../domain/json.js";
 import type {
   ResourceRecord,
   ResourceRef,
-  SelectionPolicy,
   SubAgentDefinition,
   TaskQuery,
   TaskSnapshot,
@@ -114,7 +114,7 @@ export class NotionRecordReader {
   private async subAgentDefinition(page: JsonObject): Promise<SubAgentDefinition> {
     const id = requiredString(page.id, "Sub-agent page id");
     const manifest = await this.managedJson(id, "Sub-agent definition");
-    const definition = parseDefinitionManifest(manifest);
+    const definition = parseSubAgentDefinitionManifest(manifest, id);
     const name = propertyText(page, "Name");
     const enabled = propertyBoolean(page, "Enabled");
     const revision = propertyNumber(page, "Revision");
@@ -122,7 +122,7 @@ export class NotionRecordReader {
     if (definition.name !== name || definition.enabled !== enabled || definition.revision !== revision || definition.model !== model) {
       throw new Error(`Sub-agent ${id} manifest does not match its authoritative properties`);
     }
-    return { ...definition, id };
+    return definition;
   }
 
   private taskSummary(page: JsonObject): TaskSummary {
@@ -242,45 +242,6 @@ export class NotionRecordReader {
 
 const TASK_SUMMARY_KEYS = new Set(["archived", "id", "priority", "status", "title", "version"]);
 
-export function parseDefinitionManifest(value: JsonObject): Omit<SubAgentDefinition, "id"> {
-  assertExactKeys(value, [
-    "allowedIntents", "capabilities", "concurrency", "enabled", "invocationPriority", "model",
-    "name", "promptResources", "reasoning", "revision", "selection", "transitions",
-    "workResultSchemaResource",
-  ], "Sub-agent definition");
-  return {
-    allowedIntents: stringArray(value.allowedIntents, "allowedIntents"),
-    capabilities: stringArray(value.capabilities, "capabilities"),
-    concurrency: positiveInteger(value.concurrency, "concurrency"),
-    enabled: booleanValue(value.enabled, "enabled"),
-    invocationPriority: integer(value.invocationPriority, "invocationPriority"),
-    model: requiredString(value.model, "model"),
-    name: requiredString(value.name, "name"),
-    promptResources: stringArray(value.promptResources, "promptResources"),
-    reasoning: requiredString(value.reasoning, "reasoning"),
-    revision: positiveInteger(value.revision, "revision"),
-    selection: selectionPolicy(objectValue(value.selection, "selection")),
-    transitions: stringMap(objectValue(value.transitions, "transitions"), "transitions"),
-    workResultSchemaResource: requiredString(value.workResultSchemaResource, "workResultSchemaResource"),
-  };
-}
-
-function selectionPolicy(value: JsonObject): SelectionPolicy {
-  assertExactKeys(value, ["acceptsAssignmentsFrom", "maxCandidateSummaries", "mode", "resultSchemaResource", "taskQueryResource"], "selection");
-  const mode = value.mode;
-  if (mode !== "coordinator" && mode !== "explicit" && mode !== "self") throw new TypeError("selection.mode is invalid");
-  const sources = stringArray(value.acceptsAssignmentsFrom, "selection.acceptsAssignmentsFrom");
-  if (sources.some((source) => source !== "coordinator" && source !== "explicit" && source !== "self")) {
-    throw new TypeError("selection.acceptsAssignmentsFrom contains an invalid mode");
-  }
-  return {
-    acceptsAssignmentsFrom: sources as SelectionPolicy["acceptsAssignmentsFrom"],
-    maxCandidateSummaries: positiveInteger(value.maxCandidateSummaries, "selection.maxCandidateSummaries"),
-    mode,
-    resultSchemaResource: requiredString(value.resultSchemaResource, "selection.resultSchemaResource"),
-    taskQueryResource: value.taskQueryResource === null ? null : requiredString(value.taskQueryResource, "selection.taskQueryResource"),
-  };
-}
 
 function decodeProperties(properties: JsonObject): JsonObject {
   return Object.fromEntries(
@@ -401,26 +362,6 @@ function stringArray(value: JsonValue | undefined, label: string): readonly stri
   return [...new Set(value as string[])];
 }
 
-function stringMap(value: JsonObject, label: string): Readonly<Record<string, string>> {
-  for (const [key, item] of Object.entries(value)) if (typeof item !== "string" || item === "") throw new TypeError(`${label}.${key} must be a non-empty string`);
-  return value as Readonly<Record<string, string>>;
-}
-
-function positiveInteger(value: JsonValue | undefined, label: string): number {
-  const result = integer(value, label);
-  if (result < 1) throw new TypeError(`${label} must be positive`);
-  return result;
-}
-
-function integer(value: JsonValue | undefined, label: string): number {
-  if (typeof value !== "number" || !Number.isSafeInteger(value)) throw new TypeError(`${label} must be an integer`);
-  return value;
-}
-
-function booleanValue(value: JsonValue | undefined, label: string): boolean {
-  if (typeof value !== "boolean") throw new TypeError(`${label} must be boolean`);
-  return value;
-}
 
 function stringValue(value: JsonValue | undefined): string {
   return typeof value === "string" ? value : "";
