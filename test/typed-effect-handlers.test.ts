@@ -19,11 +19,11 @@ test("validates immutable Git commit and push preconditions", () => {
 test("requires a closed acyclic child-agent wave", () => {
   const wave = createChildAgentWaveHandler(adapter());
   wave.validate({ maxConcurrency: 2, nodes: [
-    { contextResource: "context/a", definitionId: "reviewer", dependsOn: [], nodeKey: "a" },
-    { contextResource: "context/b", definitionId: "reviewer", dependsOn: ["a"], nodeKey: "b" },
+    { contextDigest: "a".repeat(64), contextResource: "context/a", contextVersion: "v1", definitionId: "reviewer", dependsOn: [], nodeKey: "a" },
+    { contextDigest: "b".repeat(64), contextResource: "context/b", contextVersion: "v1", definitionId: "reviewer", dependsOn: ["a"], nodeKey: "b" },
   ] });
   assert.throws(() => wave.validate({ maxConcurrency: 2, nodes: [
-    { contextResource: "context/a", definitionId: "reviewer", dependsOn: ["b"], nodeKey: "a" },
-    { contextResource: "context/b", definitionId: "reviewer", dependsOn: ["a"], nodeKey: "b" },
+    { contextDigest: "a".repeat(64), contextResource: "context/a", contextVersion: "v1", definitionId: "reviewer", dependsOn: ["b"], nodeKey: "a" },
+    { contextDigest: "b".repeat(64), contextResource: "context/b", contextVersion: "v1", definitionId: "reviewer", dependsOn: ["a"], nodeKey: "b" },
   ] }), /cycle/);
 });

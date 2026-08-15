@@ -1,5 +1,6 @@
 // Stores complete external-effect intents and receipts in provider Resources.
 import { canonicalize } from "../core/canonical-json.js";
+import { randomUUID } from "node:crypto";
 import { sha256 } from "../core/digest.js";
 import { toJsonValue, type JsonObject } from "../domain/json.js";
 import type { ResourceRecord } from "../domain/records.js";
@@ -34,6 +35,14 @@ export class ProviderEffectJournal {
     const verified = await this.read(record.effectId);
     if (verified === null || canonicalize(toJsonValue(verified)) !== body) throw new Error(`External-effect journal verification failed: ${record.effectId}`);
   }
+
+  public async withClaim<T>(effectId: string, deadlineAt: number, operation: () => Promise<T>): Promise<T> {
+    const ownerId = `external-effect:${randomUUID()}`;
+    const acquired = await this.provider.acquireLease({ expiresAt: new Date(deadlineAt + 5_000).toISOString(), idempotencyKey: `external-effect-claim:${effectId}:${ownerId}`, ownerId, scope: "task_assignment", subAgentId: "system/external-effect-broker", taskId: `system/external-effect/${effectId}` });
+    if (!acquired.acquired || acquired.leaseId === null) throw new Error(`External effect is already claimed: ${effectId}`);
+    try { return await operation(); }
+    finally { await this.provider.releaseLease({ leaseId: acquired.leaseId, ownerId }); }
+  }
 }
 
 export function effectResourceKey(effectId: string): string { return `external-effect-intent/${effectId}`; }
@@ -55,7 +64,7 @@ function validateIntent(value: ExternalEffectIntentRecord): void {
   if (value.schema !== "external-effect-intent-v1" || !digest(value.effectId) || !digest(value.payloadDigest)) throw new TypeError("External-effect intent identity is invalid");
   if (value.handlerId === "" || value.handlerVersion === "" || value.kind === "") throw new TypeError("External-effect handler identity is invalid");
   if (!["applied", "failed", "indeterminate", "not_applied", "pending"].includes(value.state)) throw new TypeError("External-effect intent state is invalid");
-  if (value.source.runId === "" || !digest(value.source.contextDigest) || !digest(value.source.resultDigest) || !Number.isSafeInteger(value.source.intentIndex) || value.source.intentIndex < 0) throw new TypeError("External-effect source is invalid");
+  if (value.source.runId === "" || !digest(value.source.contextDigest) || !digest(value.source.definitionDigest) || !digest(value.source.resultDigest) || !Number.isSafeInteger(value.source.intentIndex) || value.source.intentIndex < 0) throw new TypeError("External-effect source is invalid");
   if (value.receipt !== null && (value.receipt.schema !== "external-effect-receipt-v1" || value.receipt.effectId !== value.effectId || value.receipt.handlerId !== value.handlerId || value.receipt.handlerVersion !== value.handlerVersion || value.receipt.state !== value.state)) throw new TypeError("External-effect receipt is invalid");
   if (value.receipt === null && (value.state === "applied" || value.state === "failed" || value.state === "not_applied")) throw new TypeError("Terminal external-effect intent requires a receipt");
   toJsonValue(value.payload);

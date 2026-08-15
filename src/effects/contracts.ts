@@ -5,6 +5,7 @@ export type ExternalEffectState = "applied" | "failed" | "indeterminate" | "not_
 
 export interface ExternalEffectSource {
   readonly contextDigest: string;
+  readonly definitionDigest: string;
   readonly intentIndex: number;
   readonly resultDigest: string;
   readonly runId: string;
@@ -44,10 +45,13 @@ export interface ExternalEffectHandler {
   readonly id: string;
   readonly kind: string;
   readonly version: string;
-  apply(request: ExternalEffectRequest): Promise<ExternalEffectObservation>;
-  reconcile(request: ExternalEffectRequest): Promise<ExternalEffectObservation>;
+  apply(request: ExternalEffectRequest, control: ExternalEffectControl): Promise<ExternalEffectObservation>;
+  reconcile(request: ExternalEffectRequest, control: ExternalEffectControl): Promise<ExternalEffectObservation>;
   validate(payload: JsonObject): void;
 }
+export interface ExternalEffectControl { readonly deadlineAt: number; readonly signal: AbortSignal; }
+
+export interface ExternalEffectAuthorityVerifier { verify(request: ExternalEffectRequest): Promise<void>; }
 
 export interface ExternalEffectExecution {
   readonly receipt: ExternalEffectReceipt | null;

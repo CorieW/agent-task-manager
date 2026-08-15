@@ -133,7 +133,7 @@ async function dispatchVerified(input: {
   }
 }
 
-async function verifyLiveAssignment(input: {
+export async function verifyLiveAssignment(input: {
   readonly activated: ActivatedDefinition;
   readonly activationRuntime: ActivationRuntime;
   readonly promotion: AssignmentPromotion;

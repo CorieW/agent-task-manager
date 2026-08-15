@@ -17,7 +17,7 @@ test("binds every Git call to empty hooks, closed config, and configured roots",
     executable: { path: executable, sha256: sha256("pinned"), version: "git version test" }, hooksDirectory: hooks,
     identity: { email: "agent@example.invalid", name: "Agent Task Manager" }, repositories: [{ id: "repo", remotes: ["origin"], root: repository }], runtimeRoot: runtime,
   }, { executor });
-  const observed = await effects.workspaceProvisionAdapter().reconcile({ effectId: "a".repeat(64), payload: { mode: "worktree", repositoryId: "repo", sourceRevision: "b".repeat(40), workspaceKey: "task-1" } });
+  const observed = await effects.workspaceProvisionAdapter().reconcile({ control: { deadlineAt: Date.now() + 1000, signal: new AbortController().signal }, effectId: "a".repeat(64), payload: { mode: "worktree", repositoryId: "repo", sourceRevision: "b".repeat(40), workspaceKey: "task-1" } });
   assert.equal(observed.state, "not_applied");
   assert.equal(calls.every((call) => call.args.includes(`core.hooksPath=${hooks}`)), true);
   assert.equal(calls.every((call) => call.environment.GIT_CONFIG_NOSYSTEM === "1" && call.environment.GIT_OPTIONAL_LOCKS === "0"), true);
