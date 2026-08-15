@@ -133,14 +133,14 @@ export async function prepareIdentificationTrial(
   try {
     const tableReport = await provider.validateTables();
     if (tableReport.state !== "ready") {
-      return blocked(request, "workspace_not_ready", "Provider workspace is not ready", "Resolve every reported table or property mismatch, then create a fresh trial basis.");
+      return blocked({ code: "workspace_not_ready", request, resolution: "Resolve every reported table or property mismatch, then create a fresh trial basis.", title: "Provider workspace is not ready" });
     }
     const workspace = await provider.inspectWorkspaceSchema();
     const taskBasis: TrialTaskBasis[] = [];
     for (const taskId of request.taskIds) {
       const task = await provider.getTaskSnapshot(taskId);
       if (task.archived) {
-        return blocked(request, "task_archived", "A trial Task is archived", "Restore or replace the archived Task, then create a fresh trial basis.", task.id);
+        return blocked({ code: "task_archived", request, resolution: "Restore or replace the archived Task, then create a fresh trial basis.", taskId: task.id, title: "A trial Task is archived" });
       }
       taskBasis.push(taskBasisFor(task));
     }
@@ -149,14 +149,14 @@ export async function prepareIdentificationTrial(
       ? definitions.filter((definition) => definition.enabled).map((definition) => definition.id).sort()
       : [...request.definitionIds];
     if (selectedIds.length === 0) {
-      return blocked(request, "no_enabled_definitions", "No Sub-agent definition is available", "Enable at least one provider-defined Sub-agent and create a fresh trial basis.");
+      return blocked({ code: "no_enabled_definitions", request, resolution: "Enable at least one provider-defined Sub-agent and create a fresh trial basis.", title: "No Sub-agent definition is available" });
     }
     const byId = new Map(definitions.map((definition) => [definition.id, definition]));
     const definitionBasis: TrialDefinitionBasis[] = [];
     for (const definitionId of selectedIds) {
       const definition = byId.get(definitionId);
       if (definition === undefined || !definition.enabled) {
-        return blocked(request, "definition_unavailable", "A requested Sub-agent definition is unavailable", "Restore or enable the requested provider definition, then create a fresh trial basis.", null, definitionId);
+        return blocked({ code: "definition_unavailable", request, resolution: "Restore or enable the requested provider definition, then create a fresh trial basis.", subAgentId: definitionId, title: "A requested Sub-agent definition is unavailable" });
       }
       const resolved = await resolveLoadedDefinition(provider, definition);
       definitionBasis.push({
@@ -178,9 +178,11 @@ export async function prepareIdentificationTrial(
       })),
       workspaceSchemaDigest: workspace.digest,
     };
-    return { plan: { ...core, digest: digestJson(toJsonValue(core)) }, state: "ready" };
+    const plan = { ...core, digest: digestJson(toJsonValue(core)) };
+    assertPlan(plan);
+    return { plan, state: "ready" };
   } catch {
-    return blocked(request, "provider_read_failed", "Provider trial preflight failed", "Inspect provider connectivity and the selected Tasks, definitions, and Resources before retrying.");
+    return blocked({ code: "provider_read_failed", request, resolution: "Inspect provider connectivity and the selected Tasks, definitions, and Resources before retrying.", title: "Provider trial preflight failed" });
   }
 }
 
@@ -249,15 +251,8 @@ export async function recordIdentificationTrialObservation(
   };
 }
 
-function blocked(
-  request: IdentificationTrialRequest,
-  code: string,
-  title: string,
-  resolution: string,
-  taskId: string | null = null,
-  subAgentId: string | null = null,
-): IdentificationTrialPreparation {
-  return { blocker: createBlocker({ code, request, resolution, subAgentId, taskId, title }), state: "blocked" };
+function blocked(details: BlockerDetails): IdentificationTrialPreparation {
+  return { blocker: createBlocker(details), state: "blocked" };
 }
 
 function createBlocker(details: BlockerDetails): IdentificationTrialBlocker {
@@ -409,6 +404,7 @@ function assertObservation(observation: TrialTaskObservation, plan: Identificati
       if (!Number.isSafeInteger(row[key]) || row[key] < 0) throw new TypeError(`Trial metric ${key} must be a non-negative safe integer`);
     }
   }
+  if (observedDefinitions.size !== knownDefinitions.size) throw new TypeError("Trial metrics must include every selected Sub-agent definition");
   if (observation.issue !== null) {
     assertExactKeys(observation.issue, ["code", "description", "relatedSubAgentId", "resolution", "title"], "Trial observation issue");
     assertBoundedString(observation.issue.code, "Issue code", 100);

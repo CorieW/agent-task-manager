@@ -302,7 +302,8 @@ selected response and rejects unrelated changes.
 
 `SerializedProviderEmulator` is a test-only serialization-boundary wrapper
 around a `SeedableAgentTaskProvider`. It validates every request and response as
-canonical JSON before crossing the boundary. The shared provider conformance
+JSON-compatible and round-trips it through JSON serialization before crossing
+the boundary. The shared provider conformance
 matrix runs unchanged against both direct `InMemoryProvider` access and this
 serialized wrapper. The emulator is not a second durable provider and does not
 replace a concrete adapter such as Notion.
@@ -311,9 +312,9 @@ The identification-trial library prepares an exact ten-Task sample without
 dispatching a role or writing provider state. `prepareIdentificationTrial`
 requires ten unique Task IDs, loads enabled Sub-agent definitions from the
 provider when definition IDs are not explicitly supplied, resolves their
-complete Resource graphs, and binds provider/workspace identity, physical table
-identity, logical schema, Task snapshots, definitions, and Resource pins into
-one immutable plan digest.
+complete Resource graphs, and stores provider identity, a digest over provider
+identity plus physical table IDs, the provider-reported logical schema digest,
+Task snapshots, definitions, and Resource pins in one immutable plan digest.
 
 `startIdentificationTrial` creates an in-memory report.
 `recordIdentificationTrialObservation` re-reads and revalidates the complete

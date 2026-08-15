@@ -446,4 +446,11 @@ test("serialized provider emulator rejects lossy non-JSON values", async () => {
     }),
     /JSON-compatible/u,
   );
+  await assert.rejects(provider.getResources(new Array(1)), /sparse array hole/u);
+  class BrokenProvider extends InMemoryProvider {
+    public override async getCapabilities(): ReturnType<InMemoryProvider["getCapabilities"]> {
+      return undefined as never;
+    }
+  }
+  await assert.rejects(new SerializedProviderEmulator(new BrokenProvider(environment, target)).getCapabilities(), /JSON-compatible/u);
 });

@@ -20,7 +20,10 @@ export function toJsonValue(value: unknown): JsonValue {
     seen.add(input);
     try {
       if (Array.isArray(input)) {
-        return input.map((entry, index) => convert(entry, `${path}[${index}]`));
+        return Array.from({ length: input.length }, (_, index) => {
+          if (!Object.hasOwn(input, index)) throw new JsonValueError(`${path}[${index}] must not be a sparse array hole`);
+          return convert(input[index], `${path}[${index}]`);
+        });
       }
       const prototype = Object.getPrototypeOf(input) as object | null;
       if (prototype !== Object.prototype && prototype !== null) {

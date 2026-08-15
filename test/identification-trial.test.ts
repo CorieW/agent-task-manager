@@ -129,6 +129,10 @@ test("rejects malformed outcomes, incomplete counters, and duplicate role rows",
     recordIdentificationTrialObservation(provider, preparation.plan, report, { ...valid, roleMetrics: [valid.roleMetrics[0]!, valid.roleMetrics[0]!] }),
     /repeat a definition/u,
   );
+  await assert.rejects(
+    recordIdentificationTrialObservation(provider, preparation.plan, report, { ...valid, roleMetrics: [valid.roleMetrics[0]!] }),
+    /include every selected/u,
+  );
 });
 
 test("uses distinct replay identities for different definition blockers", async () => {
@@ -153,6 +157,15 @@ test("fails closed before trial execution when provider tables are not ready", a
   const preparation = await prepareIdentificationTrial(provider, request());
   assert.equal(preparation.state, "blocked");
   if (preparation.state === "blocked") assert.equal(preparation.blocker.code, "workspace_not_ready");
+});
+
+test("returns a blocker instead of an unusable ready plan for invalid provider data", async () => {
+  const provider = await preparedProvider();
+  const task = await provider.getTaskSnapshot("task-001");
+  provider.seedTask({ ...task, title: "x".repeat(1_001) });
+  const preparation = await prepareIdentificationTrial(provider, request());
+  assert.equal(preparation.state, "blocked");
+  if (preparation.state === "blocked") assert.equal(preparation.blocker.code, "provider_read_failed");
 });
 
 async function preparedProvider(providerIdentity = "memory"): Promise<InMemoryProvider> {

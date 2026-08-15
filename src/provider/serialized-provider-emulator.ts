@@ -42,7 +42,6 @@ export interface SeedableAgentTaskProvider extends AgentTaskProvider {
 }
 
 function crossBoundary<T>(value: T): T {
-  if (value === undefined) return value;
   return JSON.parse(JSON.stringify(toJsonValue(value))) as T;
 }
 
