@@ -66,6 +66,16 @@ test("does not repair an old pending Resource intent over newer state", async ()
   assert.equal((await provider.getOptionalResource(old.key))?.digest, newer.digest);
 });
 
+test("repairs a pending Notion Error intent from its exact target state", async () => {
+  const transport = new ResourceTransport(); const now = () => new Date("2026-01-01T00:00:00.000Z");
+  const pages = new NotionPageStore(TABLES, transport, now); const state = new NotionStateStore(pages, new SingleHostMutex(`state-${randomUUID()}`), now);
+  const error = { description: "Publication is unavailable.", errorKey: "publication/missing", idempotencyKey: "error-interrupted", relatedRunId: "run-1", relatedSubAgentId: null, relatedTaskId: null, resolution: "Configure publication.", severity: "high" as const, title: "Publication unavailable" };
+  await state.beginIntent(error.idempotencyKey, "error", error); await pages.createOrUpdateError(error);
+  const provider = new NotionProvider({ environment: notionEnvironment(), environmentId: `recovery-${randomUUID()}`, now, transport });
+  assert.equal((await provider.createOrUpdateError(error)).providerRecord.table, "errors");
+  assert.equal((await provider.reconcileIntent(error.idempotencyKey)).state, "applied");
+});
+
 class ResourceTransport implements NotionTransport {
   readonly #blocks = new Map<string, JsonObject[]>();
   readonly #pages = new Map<string, JsonObject>();
@@ -77,7 +87,7 @@ class ResourceTransport implements NotionTransport {
     if (/^\/v1\/data_sources\/[^/]+\/query$/u.test(request.path)) {
       const filter = objectValue(objectValue(request.body).filter);
       const property = String(filter.property);
-      const expected = String(objectValue(filter.title).equals ?? objectValue(filter.select).equals);
+      const expected = String(objectValue(filter.title).equals ?? objectValue(filter.rich_text).equals ?? objectValue(filter.select).equals);
       const results = [...this.#pages.values()].filter((page) => propertyValue(page, property) === expected);
       return { has_more: false, next_cursor: null, results };
     }
@@ -137,7 +147,7 @@ function mergeProperties(prior: JsonObject, updates: JsonObject): JsonObject {
 
 function propertyValue(page: JsonObject, name: string): string {
   const property = objectValue(objectValue(page.properties)[name]);
-  const values = property.title;
+  const values = property.title ?? property.rich_text;
   if (Array.isArray(values)) return values.map((item) => String(objectValue(objectValue(item).text).content)).join("");
   return String(objectValue(property.select).name ?? "");
 }

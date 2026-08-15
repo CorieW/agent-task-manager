@@ -45,7 +45,8 @@ export function verifyAllowedHumanDelta(baseline: HumanInteractionSlot, edited: 
   if (checkedBaseline.response !== null) throw new Error("Human interaction baseline already contains a response");
   if (checkedEdited.response === null) throw new Error("Human interaction response is blank");
   if (canonicalize(toJsonValue(machineProjection(checkedBaseline))) !== canonicalize(toJsonValue(machineProjection(checkedEdited)))) throw new Error("Human edited machine-owned slot content");
-  const targetStatus = checkedEdited.routes[checkedEdited.response.action]; if (targetStatus === undefined) throw new Error(`Human response action is not allowed: ${checkedEdited.response.action}`);
+  if (!Object.hasOwn(checkedEdited.routes, checkedEdited.response.action)) throw new Error(`Human response action is not allowed: ${checkedEdited.response.action}`);
+  const targetStatus = checkedEdited.routes[checkedEdited.response.action]; if (typeof targetStatus !== "string") throw new Error(`Human response action is not allowed: ${checkedEdited.response.action}`);
   return { action: checkedEdited.response.action, responseDigest: digestJson(toJsonValue(checkedEdited.response)), schema: "human-authority-v1", slotId: checkedEdited.slotId, targetStatus, text: checkedEdited.response.text };
 }
 

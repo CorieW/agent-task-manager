@@ -28,6 +28,7 @@ import type {
 import { TABLE_KINDS } from "../../domain/provider.js";
 import { toJsonValue, type JsonObject, type JsonValue } from "../../domain/json.js";
 import { digestJson } from "../../core/digest.js";
+import { taskPropertiesWithStatus } from "../../core/task-properties.js";
 import type {
   TableValidationReport,
   WorkspaceMigrationPlan,
@@ -210,10 +211,16 @@ export class NotionProvider implements AgentTaskProvider {
   }
 
   public async createOrUpdateError(error: ErrorMutation): Promise<WriteReceipt> {
-    return this.executeReceiptIntent(error.idempotencyKey, "error", error, async (runtime) => runtime.pages.createOrUpdateError({
-      ...error,
-      relatedSubAgentId: error.relatedSubAgentId === null ? null : await runtime.reader.getSubAgentPageId(error.relatedSubAgentId),
-    }));
+    const runtime = await this.runtime();
+    return runtime.state.runExclusive(async () => {
+      let prior: JsonValue | undefined;
+      try { prior = await runtime.state.beginIntent(error.idempotencyKey, "error", error); }
+      catch (failure) { if (!(failure instanceof IndeterminateProviderIntentError)) throw failure; return this.repairPendingErrorIntent(runtime, error); }
+      if (prior !== undefined) return parseWriteReceipt(prior);
+      const receipt = await runtime.pages.createOrUpdateError(await this.physicalError(runtime, error));
+      await runtime.state.completeIntent(error.idempotencyKey, "error", error, receipt);
+      return receipt;
+    });
   }
 
   public async reconcileIntent(intentId: string): Promise<ReconciliationResult> {
@@ -229,31 +236,25 @@ export class NotionProvider implements AgentTaskProvider {
     idempotencyKey: string,
   ): Promise<ReconciliationResult> {
     const runtime = await this.runtime();
-    const projection = await runtime.state.activeProjection(subAgentId);
-    const activeRunLeaseIds = projection.runLeaseIds;
-    const activeTaskIds = projection.taskIds;
-    const subAgentPageId = await runtime.reader.getSubAgentPageId(subAgentId);
-    const observed = await runtime.pages.getSubAgentActivity(subAgentPageId);
-    const expectedStatus = activeRunLeaseIds.length === 0 ? "Offline" : "Online";
-    if (observed.status === expectedStatus && sameSet(observed.taskIds, activeTaskIds)) {
-      return {
-        evidence: jsonObject(toJsonValue({ activeRunLeaseIds, activeTaskIds, status: expectedStatus }), "Activity evidence"),
-        state: "not_applied",
-      };
+    const result = await runtime.state.runExclusive(async () => {
+      const projection = await runtime.state.activeProjection(subAgentId);
+      const activeRunLeaseIds = projection.runLeaseIds;
+      const activeTaskIds = projection.taskIds;
+      const subAgentPageId = await runtime.reader.getSubAgentPageId(subAgentId);
+      const observed = await runtime.pages.getSubAgentActivity(subAgentPageId);
+      const expectedStatus = activeRunLeaseIds.length === 0 ? "Offline" : "Online";
+      const basis = { activeRunLeaseIds, activeTaskIds, expectedStatus, observed, subAgentId };
+      if (observed.status === expectedStatus && sameSet(observed.taskIds, activeTaskIds)) return { basis, receipt: null };
+      const receipt = await runtime.pages.setSubAgentActivity(subAgentPageId, observed.status, observed.taskIds, expectedStatus, activeTaskIds, idempotencyKey);
+      return { basis, receipt };
+    });
+    if (result.receipt === null) {
+      return { evidence: jsonObject(toJsonValue(result.basis), "Activity evidence"), state: "not_applied" };
     }
-    const basis = { activeRunLeaseIds, activeTaskIds, expectedStatus, observed, subAgentId };
-    const receipt = await runtime.state.runExclusive(() => runtime.pages.setSubAgentActivity(
-      subAgentPageId,
-      observed.status,
-      observed.taskIds,
-      expectedStatus,
-      activeTaskIds,
-      idempotencyKey,
-    ));
     await this.createOrUpdateError({
-      description: `Observed activity ${JSON.stringify({ status: observed.status, taskIds: observed.taskIds })}; expected ${JSON.stringify({ status: expectedStatus, taskIds: activeTaskIds })}.`,
+      description: `Observed activity ${JSON.stringify({ status: result.basis.observed.status, taskIds: result.basis.observed.taskIds })}; expected ${JSON.stringify({ status: result.basis.expectedStatus, taskIds: result.basis.activeTaskIds })}.`,
       errorKey: `stale-sub-agent-activity:${subAgentId}`,
-      idempotencyKey: `error:stale-sub-agent-activity:${digestJson(toJsonValue(basis))}`,
+      idempotencyKey: `error:stale-sub-agent-activity:${digestJson(toJsonValue(result.basis))}`,
       relatedRunId: null,
       relatedSubAgentId: subAgentId,
       relatedTaskId: null,
@@ -261,7 +262,7 @@ export class NotionProvider implements AgentTaskProvider {
       severity: "high",
       title: "Stale sub-agent activity",
     });
-    return { evidence: { basis: toJsonValue(basis), receipt: toJsonValue(receipt) }, state: "applied" };
+    return { evidence: { basis: toJsonValue(result.basis), receipt: toJsonValue(result.receipt) }, state: "applied" };
   }
 
   private async runtime(): Promise<RuntimeServices> {
@@ -274,22 +275,6 @@ export class NotionProvider implements AgentTaskProvider {
       reader: new NotionRecordReader(tables, this.#transport),
       state: new NotionStateStore(pages, this.#mutex, this.#now),
     };
-  }
-
-  private async executeReceiptIntent(
-    idempotencyKey: string,
-    operation: string,
-    payload: unknown,
-    effect: (runtime: RuntimeServices) => Promise<WriteReceipt>,
-  ): Promise<WriteReceipt> {
-    const runtime = await this.runtime();
-    return runtime.state.runExclusive(async () => {
-      const prior = await runtime.state.beginIntent(idempotencyKey, operation, payload);
-      if (prior !== undefined) return parseWriteReceipt(prior);
-      const receipt = await effect(runtime);
-      await runtime.state.completeIntent(idempotencyKey, operation, payload, receipt);
-      return receipt;
-    });
   }
 
   private async repairPendingResourceIntent(runtime: RuntimeServices, record: ResourceMutation): Promise<WriteReceipt> {
@@ -314,6 +299,20 @@ export class NotionProvider implements AgentTaskProvider {
     await runtime.state.completeIntent(mutation.idempotencyKey, "task", mutation, receipt);
     return receipt;
   }
+
+  private async repairPendingErrorIntent(runtime: RuntimeServices, error: ErrorMutation): Promise<WriteReceipt> {
+    const physical = await this.physicalError(runtime, error);
+    let exact: WriteReceipt | null;
+    try { exact = await runtime.pages.errorTargetReceipt(physical); }
+    catch (failure) { throw new IndeterminateProviderIntentError(failure instanceof Error ? failure.message : "Pending Error intent conflicts with newer state"); }
+    const receipt = exact ?? await runtime.pages.createOrUpdateError(physical);
+    await runtime.state.completeIntent(error.idempotencyKey, "error", error, receipt);
+    return receipt;
+  }
+
+  private async physicalError(runtime: RuntimeServices, error: ErrorMutation): Promise<ErrorMutation> {
+    return { ...error, relatedSubAgentId: error.relatedSubAgentId === null ? null : await runtime.reader.getSubAgentPageId(error.relatedSubAgentId) };
+  }
 }
 
 function jsonObject(value: JsonValue | undefined, label: string): JsonObject {
@@ -332,9 +331,9 @@ function sameResource(current: ResourceRecord, requested: ResourceMutation): boo
 
 function taskMatchesTarget(current: TaskSnapshot, mutation: ConditionalTaskMutation): boolean {
   if (mutation.nextBody !== null && normalizeText(current.body) !== normalizeText(mutation.nextBody)) return false;
-  if (mutation.nextStatus !== null && current.status !== mutation.nextStatus) return false;
-  for (const [name, expected] of Object.entries(mutation.nextProperties)) {
-    const target = name === "Status" && mutation.nextStatus !== null ? mutation.nextStatus : expected;
+  const targetStatus = mutation.nextStatus ?? current.status;
+  if (current.status !== targetStatus) return false;
+  for (const [name, target] of Object.entries(taskPropertiesWithStatus(mutation.nextProperties, targetStatus))) {
     const observed = current.properties[name];
     if (observed === undefined || digestJson(observed) !== digestJson(target)) return false;
   }

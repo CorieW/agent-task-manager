@@ -11,7 +11,7 @@ import { sha256 } from "./core/digest.js";
 import { assertAuthorizedPlan } from "./core/migration-plan.js";
 import { toJsonValue, type JsonObject, type JsonValue } from "./domain/json.js";
 import type { TableKind } from "./domain/provider.js";
-import { inspectHumanRecovery, reconcileActivity, reconcileHumanResponse } from "./human/inspection.js";
+import { inspectHumanRecovery, inspectSubAgentActivity, reconcileActivity, reconcileHumanResponse, reconcileLease } from "./human/inspection.js";
 import { NotionProvider } from "./provider/notion/notion-provider.js";
 import { createNotionWorkspaceSchema } from "./provider/notion/notion-schema.js";
 import { NotionHttpTransport } from "./provider/notion/notion-transport.js";
@@ -24,9 +24,10 @@ Usage:
   agent-task-manager init --apply --expected-plan-digest <sha256> [--write-environment] [--config <path>]
   agent-task-manager migrate --plan [--json] [--config <path>]
   agent-task-manager migrate --apply --expected-plan-digest <sha256> [--write-environment] [--config <path>]
-  agent-task-manager inspect --task <task-id> [--json] [--config <path>]
+  agent-task-manager inspect (--task <task-id> | --sub-agent <definition-id>) [--json] [--config <path>]
   agent-task-manager reconcile activity --sub-agent <definition-id> [--json] [--config <path>]
   agent-task-manager reconcile human --task <task-id> --slot <sha256> [--json] [--config <path>]
+  agent-task-manager reconcile lease --lease <lease-id> --owner <owner-id> [--json] [--config <path>]
   agent-task-manager providers
 
 Planning and validation are read-only. Schema apply is human-only and requires
@@ -109,10 +110,17 @@ export async function main(args: readonly string[] = process.argv.slice(2)): Pro
 
   if (command === "inspect") {
     const config = await loadConfig(configPath(args));
-    const report = await inspectHumanRecovery(notionProvider(config), option(args, "--task"));
-    const output = args.includes("--json")
-      ? canonicalize(toJsonValue(report))
-      : `Task ${report.taskId} is ${report.status}; ${report.slots.length} human slot(s).`;
+    const provider = notionProvider(config);
+    const hasTask = args.includes("--task");
+    const hasSubAgent = args.includes("--sub-agent");
+    if (hasTask === hasSubAgent) throw new Error("inspect requires exactly one of --task or --sub-agent");
+    const inspection = hasTask
+      ? await inspectHumanRecovery(provider, option(args, "--task"))
+      : await inspectSubAgentActivity(provider, option(args, "--sub-agent"));
+    const summary = "slots" in inspection
+      ? `Task ${inspection.taskId} is ${inspection.status}; ${inspection.slots.length} human slot(s).`
+      : `Sub-agent ${inspection.subAgentId} activity inspected.`;
+    const output = args.includes("--json") ? canonicalize(toJsonValue(inspection)) : summary;
     process.stdout.write(`${output}\n`);
     return 0;
   }
@@ -125,7 +133,9 @@ export async function main(args: readonly string[] = process.argv.slice(2)): Pro
       ? await reconcileActivity(provider, option(args, "--sub-agent"))
       : operation === "human"
         ? await reconcileHumanResponse(provider, option(args, "--task"), option(args, "--slot"))
-        : (() => { throw new Error("reconcile requires activity or human"); })();
+        : operation === "lease"
+          ? await reconcileLease(provider, option(args, "--lease"), option(args, "--owner"))
+          : (() => { throw new Error("reconcile requires activity, human, or lease"); })();
     const output = args.includes("--json")
       ? canonicalize(toJsonValue(result))
       : `Reconciliation ${"state" in result ? String(result.state) : "complete"}.`;

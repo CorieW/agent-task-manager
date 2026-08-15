@@ -25,10 +25,28 @@ test("consumes one allowed human response and replays without another transition
   await provider.applyTaskMutation({ expectedVersion: task.version, idempotencyKey: "human-edit", nextBody: task.body.replace(renderHumanInteractionSlot(requested.slot), renderHumanInteractionSlot(edited)), nextProperties: task.properties, nextStatus: null, taskId: task.id });
   const first = await manager.consume("task-1", requested.slot.slotId); const second = await manager.consume("task-1", requested.slot.slotId);
   assert.equal(first.state, "applied"); assert.deepEqual(second, first);
-  task = await provider.getTaskSnapshot("task-1"); assert.equal(task.status, "Testing");
+  task = await provider.getTaskSnapshot("task-1"); assert.equal(task.status, "Testing"); assert.equal(task.properties.Status, "Testing");
   const inspection = await inspectHumanRecovery(provider, "task-1");
   assert.equal(inspection.slots[0]?.consumptionState, "applied");
   assert.equal(inspection.slots[0]?.responseState, "completed");
+});
+
+test("rejects a response accompanied by unrelated Task body changes", async () => {
+  const provider = prepared(); const manager = new HumanRecoveryManager(provider);
+  const requested = await manager.request({ createdAt: "2026-08-15T10:00:00.000Z", error: null, generation: 1, kind: "answer", prompt: "Choose resume.", requestedBy: "worker", routes: { resume: "Coding" }, sourceErrorKey: null, taskId: "task-1", waitingStatus: "Human Review" });
+  const task = await provider.getTaskSnapshot("task-1"); const edited = { ...requested.slot, response: { action: "resume", text: "Resolved." } };
+  await provider.applyTaskMutation({ expectedVersion: task.version, idempotencyKey: "human-edit-with-drift", nextBody: `${task.body.replace(renderHumanInteractionSlot(requested.slot), renderHumanInteractionSlot(edited))}\n\nUnrelated edit`, nextProperties: task.properties, nextStatus: null, taskId: task.id });
+  await assert.rejects(manager.consume("task-1", requested.slot.slotId), /unrelated Task body content/u);
+});
+
+test("does not adopt a target status that changed before consumption", async () => {
+  const provider = prepared(); const manager = new HumanRecoveryManager(provider);
+  const requested = await manager.request({ createdAt: "2026-08-15T10:00:00.000Z", error: null, generation: 1, kind: "review", prompt: "Approve.", requestedBy: "worker", routes: { approve: "Testing" }, sourceErrorKey: null, taskId: "task-1", waitingStatus: "Human Review" });
+  let task = await provider.getTaskSnapshot("task-1"); const edited = { ...requested.slot, response: { action: "approve", text: "Approved." } };
+  await provider.applyTaskMutation({ expectedVersion: task.version, idempotencyKey: "human-edit-before-drift", nextBody: task.body.replace(renderHumanInteractionSlot(requested.slot), renderHumanInteractionSlot(edited)), nextProperties: task.properties, nextStatus: null, taskId: task.id });
+  task = await provider.getTaskSnapshot("task-1");
+  await provider.applyTaskMutation({ expectedVersion: task.version, idempotencyKey: "unrelated-status", nextBody: null, nextProperties: task.properties, nextStatus: "Testing", taskId: task.id });
+  await assert.rejects(manager.consume("task-1", requested.slot.slotId), /waiting status/u);
 });
 
 test("reconciles stale Status and Working On from provider-backed leases", async () => {

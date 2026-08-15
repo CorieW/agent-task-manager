@@ -37,3 +37,11 @@ export interface HumanConsumptionRecord {
   readonly state: "applied" | "pending";
   readonly taskId: string;
 }
+
+export interface HumanSlotBaselineRecord {
+  readonly schema: "human-slot-baseline-v2";
+  readonly slot: HumanInteractionSlot;
+  readonly taskBodyDigest: string;
+  readonly taskPropertiesDigest: string;
+  readonly waitingStatus: string;
+}

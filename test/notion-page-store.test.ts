@@ -23,10 +23,11 @@ class MutableTransport implements NotionTransport {
       const filterObject = objectValue(filter);
       const property = String(filterObject.property);
       const titleEquals = objectValue(filterObject.title).equals;
+      const richTextEquals = objectValue(filterObject.rich_text).equals;
       const selectEquals = objectValue(filterObject.select).equals;
-      const equals = typeof titleEquals === "string" ? titleEquals : String(selectEquals);
+      const equals = typeof titleEquals === "string" ? titleEquals : typeof richTextEquals === "string" ? richTextEquals : String(selectEquals);
       const results = [...this.pages.values()].filter((page) =>
-        page.parent === query[1] && propertyValue(page, property) === equals,
+        objectValue(page.parent).data_source_id === query[1] && propertyValue(page, property) === equals,
       );
       return { has_more: false, next_cursor: null, results };
     }
@@ -52,7 +53,7 @@ class MutableTransport implements NotionTransport {
           return [name, { ...prior, ...update, type }];
         }),
       );
-      const next = this.newPage(pageMatch[1], String(page.parent), { ...priorProperties, ...updates });
+      const next = this.newPage(pageMatch[1], String(objectValue(page.parent).data_source_id), { ...priorProperties, ...updates });
       this.pages.set(pageMatch[1], next);
       return next;
     }
@@ -83,9 +84,21 @@ class MutableTransport implements NotionTransport {
     }));
   }
 
+  public seedTask(): void {
+    this.pages.set("task-1", this.newPage("task-1", "tasks", {
+      Status: { id: "status", select: { name: "Todo" }, type: "select" },
+      Task: { id: "title", title: [{ text: { content: "Task" }, type: "text" }], type: "title" },
+    }));
+    this.blocks.set("task-1", []);
+  }
+
   private newPage(id: string, parent: string, properties: JsonObject): JsonObject {
     this.#version += 1;
-    return { id, last_edited_time: `2026-01-01T00:00:${String(this.#version).padStart(2, "0")}.000Z`, object: "page", parent, properties };
+    const normalized = Object.fromEntries(Object.entries(properties).map(([name, value]) => {
+      const property = objectValue(value);
+      return [name, property.type === undefined ? { ...property, type: Object.keys(property)[0] ?? "unknown" } : property];
+    }));
+    return { id, last_edited_time: `2026-01-01T00:00:${String(this.#version).padStart(2, "0")}.000Z`, object: "page", parent: { data_source_id: parent, type: "data_source_id" }, properties: normalized };
   }
 }
 
@@ -134,9 +147,25 @@ test("conditionally updates Status and Working On", async () => {
   );
 });
 
+test("uses one canonical Status value for Task mutation and verification", async () => {
+  const transport = new MutableTransport(); transport.seedTask();
+  const store = new NotionPageStore(TABLES, transport, () => new Date(0));
+  await store.applyTaskMutation({ expectedVersion: "2026-01-01T00:00:01.000Z", idempotencyKey: "task-status", nextBody: null, nextProperties: { Status: "Todo" }, nextStatus: "Coding", taskId: "task-1" });
+  const page = transport.pages.get("task-1");
+  assert.equal(propertyValue(required(page), "Status"), "Coding");
+});
+
+test("recognizes the exact Error target after an interrupted intent", async () => {
+  const transport = new MutableTransport(); const store = new NotionPageStore(TABLES, transport, () => new Date(0));
+  const error = { description: "Failure details", errorKey: "failure/stable", idempotencyKey: "error-write", relatedRunId: "run-1", relatedSubAgentId: null, relatedTaskId: null, resolution: "Repair the environment.", severity: "high" as const, title: "Stable failure" };
+  const created = await store.createOrUpdateError(error);
+  assert.deepEqual(await store.errorTargetReceipt(error), created);
+  await assert.rejects(store.errorTargetReceipt({ ...error, description: "Different details" }), /conflicts with newer state/u);
+});
+
 function propertyValue(page: JsonObject, name: string): string {
   const property = objectValue(objectValue(page.properties)[name]);
-  const values = property.title;
+  const values = property.title ?? property.rich_text;
   if (Array.isArray(values)) {
     return values.map((item) => String(objectValue(objectValue(item).text).content)).join("");
   }

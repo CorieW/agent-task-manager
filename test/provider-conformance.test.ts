@@ -136,9 +136,9 @@ test("task writes are atomic, opaque-versioned, replayable, and isolated", async
   assert.equal(receipt.observedVersion, stored.version);
   assert.match(stored.version, /^memory:atomic:[0-9a-f-]{36}$/);
   assert.notEqual(stored.version, seeded.version);
-  assert.deepEqual(stored.properties, { winner: 1 });
+  assert.deepEqual(stored.properties, { Status: "open", winner: 1 });
   stored.properties.winner = 99;
-  assert.deepEqual((await provider.getTaskSnapshot("atomic")).properties, { winner: 1 });
+  assert.deepEqual((await provider.getTaskSnapshot("atomic")).properties, { Status: "open", winner: 1 });
   assert.equal((await provider.reconcileIntent("task-write-1")).state, "applied");
 });
 

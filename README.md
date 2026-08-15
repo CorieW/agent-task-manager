@@ -101,8 +101,10 @@ node dist/src/cli.js init --apply --expected-plan-digest <sha256> [--write-envir
 node dist/src/cli.js migrate --plan --json [--config <path>]
 node dist/src/cli.js migrate --apply --expected-plan-digest <sha256> [--write-environment] [--config <path>]
 node dist/src/cli.js inspect --task <task-id> --json [--config <path>]
+node dist/src/cli.js inspect --sub-agent <definition-id> --json [--config <path>]
 node dist/src/cli.js reconcile activity --sub-agent <definition-id> --json [--config <path>]
 node dist/src/cli.js reconcile human --task <task-id> --slot <sha256> --json [--config <path>]
+node dist/src/cli.js reconcile lease --lease <lease-id> --owner <owner-id> --json [--config <path>]
 ```
 
 Apply writes provider-backed step intents and receipts before and after each
@@ -120,6 +122,10 @@ environment until a provider-backed distributed run lock is implemented.
 provider-backed repair: activity derives `Status` and `Working On` from live
 leases, while human reconciliation consumes one already-completed slot. Neither
 command discovers work or dispatches a sub-agent.
+The Phase 6 recovery CLI currently supports Notion environments. Other
+providers use the provider-neutral library APIs until CLI provider-registry
+wiring is added. Lease release requires the exact lease and owner identities;
+it never guesses that a live lease is stale.
 
 ## Managed Notion schema
 
@@ -248,10 +254,28 @@ another transition. Pending Notion Task intents resume only when the exact
 target is already visible or the original Task version is still current;
 otherwise recovery fails closed rather than overwriting newer provider state.
 
-Use `inspectHumanRecovery` for a read-only view of slot, baseline, response, and
-consumption state. Use `reconcileHumanResponse` and `reconcileActivity` only as
-explicit operator actions. Machine-owned Task body bytes and every non-response
-slot field remain immutable.
+For a response, replace the slot's `null` value with an object whose `action` is
+one of its frozen `routes` keys:
+
+```json
+"response": {
+  "action": "resume",
+  "text": "Resolved by updating the required configuration."
+}
+```
+
+Blank requests are created through `HumanRecoveryManager`; there is no CLI
+request command. Workflow hosts must route exceptional blocked outcomes through
+`requestResolution`, not directly mutate a waiting status, so the stable Error,
+baseline, and blank resolution slot are durable before the status transition.
+
+`inspectHumanRecovery` returns Task status/version/archive state and, for each
+slot, its ID, kind, baseline-valid flag, response state, and consumption state.
+It does not expose prompt, routes, or response text. Use
+`reconcileHumanResponse`, `reconcileActivity`, and `reconcileLease` only as
+explicit operator actions. The whole normalized Task body and property
+projection are bound into the blank-slot baseline; consumption masks only the
+selected response and rejects unrelated changes.
 
 ## Public API
 
@@ -283,7 +307,8 @@ and scheduling primitives, and the complete Notion adapter surface:
   `ProviderChildAgentWaveEffects`, and their driver contracts
 - Human recovery APIs: `HumanRecoveryManager`, slot creation/parsing/rendering
   and allowed-delta verification, `inspectHumanRecovery`,
-  `reconcileHumanResponse`, and `reconcileActivity`
+  `inspectSubAgentActivity`, `reconcileHumanResponse`, `reconcileActivity`, and
+  `reconcileLease`
 
 ```ts
 import {

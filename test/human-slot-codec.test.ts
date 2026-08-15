@@ -18,6 +18,7 @@ test("accepts one response while rejecting machine-owned edits", () => {
   assert.equal(verifyAllowedHumanDelta(baseline, edited).targetStatus, "Testing");
   assert.throws(() => verifyAllowedHumanDelta(baseline, { ...edited, prompt: "Changed" }), /digest|machine-owned/);
   assert.throws(() => verifyAllowedHumanDelta(baseline, { ...edited, response: { action: "delete", text: "No" } }), /not allowed/);
+  assert.throws(() => verifyAllowedHumanDelta(baseline, { ...edited, response: { action: "constructor", text: "No" } }), /not allowed/);
 });
 
 test("rejects malformed and duplicate slot markers", () => {

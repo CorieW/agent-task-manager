@@ -1,5 +1,6 @@
 // Owns deterministic Notion page lookup, managed-content writes, and post-verification.
 import { sha256 } from "../../core/digest.js";
+import { taskPropertiesWithStatus } from "../../core/task-properties.js";
 import { toJsonValue, type JsonObject, type JsonValue } from "../../domain/json.js";
 import type {
   ActivityMutation,
@@ -114,6 +115,22 @@ export class NotionPageStore {
     return this.receipt("errors", locatedPage, error.idempotencyKey);
   }
 
+  public async errorTargetReceipt(error: ErrorMutation): Promise<WriteReceipt | null> {
+    const existing = await this.findUniqueByRichText("errors", "Error Key", error.errorKey);
+    if (existing === null) return null;
+    const current = await this.getPage(existing.id);
+    const exact = propertyText(current.page, "Error") === error.title
+      && propertyText(current.page, "Error Key") === error.errorKey
+      && propertyOption(current.page, "Severity") === error.severity
+      && propertyText(current.page, "Run ID") === (error.relatedRunId ?? "")
+      && sameSet(await this.relationIds(current.page, "Sub-agent"), error.relatedSubAgentId === null ? [] : [error.relatedSubAgentId])
+      && sameSet(await this.relationIds(current.page, "Task"), error.relatedTaskId === null ? [] : [error.relatedTaskId])
+      && await this.managedText(current.id, "Error Description") === normalizeText(error.description)
+      && await this.managedText(current.id, "Error Resolution") === normalizeText(error.resolution);
+    if (!exact) throw new Error(`Pending Error intent conflicts with newer state: ${error.errorKey}`);
+    return this.receipt("errors", current, error.idempotencyKey);
+  }
+
   public async updateSubAgentActivity(change: ActivityMutation): Promise<WriteReceipt> {
     const current = await this.getPage(change.subAgentId);
     const currentTaskIds = await this.relationIds(current.page, "Working On");
@@ -179,8 +196,10 @@ export class NotionPageStore {
     const current = await this.getPage(mutation.taskId);
     assertPageParent(current.page, this.tables.tasks, "Task");
     if (current.version !== mutation.expectedVersion) throw new Error("Task version conflict");
-    const nextProperties = encodeGenericProperties(mutation.nextProperties, current.page);
-    if (mutation.nextStatus !== null) nextProperties.Status = selectProperty(mutation.nextStatus);
+    const currentStatus = propertyOption(current.page, "Status");
+    if (currentStatus === null) throw new Error("Task Status is missing");
+    const targetProperties = taskPropertiesWithStatus(mutation.nextProperties, mutation.nextStatus ?? currentStatus);
+    const nextProperties = encodeGenericProperties(targetProperties, current.page);
     await this.transport.request({
       body: { properties: nextProperties },
       method: "PATCH",
@@ -194,7 +213,7 @@ export class NotionPageStore {
     }
     const verified = await this.getPage(mutation.taskId);
     if (verified.version === current.version) throw new Error("Task write did not advance last_edited_time");
-    for (const [name, expected] of Object.entries(mutation.nextProperties)) {
+    for (const [name, expected] of Object.entries(targetProperties)) {
       if (!propertyMatches(verified.page, name, expected)) {
         throw new Error(`Task property ${name} post-verification failed`);
       }

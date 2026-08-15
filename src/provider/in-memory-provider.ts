@@ -5,6 +5,7 @@ import { IdempotencyLedger } from "../core/idempotency-ledger.js";
 import { finalizeMigrationPlan } from "../core/migration-plan.js";
 import { pageAfter } from "../core/pagination.js";
 import { compareWorkspaceSchema } from "../core/schema-diff.js";
+import { taskPropertiesWithStatus } from "../core/task-properties.js";
 import { toJsonValue } from "../domain/json.js";
 import type {
   ActivityMutation,
@@ -465,12 +466,13 @@ export class InMemoryProvider implements AgentTaskProvider {
     if (task === undefined) throw new Error(`Unknown Task: ${mutation.taskId}`);
     if (task.version !== mutation.expectedVersion) throw new Error("Task version conflict");
     if (mutation.nextStatus !== null && !this.#taskStatusOptions.has(mutation.nextStatus)) throw new Error(`Unknown Task status: ${mutation.nextStatus}`);
+    const status = mutation.nextStatus ?? task.status;
     const version = `memory:${task.id}:${randomUUID()}`;
     this.#tasks.set(task.id, {
       ...clone(task),
       body: mutation.nextBody ?? task.body,
-      properties: clone(mutation.nextProperties),
-      status: mutation.nextStatus ?? task.status,
+      properties: taskPropertiesWithStatus(mutation.nextProperties, status),
+      status,
       version,
     });
     const receipt = this.receipt("tasks", task.id, mutation.idempotencyKey, version);

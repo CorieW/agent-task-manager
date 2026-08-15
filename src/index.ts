@@ -36,6 +36,7 @@ export * from "./effects/typed-effect-handlers.js";
 export * from "./effects/workspace-ownership-store.js";
 export * from "./human/contracts.js";
 export * from "./human/slot-codec.js";
+export * from "./human/resource-codec.js";
 export * from "./human/recovery-manager.js";
 export * from "./human/inspection.js";
 export * from "./provider/agent-task-provider.js";
