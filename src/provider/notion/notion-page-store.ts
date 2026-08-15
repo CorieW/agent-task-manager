@@ -203,6 +203,12 @@ export class NotionPageStore {
     return this.receipt("tasks", verified, mutation.idempotencyKey);
   }
 
+  public async taskReceipt(taskId: string, idempotencyKey: string): Promise<WriteReceipt> {
+    const current = await this.getPage(taskId);
+    assertPageParent(current.page, this.tables.tasks, "Task");
+    return this.receipt("tasks", current, idempotencyKey);
+  }
+
   public async getPage(pageId: string): Promise<LocatedPage> {
     const page = await this.transport.request({ method: "GET", path: `/v1/pages/${pageId}` });
     if (page.object !== "page") throw new TypeError(`${pageId} is not a Notion page`);

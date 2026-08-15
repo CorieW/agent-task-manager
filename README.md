@@ -100,6 +100,9 @@ node dist/src/cli.js init --plan --json [--config <path>]
 node dist/src/cli.js init --apply --expected-plan-digest <sha256> [--write-environment] [--config <path>]
 node dist/src/cli.js migrate --plan --json [--config <path>]
 node dist/src/cli.js migrate --apply --expected-plan-digest <sha256> [--write-environment] [--config <path>]
+node dist/src/cli.js inspect --task <task-id> --json [--config <path>]
+node dist/src/cli.js reconcile activity --sub-agent <definition-id> --json [--config <path>]
+node dist/src/cli.js reconcile human --task <task-id> --slot <sha256> --json [--config <path>]
 ```
 
 Apply writes provider-backed step intents and receipts before and after each
@@ -112,6 +115,11 @@ recorded for a human to apply.
 The v1 Notion adapter is a single-host implementation. Its local mutex prevents
 overlap only inside one Node.js process; deploy exactly one manager instance per
 environment until a provider-backed distributed run lock is implemented.
+
+`inspect` is read-only. The two `reconcile` forms perform only the named
+provider-backed repair: activity derives `Status` and `Working On` from live
+leases, while human reconciliation consumes one already-completed slot. Neither
+command discovers work or dispatches a sub-agent.
 
 ## Managed Notion schema
 
@@ -217,6 +225,34 @@ provider requirements, Resources, query, schedule, and transition statuses all
 verify. A coordinator can target only definitions in the immutable activated
 catalog supplied for that selection turn.
 
+## Human interaction and recovery
+
+`HumanRecoveryManager` is the workflow helper for requesting or consuming human
+authority. It supports provider-neutral `answer`, `resolution`, `review`, and
+`testing` slots. Callers supply the provider-defined waiting status and an
+action-to-status route map; the manager does not hardcode role names or workflow
+statuses.
+
+Each slot is a closed `human-interaction-slot-v1` JSON object inside an exact
+`agent-task-manager:human-slot:<sha256>` marker pair in the Task body. Before
+exposing a blank response field, the manager stores the immutable baseline as
+`human-slot/<slotId>` in Resources. A resolution request additionally creates
+or updates its stable Errors row before changing the Task to its waiting status.
+Only `response.action` and `response.text` may differ from the baseline.
+
+Consumption verifies the Task edit against that baseline, resolves the action
+through the slot's frozen route map, writes a pending
+`human-consumption/<slotId>` Resource, conditionally changes Task Status, and
+then finalizes the consumption record. Replays return the applied record without
+another transition. Pending Notion Task intents resume only when the exact
+target is already visible or the original Task version is still current;
+otherwise recovery fails closed rather than overwriting newer provider state.
+
+Use `inspectHumanRecovery` for a read-only view of slot, baseline, response, and
+consumption state. Use `reconcileHumanResponse` and `reconcileActivity` only as
+explicit operator actions. Machine-owned Task body bytes and every non-response
+slot field remain immutable.
+
 ## Public API
 
 The package root exports the provider-neutral contracts, deterministic planning
@@ -245,6 +281,9 @@ and scheduling primitives, and the complete Notion adapter surface:
   handler factories, `LocalGitEffects`, `ConfiguredCommandEffects`,
   `DisposableBrowserEffects`, `DraftPublicationEffects`,
   `ProviderChildAgentWaveEffects`, and their driver contracts
+- Human recovery APIs: `HumanRecoveryManager`, slot creation/parsing/rendering
+  and allowed-delta verification, `inspectHumanRecovery`,
+  `reconcileHumanResponse`, and `reconcileActivity`
 
 ```ts
 import {

@@ -44,6 +44,7 @@ export interface AgentTaskProvider {
   getSubAgentDefinition(id: string): Promise<SubAgentDefinition>;
   getSubAgentActivity(id: string): Promise<SubAgentActivity>;
   getLeaseProjection(id: string): Promise<LeaseProjection>;
+  reconcileSubAgentActivity(subAgentId: string, idempotencyKey: string): Promise<ReconciliationResult>;
   listTaskStatusOptions(): Promise<readonly string[]>;
   updateSubAgentActivity(change: ActivityMutation): Promise<WriteReceipt>;
 

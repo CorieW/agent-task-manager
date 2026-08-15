@@ -395,6 +395,16 @@ export class InMemoryProvider implements AgentTaskProvider {
     return [...this.#taskStatusOptions].sort();
   }
 
+  public async reconcileSubAgentActivity(subAgentId: string, idempotencyKey: string): Promise<ReconciliationResult> {
+    const projection = await this.getLeaseProjection(subAgentId);
+    const current = this.#activities.get(subAgentId) ?? { runLeaseIds: [], taskIds: [] };
+    if (this.sameSet(current.runLeaseIds, projection.runLeaseIds) && this.sameSet(current.taskIds, projection.taskIds)) {
+      return { evidence: { runLeaseIds: [...projection.runLeaseIds], taskIds: [...projection.taskIds] }, state: "not_applied" };
+    }
+    const receipt = await this.updateSubAgentActivity({ expectedRunLeaseIds: current.runLeaseIds, expectedTaskIds: current.taskIds, idempotencyKey, nextRunLeaseIds: projection.runLeaseIds, nextTaskIds: projection.taskIds, subAgentId });
+    return { evidence: { receipt: toJsonValue(receipt), runLeaseIds: [...projection.runLeaseIds], taskIds: [...projection.taskIds] }, state: "applied" };
+  }
+
   public async updateSubAgentActivity(change: ActivityMutation): Promise<WriteReceipt> {
     const prior = this.lookupIdempotent<WriteReceipt>(change.idempotencyKey, "agent_activity", change);
     if (prior !== undefined) return prior;

@@ -11,6 +11,7 @@ import { sha256 } from "./core/digest.js";
 import { assertAuthorizedPlan } from "./core/migration-plan.js";
 import { toJsonValue, type JsonObject, type JsonValue } from "./domain/json.js";
 import type { TableKind } from "./domain/provider.js";
+import { inspectHumanRecovery, reconcileActivity, reconcileHumanResponse } from "./human/inspection.js";
 import { NotionProvider } from "./provider/notion/notion-provider.js";
 import { createNotionWorkspaceSchema } from "./provider/notion/notion-schema.js";
 import { NotionHttpTransport } from "./provider/notion/notion-transport.js";
@@ -23,10 +24,14 @@ Usage:
   agent-task-manager init --apply --expected-plan-digest <sha256> [--write-environment] [--config <path>]
   agent-task-manager migrate --plan [--json] [--config <path>]
   agent-task-manager migrate --apply --expected-plan-digest <sha256> [--write-environment] [--config <path>]
+  agent-task-manager inspect --task <task-id> [--json] [--config <path>]
+  agent-task-manager reconcile activity --sub-agent <definition-id> [--json] [--config <path>]
+  agent-task-manager reconcile human --task <task-id> --slot <sha256> [--json] [--config <path>]
   agent-task-manager providers
 
 Planning and validation are read-only. Schema apply is human-only and requires
-the exact digest of a freshly recomputed plan.
+the exact digest of a freshly recomputed plan. Inspect is read-only; reconcile
+performs only the explicitly named recovery operation.
 `;
 
 function configPath(args: readonly string[]): string {
@@ -100,6 +105,32 @@ export async function main(args: readonly string[] = process.argv.slice(2)): Pro
     if (args.includes("--json")) process.stdout.write(`${JSON.stringify(output)}\n`);
     else process.stdout.write(`Workspace ${output.state}; observed ${output.observedSchemaDigest}; target ${output.targetSchemaDigest}.\n`);
     return report.state === "ready" ? 0 : 1;
+  }
+
+  if (command === "inspect") {
+    const config = await loadConfig(configPath(args));
+    const report = await inspectHumanRecovery(notionProvider(config), option(args, "--task"));
+    const output = args.includes("--json")
+      ? canonicalize(toJsonValue(report))
+      : `Task ${report.taskId} is ${report.status}; ${report.slots.length} human slot(s).`;
+    process.stdout.write(`${output}\n`);
+    return 0;
+  }
+
+  if (command === "reconcile") {
+    const config = await loadConfig(configPath(args));
+    const provider = notionProvider(config);
+    const operation = args[1];
+    const result = operation === "activity"
+      ? await reconcileActivity(provider, option(args, "--sub-agent"))
+      : operation === "human"
+        ? await reconcileHumanResponse(provider, option(args, "--task"), option(args, "--slot"))
+        : (() => { throw new Error("reconcile requires activity or human"); })();
+    const output = args.includes("--json")
+      ? canonicalize(toJsonValue(result))
+      : `Reconciliation ${"state" in result ? String(result.state) : "complete"}.`;
+    process.stdout.write(`${output}\n`);
+    return 0;
   }
 
   if (command === "init" || command === "migrate") {

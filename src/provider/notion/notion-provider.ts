@@ -163,7 +163,16 @@ export class NotionProvider implements AgentTaskProvider {
   }
 
   public async applyTaskMutation(mutation: ConditionalTaskMutation): Promise<WriteReceipt> {
-    return this.executeReceiptIntent(mutation.idempotencyKey, "task", mutation, (runtime) => runtime.pages.applyTaskMutation(mutation));
+    const runtime = await this.runtime();
+    return runtime.state.runExclusive(async () => {
+      let prior: JsonValue | undefined;
+      try { prior = await runtime.state.beginIntent(mutation.idempotencyKey, "task", mutation); }
+      catch (error) { if (!(error instanceof IndeterminateProviderIntentError)) throw error; return this.repairPendingTaskIntent(runtime, mutation); }
+      if (prior !== undefined) return parseWriteReceipt(prior);
+      const receipt = await runtime.pages.applyTaskMutation(mutation);
+      await runtime.state.completeIntent(mutation.idempotencyKey, "task", mutation, receipt);
+      return receipt;
+    });
   }
 
   public async getResources(refs: readonly ResourceRef[]): Promise<readonly ResourceRecord[]> {
@@ -290,6 +299,21 @@ export class NotionProvider implements AgentTaskProvider {
     await runtime.state.completeIntent(record.idempotencyKey, "resource", record, receipt);
     return receipt;
   }
+
+  private async repairPendingTaskIntent(runtime: RuntimeServices, mutation: ConditionalTaskMutation): Promise<WriteReceipt> {
+    const current = await runtime.reader.getTaskSnapshot(mutation.taskId);
+    if (taskMatchesTarget(current, mutation)) {
+      const receipt = await runtime.pages.taskReceipt(mutation.taskId, mutation.idempotencyKey);
+      await runtime.state.completeIntent(mutation.idempotencyKey, "task", mutation, receipt);
+      return receipt;
+    }
+    if (current.version !== mutation.expectedVersion) {
+      throw new IndeterminateProviderIntentError(`Pending Task intent conflicts with newer state: ${mutation.taskId}`);
+    }
+    const receipt = await runtime.pages.applyTaskMutation(mutation);
+    await runtime.state.completeIntent(mutation.idempotencyKey, "task", mutation, receipt);
+    return receipt;
+  }
 }
 
 function jsonObject(value: JsonValue | undefined, label: string): JsonObject {
@@ -304,4 +328,19 @@ function sameSet(left: readonly string[], right: readonly string[]): boolean {
 
 function sameResource(current: ResourceRecord, requested: ResourceMutation): boolean {
   return current.body === requested.body && current.digest === requested.digest && current.key === requested.key && current.kind === requested.kind && current.state === requested.state && current.version === requested.version && digestJson(toJsonValue(current.dependencies)) === digestJson(toJsonValue(requested.dependencies));
+}
+
+function taskMatchesTarget(current: TaskSnapshot, mutation: ConditionalTaskMutation): boolean {
+  if (mutation.nextBody !== null && normalizeText(current.body) !== normalizeText(mutation.nextBody)) return false;
+  if (mutation.nextStatus !== null && current.status !== mutation.nextStatus) return false;
+  for (const [name, expected] of Object.entries(mutation.nextProperties)) {
+    const target = name === "Status" && mutation.nextStatus !== null ? mutation.nextStatus : expected;
+    const observed = current.properties[name];
+    if (observed === undefined || digestJson(observed) !== digestJson(target)) return false;
+  }
+  return true;
+}
+
+function normalizeText(value: string): string {
+  return value.replace(/\r\n?/gu, "\n").normalize("NFC");
 }
