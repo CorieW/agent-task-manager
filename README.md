@@ -298,12 +298,43 @@ explicit operator actions. The whole normalized Task body and property
 projection are bound into the blank-slot baseline; consumption masks only the
 selected response and rejects unrelated changes.
 
+## Provider conformance and identification trials
+
+`SerializedProviderEmulator` is a test-only serialization-boundary wrapper
+around a `SeedableAgentTaskProvider`. It validates every request and response as
+canonical JSON before crossing the boundary. The shared provider conformance
+matrix runs unchanged against both direct `InMemoryProvider` access and this
+serialized wrapper. The emulator is not a second durable provider and does not
+replace a concrete adapter such as Notion.
+
+The identification-trial library prepares an exact ten-Task sample without
+dispatching a role or writing provider state. `prepareIdentificationTrial`
+requires ten unique Task IDs, loads enabled Sub-agent definitions from the
+provider when definition IDs are not explicitly supplied, resolves their
+complete Resource graphs, and binds provider/workspace identity, physical table
+identity, logical schema, Task snapshots, definitions, and Resource pins into
+one immutable plan digest.
+
+`startIdentificationTrial` creates an in-memory report.
+`recordIdentificationTrialObservation` re-reads and revalidates the complete
+frozen basis before accepting each next Task observation. Observations carry
+caller-supplied per-definition `promptBytes`, `retries`, `providerCalls`,
+`errors`, and `humanInterventions`; the harness does not measure these values or
+run agents itself. The first blocker stops the report and returns a stable
+high-severity `ErrorMutation` proposal. It does not persist that proposal,
+change a Task, store a report, or continue to later Tasks.
+
+There is no trial CLI command. A separately authorized host must supply real
+observations and explicitly persist any report or Error proposal. The
+Management Tasks 001–010 trial has not been run by this implementation work.
+
 ## Public API
 
 The package root exports the provider-neutral contracts, deterministic planning
 and scheduling primitives, and the complete Notion adapter surface:
 
-- `AgentTaskProvider`, `ProviderRegistry`, and `InMemoryProvider`
+- `AgentTaskProvider`, `ProviderRegistry`, `InMemoryProvider`,
+  `SerializedProviderEmulator`, and the test-only `SeedableAgentTaskProvider`
 - Definition APIs: `parseSubAgentDefinitionManifest`,
   `validateSubAgentDefinition`, `validateDefinitionSet`, `resolveDefinition`,
   `activateDefinitions`, and `compileCapabilityGrant`
@@ -331,6 +362,9 @@ and scheduling primitives, and the complete Notion adapter surface:
   `inspectSubAgentActivity`, `inspectLease`, `reconcileHumanResponse`,
   `reconcileActivity`, and `reconcileLease`. Exact lease inspection is backed by
   `AgentTaskProvider.getLeaseSnapshot`.
+- Identification-trial APIs: `prepareIdentificationTrial`,
+  `startIdentificationTrial`, `recordIdentificationTrialObservation`, and the
+  versioned plan, observation, metrics, blocker, and report contracts.
 
 ```ts
 import {
