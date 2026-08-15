@@ -164,16 +164,7 @@ export class NotionProvider implements AgentTaskProvider {
   }
 
   public async applyTaskMutation(mutation: ConditionalTaskMutation): Promise<WriteReceipt> {
-    const runtime = await this.runtime();
-    return runtime.state.runExclusive(async () => {
-      let prior: JsonValue | undefined;
-      try { prior = await runtime.state.beginIntent(mutation.idempotencyKey, "task", mutation); }
-      catch (error) { if (!(error instanceof IndeterminateProviderIntentError)) throw error; return this.repairPendingTaskIntent(runtime, mutation); }
-      if (prior !== undefined) return parseWriteReceipt(prior);
-      const receipt = await runtime.pages.applyTaskMutation(mutation);
-      await runtime.state.completeIntent(mutation.idempotencyKey, "task", mutation, receipt);
-      return receipt;
-    });
+    return this.executeRepairableReceiptIntent(mutation.idempotencyKey, "task", mutation, (runtime) => runtime.pages.applyTaskMutation(mutation), (runtime) => this.repairPendingTaskIntent(runtime, mutation));
   }
 
   public async getResources(refs: readonly ResourceRef[]): Promise<readonly ResourceRecord[]> {
@@ -186,16 +177,7 @@ export class NotionProvider implements AgentTaskProvider {
 
   public async putResource(record: ResourceMutation): Promise<WriteReceipt> {
     if (record.key.startsWith("system/")) throw new Error("system/ Resource keys are reserved by Agent Task Manager");
-    const runtime = await this.runtime();
-    return runtime.state.runExclusive(async () => {
-      let prior: JsonValue | undefined;
-      try { prior = await runtime.state.beginIntent(record.idempotencyKey, "resource", record); }
-      catch (error) { if (!(error instanceof IndeterminateProviderIntentError)) throw error; return this.repairPendingResourceIntent(runtime, record); }
-      if (prior !== undefined) return parseWriteReceipt(prior);
-      const receipt = await runtime.pages.createResource(record);
-      await runtime.state.completeIntent(record.idempotencyKey, "resource", record, receipt);
-      return receipt;
-    });
+    return this.executeRepairableReceiptIntent(record.idempotencyKey, "resource", record, (runtime) => runtime.pages.createResource(record), (runtime) => this.repairPendingResourceIntent(runtime, record));
   }
 
   public async acquireLease(request: LeaseRequest): Promise<LeaseResult> {
@@ -211,16 +193,7 @@ export class NotionProvider implements AgentTaskProvider {
   }
 
   public async createOrUpdateError(error: ErrorMutation): Promise<WriteReceipt> {
-    const runtime = await this.runtime();
-    return runtime.state.runExclusive(async () => {
-      let prior: JsonValue | undefined;
-      try { prior = await runtime.state.beginIntent(error.idempotencyKey, "error", error); }
-      catch (failure) { if (!(failure instanceof IndeterminateProviderIntentError)) throw failure; return this.repairPendingErrorIntent(runtime, error); }
-      if (prior !== undefined) return parseWriteReceipt(prior);
-      const receipt = await runtime.pages.createOrUpdateError(await this.physicalError(runtime, error));
-      await runtime.state.completeIntent(error.idempotencyKey, "error", error, receipt);
-      return receipt;
-    });
+    return this.executeRepairableReceiptIntent(error.idempotencyKey, "error", error, async (runtime) => runtime.pages.createOrUpdateError(await this.physicalError(runtime, error)), (runtime) => this.repairPendingErrorIntent(runtime, error));
   }
 
   public async reconcileIntent(intentId: string): Promise<ReconciliationResult> {
@@ -275,6 +248,25 @@ export class NotionProvider implements AgentTaskProvider {
       reader: new NotionRecordReader(tables, this.#transport),
       state: new NotionStateStore(pages, this.#mutex, this.#now),
     };
+  }
+
+  private async executeRepairableReceiptIntent(
+    idempotencyKey: string,
+    operation: string,
+    payload: unknown,
+    effect: (runtime: RuntimeServices) => Promise<WriteReceipt>,
+    repair: (runtime: RuntimeServices) => Promise<WriteReceipt>,
+  ): Promise<WriteReceipt> {
+    const runtime = await this.runtime();
+    return runtime.state.runExclusive(async () => {
+      let prior: JsonValue | undefined;
+      try { prior = await runtime.state.beginIntent(idempotencyKey, operation, payload); }
+      catch (failure) { if (!(failure instanceof IndeterminateProviderIntentError)) throw failure; return repair(runtime); }
+      if (prior !== undefined) return parseWriteReceipt(prior);
+      const receipt = await effect(runtime);
+      await runtime.state.completeIntent(idempotencyKey, operation, payload, receipt);
+      return receipt;
+    });
   }
 
   private async repairPendingResourceIntent(runtime: RuntimeServices, record: ResourceMutation): Promise<WriteReceipt> {

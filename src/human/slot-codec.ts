@@ -17,7 +17,7 @@ export function createHumanInteractionSlot(input: NewHumanInteractionSlot): Huma
 }
 
 export function renderHumanInteractionSlot(slot: HumanInteractionSlot): string {
-  const checked = parseSlot(toJsonValue(slot), slot.slotId);
+  const checked = parseHumanInteractionSlot(toJsonValue(slot), slot.slotId);
   return `<!-- agent-task-manager:human-slot:${checked.slotId}:start -->\n\`\`\`json\n${JSON.stringify(checked, null, 2)}\n\`\`\`\n<!-- agent-task-manager:human-slot:${checked.slotId}:end -->`;
 }
 
@@ -33,7 +33,7 @@ export function appendHumanInteractionSlot(body: string, slot: HumanInteractionS
 export function parseHumanInteractionSlots(body: string): readonly HumanInteractionSlot[] {
   const normalized = normalizeText(body); const slots: HumanInteractionSlot[] = []; let match: RegExpExecArray | null;
   SLOT_PATTERN.lastIndex = 0;
-  while ((match = SLOT_PATTERN.exec(normalized)) !== null) slots.push(parseSlot(JSON.parse(required(match[2], "Human slot body")) as unknown, required(match[1], "Human slot marker")));
+  while ((match = SLOT_PATTERN.exec(normalized)) !== null) slots.push(parseHumanInteractionSlot(JSON.parse(required(match[2], "Human slot body")) as unknown, required(match[1], "Human slot marker")));
   const tokenCount = normalized.split(SLOT_TOKEN).length - 1;
   if (tokenCount !== slots.length * 2) throw new TypeError("Task body contains an incomplete or malformed human interaction marker");
   if (new Set(slots.map((slot) => slot.slotId)).size !== slots.length) throw new TypeError("Task body contains duplicate human interaction slots");
@@ -41,7 +41,7 @@ export function parseHumanInteractionSlots(body: string): readonly HumanInteract
 }
 
 export function verifyAllowedHumanDelta(baseline: HumanInteractionSlot, edited: HumanInteractionSlot): HumanAuthority {
-  const checkedBaseline = parseSlot(toJsonValue(baseline), baseline.slotId); const checkedEdited = parseSlot(toJsonValue(edited), baseline.slotId);
+  const checkedBaseline = parseHumanInteractionSlot(toJsonValue(baseline), baseline.slotId); const checkedEdited = parseHumanInteractionSlot(toJsonValue(edited), baseline.slotId);
   if (checkedBaseline.response !== null) throw new Error("Human interaction baseline already contains a response");
   if (checkedEdited.response === null) throw new Error("Human interaction response is blank");
   if (canonicalize(toJsonValue(machineProjection(checkedBaseline))) !== canonicalize(toJsonValue(machineProjection(checkedEdited)))) throw new Error("Human edited machine-owned slot content");
@@ -50,9 +50,10 @@ export function verifyAllowedHumanDelta(baseline: HumanInteractionSlot, edited: 
   return { action: checkedEdited.response.action, responseDigest: digestJson(toJsonValue(checkedEdited.response)), schema: "human-authority-v1", slotId: checkedEdited.slotId, targetStatus, text: checkedEdited.response.text };
 }
 
-function parseSlot(value: unknown, markerId: string): HumanInteractionSlot {
+export function parseHumanInteractionSlot(value: unknown, expectedSlotId: string | null = null): HumanInteractionSlot {
   if (value === null || typeof value !== "object" || Array.isArray(value)) throw new TypeError("Human interaction slot must be an object");
   const found = value as Record<string, unknown>; closed(found, SLOT_FIELDS);
+  const markerId = expectedSlotId ?? (typeof found.slotId === "string" ? found.slotId : "");
   if (found.schema !== "human-interaction-slot-v1" || found.slotId !== markerId || !digest(markerId)) throw new TypeError("Human interaction slot identity is invalid");
   const core = normalizeCore({ createdAt: text(found.createdAt, "createdAt", 100), generation: integer(found.generation, "generation"), kind: kind(found.kind), prompt: text(found.prompt, "prompt", 10_000), requestedBy: text(found.requestedBy, "requestedBy", 200), routes: routes(found.routes), sourceErrorKey: nullableText(found.sourceErrorKey, "sourceErrorKey", 500), taskId: text(found.taskId, "taskId", 500) });
   if (digestJson(toJsonValue(core)) !== markerId) throw new TypeError("Human interaction slot digest is invalid");

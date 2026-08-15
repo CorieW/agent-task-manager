@@ -3,8 +3,8 @@ import { canonicalize } from "../core/canonical-json.js";
 import { sha256 } from "../core/digest.js";
 import { toJsonValue } from "../domain/json.js";
 import type { ResourceRecord } from "../domain/records.js";
-import type { HumanAuthority, HumanConsumptionRecord, HumanInteractionSlot, HumanSlotBaselineRecord } from "./contracts.js";
-import { parseHumanInteractionSlots, renderHumanInteractionSlot } from "./slot-codec.js";
+import type { HumanAuthority, HumanConsumptionRecord, HumanSlotBaselineRecord } from "./contracts.js";
+import { parseHumanInteractionSlot } from "./slot-codec.js";
 
 export function humanSlotResourceKey(slotId: string): string { return `human-slot/${slotId}`; }
 export function humanConsumptionResourceKey(slotId: string): string { return `human-consumption/${slotId}`; }
@@ -40,16 +40,9 @@ function parseHumanSlotBaseline(value: unknown): HumanSlotBaselineRecord {
   const found = record(value, "Human slot baseline");
   closed(found, ["schema", "slot", "taskBodyDigest", "taskPropertiesDigest", "waitingStatus"]);
   if (found.schema !== "human-slot-baseline-v2" || !digest(found.taskBodyDigest) || !digest(found.taskPropertiesDigest) || !text(found.waitingStatus)) throw new TypeError("Human slot baseline fields are invalid");
-  const slot = parseSlot(found.slot);
+  const slot = parseHumanInteractionSlot(found.slot);
   if (slot.response !== null) throw new TypeError("Human slot baseline response must be blank");
   return { schema: "human-slot-baseline-v2", slot, taskBodyDigest: found.taskBodyDigest, taskPropertiesDigest: found.taskPropertiesDigest, waitingStatus: found.waitingStatus };
-}
-
-function parseSlot(value: unknown): HumanInteractionSlot {
-  const rendered = renderHumanInteractionSlot(value as HumanInteractionSlot);
-  const slots = parseHumanInteractionSlots(rendered);
-  if (slots.length !== 1 || slots[0] === undefined) throw new TypeError("Human slot baseline must contain one slot");
-  return slots[0];
 }
 
 function parseHumanAuthority(value: unknown): HumanAuthority {

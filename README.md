@@ -118,10 +118,11 @@ The v1 Notion adapter is a single-host implementation. Its local mutex prevents
 overlap only inside one Node.js process; deploy exactly one manager instance per
 environment until a provider-backed distributed run lock is implemented.
 
-`inspect` is read-only. The two `reconcile` forms perform only the named
+`inspect` is read-only. The three `reconcile` forms perform only the named
 provider-backed repair: activity derives `Status` and `Working On` from live
-leases, while human reconciliation consumes one already-completed slot. Neither
-command discovers work or dispatches a sub-agent.
+leases, human reconciliation consumes one already-completed slot, and lease
+reconciliation releases one exact lease/owner pair. None of these commands
+discovers work or dispatches a sub-agent.
 The Phase 6 recovery CLI currently supports Notion environments. Other
 providers use the provider-neutral library APIs until CLI provider-registry
 wiring is added. Lease release requires the exact lease and owner identities;
