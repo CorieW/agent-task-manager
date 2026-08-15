@@ -119,6 +119,7 @@ test("task writes are atomic, opaque-versioned, replayable, and isolated", async
     idempotencyKey: "task-write-1",
     nextBody: "first",
     nextProperties: { winner: 1 },
+    nextStatus: null,
     taskId: "atomic",
   } as const;
   const secondMutation = { ...firstMutation, idempotencyKey: "task-write-2", nextBody: "second" };

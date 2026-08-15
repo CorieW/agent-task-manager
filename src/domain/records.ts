@@ -93,6 +93,7 @@ export interface ConditionalTaskMutation {
   readonly idempotencyKey: string;
   readonly nextBody: string | null;
   readonly nextProperties: JsonObject;
+  readonly nextStatus: string | null;
   readonly taskId: string;
 }
 

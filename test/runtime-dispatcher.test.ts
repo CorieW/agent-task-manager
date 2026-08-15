@@ -117,7 +117,7 @@ test("rejects malformed primitive result fields", async () => {
 
 test("rejects a Task whose selected version changed before dispatch", async () => {
   const prepared = await preparedDispatch("run-stale-task");
-  await prepared.provider.applyTaskMutation({ expectedVersion: "v1", idempotencyKey: "human:done", nextBody: null, nextProperties: { Status: "Done" }, taskId: "task-1" });
+  await prepared.provider.applyTaskMutation({ expectedVersion: "v1", idempotencyKey: "human:done", nextBody: null, nextProperties: { Status: "Done" }, nextStatus: "Done", taskId: "task-1" });
   await assert.rejects(dispatchActivatedAgent({
     activated: prepared.activated, activationRuntime, additionalInput: {}, promotion: prepared.promotion,
     provider: prepared.provider, runtime: runtimeEnvironment(resultRunner(() => ({}))),

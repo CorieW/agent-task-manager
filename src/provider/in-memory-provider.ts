@@ -454,11 +454,13 @@ export class InMemoryProvider implements AgentTaskProvider {
     const task = this.#tasks.get(mutation.taskId);
     if (task === undefined) throw new Error(`Unknown Task: ${mutation.taskId}`);
     if (task.version !== mutation.expectedVersion) throw new Error("Task version conflict");
+    if (mutation.nextStatus !== null && !this.#taskStatusOptions.has(mutation.nextStatus)) throw new Error(`Unknown Task status: ${mutation.nextStatus}`);
     const version = `memory:${task.id}:${randomUUID()}`;
     this.#tasks.set(task.id, {
       ...clone(task),
       body: mutation.nextBody ?? task.body,
       properties: clone(mutation.nextProperties),
+      status: mutation.nextStatus ?? task.status,
       version,
     });
     const receipt = this.receipt("tasks", task.id, mutation.idempotencyKey, version);

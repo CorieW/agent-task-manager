@@ -179,8 +179,10 @@ export class NotionPageStore {
     const current = await this.getPage(mutation.taskId);
     assertPageParent(current.page, this.tables.tasks, "Task");
     if (current.version !== mutation.expectedVersion) throw new Error("Task version conflict");
+    const nextProperties = encodeGenericProperties(mutation.nextProperties, current.page);
+    if (mutation.nextStatus !== null) nextProperties.Status = selectProperty(mutation.nextStatus);
     await this.transport.request({
-      body: { properties: encodeGenericProperties(mutation.nextProperties, current.page) },
+      body: { properties: nextProperties },
       method: "PATCH",
       path: `/v1/pages/${mutation.taskId}`,
     });
@@ -197,6 +199,7 @@ export class NotionPageStore {
         throw new Error(`Task property ${name} post-verification failed`);
       }
     }
+    if (mutation.nextStatus !== null && propertyOption(verified.page, "Status") !== mutation.nextStatus) throw new Error("Task Status post-verification failed");
     return this.receipt("tasks", verified, mutation.idempotencyKey);
   }
 
