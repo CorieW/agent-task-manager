@@ -20,5 +20,6 @@ export * from "./provider/notion/notion-page-store.js";
 export * from "./provider/notion/notion-state-store.js";
 export * from "./provider/notion/notion-transport.js";
 export * from "./provider/notion/notion-workspace-reader.js";
+export * from "./provider/notion/notion-workspace-manager.js";
 export * from "./provider/provider-registry.js";
 export * from "./provider/notion/single-host-mutex.js";

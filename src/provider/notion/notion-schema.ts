@@ -6,7 +6,7 @@ import type { TableDescriptor, WorkspaceSchemaDescriptor } from "../../domain/sc
 const TABLES: readonly TableDescriptor[] = [
   {
     kind: "resources",
-    managedRanges: ["## Resource body"],
+    managedRanges: [],
     properties: [
       property("key", "Resource", "title"),
       property("kind", "Kind", "select"),
@@ -19,7 +19,7 @@ const TABLES: readonly TableDescriptor[] = [
   },
   {
     kind: "errors",
-    managedRanges: ["## Error Description", "## Error Resolution"],
+    managedRanges: [],
     properties: [
       property("title", "Error", "title"),
       property("errorKey", "Error Key", "rich_text"),
@@ -44,7 +44,7 @@ const TABLES: readonly TableDescriptor[] = [
   },
   {
     kind: "subAgents",
-    managedRanges: ["## Sub-agent definition"],
+    managedRanges: [],
     properties: [
       property("name", "Name", "title"),
       property("enabled", "Enabled", "checkbox"),

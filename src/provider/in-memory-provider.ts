@@ -326,7 +326,7 @@ export class InMemoryProvider implements AgentTaskProvider {
       throw new Error(`Migration precondition changed: ${step.id}`);
     }
     const next = evolveSnapshot(this.#snapshot, step, this.target, this.now().toISOString());
-    if (next.digest !== step.expectedPostSchemaDigest) {
+    if (step.expectedPostSchemaDigest === null || next.digest !== step.expectedPostSchemaDigest) {
       throw new Error(`Migration postcondition does not match plan: ${step.id}`);
     }
     this.#snapshot = next;
