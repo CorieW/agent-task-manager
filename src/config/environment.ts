@@ -1,13 +1,19 @@
 import type { JsonObject, JsonValue } from "../domain/json.js";
 import { TABLE_KINDS, type ProviderEnvironment } from "../domain/provider.js";
+import { EXTERNAL_EFFECT_KINDS, type ExternalEffectKind } from "../effects/typed-effect-handlers.js";
 
 export interface EnvironmentConfig {
   readonly adapters: RuntimeAdapterConfig | null;
   readonly environmentId: string;
+  readonly effects: ExternalEffectEnvironmentConfig;
   readonly provider: ProviderEnvironment;
   readonly raw: JsonObject;
   readonly runtime: RuntimeEnvironmentConfig | null;
   readonly schema: "agent-task-manager-environment-v1";
+}
+
+export interface ExternalEffectEnvironmentConfig {
+  readonly handlers: Readonly<Partial<Record<ExternalEffectKind, string>>>;
 }
 
 export interface RuntimeAdapterConfig {
@@ -85,7 +91,7 @@ export function parseEnvironmentConfig(value: JsonValue): EnvironmentConfig {
   if (!isObject(value)) throw new EnvironmentConfigError(["root must be an object"]);
   rejectUnknownKeys(
     value,
-    ["adapters", "environmentId", "provider", "repository", "runtime", "schema"],
+    ["adapters", "effects", "environmentId", "provider", "repository", "runtime", "schema"],
     "root",
     issues,
   );
@@ -128,6 +134,7 @@ export function parseEnvironmentConfig(value: JsonValue): EnvironmentConfig {
 
   const adapters = parseRuntimeAdapterConfig(value.adapters, issues);
   const runtime = parseRuntimeEnvironmentConfig(value.runtime, issues);
+  const effects = parseExternalEffectConfig(value.effects, issues);
 
   if (issues.length > 0 || environmentId === null || type === null) {
     throw new EnvironmentConfigError(issues);
@@ -135,6 +142,7 @@ export function parseEnvironmentConfig(value: JsonValue): EnvironmentConfig {
 
   return {
     adapters,
+    effects,
     environmentId,
     provider: {
       bootstrapParent,
@@ -146,6 +154,23 @@ export function parseEnvironmentConfig(value: JsonValue): EnvironmentConfig {
     runtime,
     schema: "agent-task-manager-environment-v1",
   };
+}
+
+function parseExternalEffectConfig(value: JsonValue | undefined, issues: string[]): ExternalEffectEnvironmentConfig {
+  if (value === undefined) return { handlers: {} };
+  if (!isObject(value)) { issues.push("effects must be an object"); return { handlers: {} }; }
+  rejectUnknownKeys(value, ["handlers"], "effects", issues);
+  if (!isObject(value.handlers)) { issues.push("effects.handlers must be an object"); return { handlers: {} }; }
+  rejectUnknownKeys(value.handlers, EXTERNAL_EFFECT_KINDS, "effects.handlers", issues);
+  const handlers: Partial<Record<ExternalEffectKind, string>> = {};
+  for (const kind of EXTERNAL_EFFECT_KINDS) {
+    const configured = value.handlers[kind];
+    if (configured !== undefined) {
+      const id = requiredString(configured, `effects.handlers.${kind}`, issues);
+      if (id !== null) handlers[kind] = id;
+    }
+  }
+  return { handlers };
 }
 
 function parseRuntimeAdapterConfig(value: JsonValue | undefined, issues: string[]): RuntimeAdapterConfig | null {

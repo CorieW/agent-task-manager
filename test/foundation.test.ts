@@ -84,7 +84,7 @@ test("environment configuration is closed and reports missing required fields", 
 
 test("runtime readiness requires closed adapter and isolation environment definitions", () => {
   const config = parseEnvironmentConfig({
-    adapters: { agentRunner: "runner", modelTransport: "transport", publication: null, sandbox: "sandbox" },
+    adapters: { agentRunner: "runner", modelTransport: "transport", publication: null, sandbox: "sandbox" }, effects: { handlers: {} },
     environmentId: "runtime-demo",
     provider: { bootstrapParent: null, connection: {}, tables: { errors: "e", resources: "r", subAgents: "a", tasks: "t" }, type: "memory" },
     runtime: {

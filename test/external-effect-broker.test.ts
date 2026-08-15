@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { ExternalEffectBroker, ExternalEffectHandlerRegistry, finalizeAgentResult, finalizeRequest, InMemoryProvider, IndeterminateExternalEffectError, ProviderEffectJournal, type ExternalEffectHandler, type ExternalEffectObservation, type ProviderEnvironment, type WorkspaceSchemaDescriptor } from "../src/index.js";
+import { ExternalEffectBroker, finalizeAgentResult, finalizeRequest, InMemoryProvider, IndeterminateExternalEffectError, ProviderEffectJournal, resolveExternalEffectEnvironment, type ExternalEffectHandler, type ExternalEffectObservation, type ProviderEnvironment, type WorkspaceSchemaDescriptor } from "../src/index.js";
 
 const environment: ProviderEnvironment = { bootstrapParent: null, connection: {}, tables: { errors: "e", resources: "r", subAgents: "a", tasks: "t" }, type: "memory" };
 const target: WorkspaceSchemaDescriptor = { digest: "target", providerType: "memory", tables: [], version: "v1" };
@@ -50,8 +50,11 @@ test("does not execute unauthorized or conflicting intents", async () => {
 });
 
 function brokerFor(provider: InMemoryProvider, handler: ExternalEffectHandler): ExternalEffectBroker {
-  const registry = new ExternalEffectHandlerRegistry(); registry.register(handler);
-  return new ExternalEffectBroker(registry, new ProviderEffectJournal(provider));
+  const environmentConfig = {
+    adapters: null, effects: { handlers: { "git.commit": handler.id } }, environmentId: "test", provider: environment,
+    raw: {}, runtime: null, schema: "agent-task-manager-environment-v1" as const,
+  };
+  return new ExternalEffectBroker(resolveExternalEffectEnvironment(environmentConfig, [handler]), new ProviderEffectJournal(provider));
 }
 function requestFor(kind: string, payload: Record<string, string>) { return finalizeRequest({ kind, payload, source: { contextDigest: "a".repeat(64), intentIndex: 0, resultDigest: "b".repeat(64), runId: "run" } }); }
 function applied(id: string): ExternalEffectObservation { return { evidence: { verified: true }, externalIdentity: { id }, state: "applied" }; }

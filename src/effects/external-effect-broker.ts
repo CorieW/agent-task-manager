@@ -4,7 +4,7 @@ import { toJsonValue } from "../domain/json.js";
 import type { AgentResult } from "../runtime/contracts.js";
 import type { ExternalEffectExecution, ExternalEffectHandler, ExternalEffectIntentRecord, ExternalEffectObservation, ExternalEffectReceipt, ExternalEffectRequest } from "./contracts.js";
 import { ProviderEffectJournal } from "./provider-effect-journal.js";
-import { ExternalEffectHandlerRegistry } from "./registry.js";
+import type { ResolvedExternalEffectEnvironment } from "./effect-environment.js";
 
 export class IndeterminateExternalEffectError extends Error {
   public constructor(public readonly effectId: string) { super(`External effect is indeterminate: ${effectId}`); }
@@ -12,7 +12,7 @@ export class IndeterminateExternalEffectError extends Error {
 
 export class ExternalEffectBroker {
   public constructor(
-    private readonly handlers: ExternalEffectHandlerRegistry,
+    private readonly environment: ResolvedExternalEffectEnvironment,
     private readonly journal: ProviderEffectJournal,
   ) {}
 
@@ -33,7 +33,7 @@ export class ExternalEffectBroker {
 
   public async execute(request: ExternalEffectRequest): Promise<ExternalEffectExecution> {
     validateRequest(request);
-    const handler = this.handlers.get(request.kind);
+    const handler = this.environment.handlers.get(request.kind);
     handler.validate(request.payload);
     let record = await this.journal.read(request.effectId);
     if (record === null) {

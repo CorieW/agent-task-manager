@@ -21,6 +21,7 @@ export * from "./domain/provider.js";
 export * from "./domain/records.js";
 export * from "./domain/schema.js";
 export * from "./effects/contracts.js";
+export * from "./effects/effect-environment.js";
 export * from "./effects/child-agent-wave-effects.js";
 export * from "./effects/external-service-effects.js";
 export * from "./effects/external-effect-broker.js";
