@@ -87,7 +87,10 @@ test("runtime readiness requires closed adapter and isolation environment defini
     adapters: { agentRunner: "runner", modelTransport: "transport", publication: null, sandbox: "sandbox" },
     environmentId: "runtime-demo",
     provider: { bootstrapParent: null, connection: {}, tables: { errors: "e", resources: "r", subAgents: "a", tasks: "t" }, type: "memory" },
-    runtime: { concurrencyMode: "single-host", outputLimitBytes: 100_000, root: "C:/runtime", terminationGraceMilliseconds: 5_000 },
+    runtime: {
+      allowedEnvironmentNames: [], allowedNetworkOrigins: [], allowedReadRoots: ["C:/workspace"], allowedWriteRoots: ["C:/runtime/worktrees"],
+      concurrencyMode: "single-host", outputLimitBytes: 100_000, postKillReapMilliseconds: 5_000, root: "C:/runtime", terminationGraceMilliseconds: 5_000,
+    },
     schema: "agent-task-manager-environment-v1",
   });
   assert.doesNotThrow(() => assertRuntimeReady(config));

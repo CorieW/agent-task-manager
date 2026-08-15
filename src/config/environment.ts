@@ -18,8 +18,13 @@ export interface RuntimeAdapterConfig {
 }
 
 export interface RuntimeEnvironmentConfig {
+  readonly allowedEnvironmentNames: readonly string[];
+  readonly allowedNetworkOrigins: readonly string[];
+  readonly allowedReadRoots: readonly string[];
+  readonly allowedWriteRoots: readonly string[];
   readonly concurrencyMode: "single-host";
   readonly outputLimitBytes: number;
+  readonly postKillReapMilliseconds: number;
   readonly root: string;
   readonly terminationGraceMilliseconds: number;
 }
@@ -117,31 +122,8 @@ export function parseEnvironmentConfig(value: JsonValue): EnvironmentConfig {
     ]),
   ) as Record<(typeof TABLE_KINDS)[number], string | null>;
 
-  const adaptersValue = value.adapters;
-  let adapters: RuntimeAdapterConfig | null = null;
-  if (adaptersValue !== undefined && !isObject(adaptersValue)) issues.push("adapters must be an object");
-  if (isObject(adaptersValue)) {
-    rejectUnknownKeys(adaptersValue, ["agentRunner", "modelTransport", "publication", "sandbox"], "adapters", issues);
-    const agentRunner = requiredString(adaptersValue.agentRunner, "adapters.agentRunner", issues);
-    const modelTransport = requiredString(adaptersValue.modelTransport, "adapters.modelTransport", issues);
-    const sandbox = requiredString(adaptersValue.sandbox, "adapters.sandbox", issues);
-    const publication = optionalString(adaptersValue.publication, "adapters.publication", issues);
-    if (agentRunner !== null && modelTransport !== null && sandbox !== null) adapters = { agentRunner, modelTransport, publication, sandbox };
-  }
-
-  const runtimeValue = value.runtime;
-  let runtime: RuntimeEnvironmentConfig | null = null;
-  if (runtimeValue !== undefined && !isObject(runtimeValue)) issues.push("runtime must be an object");
-  if (isObject(runtimeValue)) {
-    rejectUnknownKeys(runtimeValue, ["concurrencyMode", "outputLimitBytes", "root", "terminationGraceMilliseconds"], "runtime", issues);
-    const root = requiredString(runtimeValue.root, "runtime.root", issues);
-    const outputLimitBytes = positiveInteger(runtimeValue.outputLimitBytes, "runtime.outputLimitBytes", issues);
-    const terminationGraceMilliseconds = positiveInteger(runtimeValue.terminationGraceMilliseconds, "runtime.terminationGraceMilliseconds", issues);
-    if (runtimeValue.concurrencyMode !== "single-host") issues.push("runtime.concurrencyMode must equal single-host");
-    if (root !== null && outputLimitBytes !== null && terminationGraceMilliseconds !== null && runtimeValue.concurrencyMode === "single-host") {
-      runtime = { concurrencyMode: "single-host", outputLimitBytes, root, terminationGraceMilliseconds };
-    }
-  }
+  const adapters = parseRuntimeAdapterConfig(value.adapters, issues);
+  const runtime = parseRuntimeEnvironmentConfig(value.runtime, issues);
 
   if (issues.length > 0 || environmentId === null || type === null) {
     throw new EnvironmentConfigError(issues);
@@ -160,6 +142,42 @@ export function parseEnvironmentConfig(value: JsonValue): EnvironmentConfig {
     runtime,
     schema: "agent-task-manager-environment-v1",
   };
+}
+
+function parseRuntimeAdapterConfig(value: JsonValue | undefined, issues: string[]): RuntimeAdapterConfig | null {
+  if (value !== undefined && !isObject(value)) { issues.push("adapters must be an object"); return null; }
+  if (!isObject(value)) return null;
+  rejectUnknownKeys(value, ["agentRunner", "modelTransport", "publication", "sandbox"], "adapters", issues);
+  const agentRunner = requiredString(value.agentRunner, "adapters.agentRunner", issues);
+  const modelTransport = requiredString(value.modelTransport, "adapters.modelTransport", issues);
+  const sandbox = requiredString(value.sandbox, "adapters.sandbox", issues);
+  const publication = optionalString(value.publication, "adapters.publication", issues);
+  return agentRunner === null || modelTransport === null || sandbox === null ? null : { agentRunner, modelTransport, publication, sandbox };
+}
+
+function parseRuntimeEnvironmentConfig(value: JsonValue | undefined, issues: string[]): RuntimeEnvironmentConfig | null {
+  if (value !== undefined && !isObject(value)) { issues.push("runtime must be an object"); return null; }
+  if (!isObject(value)) return null;
+  const keys = ["allowedEnvironmentNames", "allowedNetworkOrigins", "allowedReadRoots", "allowedWriteRoots", "concurrencyMode", "outputLimitBytes", "postKillReapMilliseconds", "root", "terminationGraceMilliseconds"];
+  rejectUnknownKeys(value, keys, "runtime", issues);
+  const root = requiredString(value.root, "runtime.root", issues);
+  const outputLimitBytes = positiveInteger(value.outputLimitBytes, "runtime.outputLimitBytes", issues);
+  const postKillReapMilliseconds = positiveInteger(value.postKillReapMilliseconds, "runtime.postKillReapMilliseconds", issues);
+  const terminationGraceMilliseconds = positiveInteger(value.terminationGraceMilliseconds, "runtime.terminationGraceMilliseconds", issues);
+  const allowedEnvironmentNames = stringArray(value.allowedEnvironmentNames, "runtime.allowedEnvironmentNames", issues);
+  const allowedNetworkOrigins = stringArray(value.allowedNetworkOrigins, "runtime.allowedNetworkOrigins", issues);
+  const allowedReadRoots = stringArray(value.allowedReadRoots, "runtime.allowedReadRoots", issues);
+  const allowedWriteRoots = stringArray(value.allowedWriteRoots, "runtime.allowedWriteRoots", issues);
+  if (value.concurrencyMode !== "single-host") issues.push("runtime.concurrencyMode must equal single-host");
+  if (root === null || outputLimitBytes === null || postKillReapMilliseconds === null || terminationGraceMilliseconds === null || value.concurrencyMode !== "single-host") return null;
+  return { allowedEnvironmentNames, allowedNetworkOrigins, allowedReadRoots, allowedWriteRoots, concurrencyMode: "single-host", outputLimitBytes, postKillReapMilliseconds, root, terminationGraceMilliseconds };
+}
+
+function stringArray(value: JsonValue | undefined, path: string, issues: string[]): readonly string[] {
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string" || entry === "")) { issues.push(`${path} must contain non-empty strings`); return []; }
+  const result = value as string[];
+  if (new Set(result).size !== result.length) issues.push(`${path} must not contain duplicates`);
+  return [...result];
 }
 
 export function assertRuntimeReady(config: EnvironmentConfig): void {

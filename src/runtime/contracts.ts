@@ -3,7 +3,7 @@ import { digestJson } from "../core/digest.js";
 import { toJsonValue, type JsonObject, type JsonValue } from "../domain/json.js";
 import type { CapabilityGrant } from "../core/capability-compiler.js";
 import type { ResourceRecord, TaskSnapshot } from "../domain/records.js";
-import { validateJsonSchemaValue } from "./json-schema.js";
+import { validateJsonSchemaValue } from "../core/json-schema.js";
 
 export interface RuntimeCapabilityReceipt {
   readonly controlPlaneSeparated: true;
@@ -17,11 +17,14 @@ export interface RuntimeCapabilityReceipt {
   readonly modelTransportAdapterId: string;
   readonly networkPolicyDigest: string;
   readonly reasoning: string;
+  readonly runId: string;
   readonly runnerProfile: string;
   readonly runnerAdapterId: string;
   readonly schema: "runtime-capability-receipt-v1";
   readonly toolEnvironmentDigest: string;
+  readonly toolPolicyDigest: string;
   readonly toolProcessTreeEnforced: true;
+  readonly runtimeEnvironmentDigest: string;
 }
 
 export interface RunContextCore {
@@ -55,6 +58,7 @@ export function finalizeAgentResult(core: AgentResultCore): AgentResult { return
 
 export function parseAgentResult(input: {
   readonly allowedIntents: readonly string[];
+  readonly allowedOutcomes: readonly string[];
   readonly context: RunContext;
   readonly outputSchema: JsonObject;
   readonly raw: string;
@@ -62,15 +66,20 @@ export function parseAgentResult(input: {
   const value = objectValue(toJsonValue(JSON.parse(input.raw)), "Agent result");
   assertExactKeys(value, ["contextDigest", "definitionDigest", "digest", "outcome", "payload", "proposedIntents", "runId", "schema"], "Agent result");
   if (value.schema !== "agent-result-v1") throw new TypeError("Agent result schema is invalid");
+  for (const key of ["contextDigest", "definitionDigest", "digest"] as const) requireDigest(value[key], `Agent result ${key}`);
+  for (const key of ["outcome", "runId"] as const) requireString(value[key], `Agent result ${key}`);
+  objectValue(value.payload, "Agent result payload");
+  if (!Array.isArray(value.proposedIntents)) throw new TypeError("Agent result proposedIntents must be an array");
+  value.proposedIntents.forEach((intent, index) => assertIntentShape(intent, index));
   const parsed = value as unknown as AgentResult;
   const { digest: _digest, ...core } = parsed;
-  if (finalizeAgentResult(core).digest !== parsed.digest) throw new TypeError("Agent result digest is invalid");
+  if (digestJson(toJsonValue(core)) !== parsed.digest) throw new TypeError("Agent result digest is invalid");
   if (parsed.runId !== input.context.runId || parsed.contextDigest !== input.context.digest || parsed.definitionDigest !== input.context.definitionDigest) {
     throw new Error("Agent result does not match its immutable run context");
   }
   const issues = validateJsonSchemaValue(input.outputSchema, parsed.payload);
   if (issues.length > 0) throw new TypeError(`Agent payload is invalid:\n${issues.map((issue) => `${issue.path}: ${issue.message}`).join("\n")}`);
-  if (!Array.isArray(parsed.proposedIntents)) throw new TypeError("Agent result proposedIntents must be an array");
+  if (!input.allowedOutcomes.includes(parsed.outcome)) throw new Error(`Agent result outcome is not authorized: ${parsed.outcome}`);
   const allowed = new Set(input.allowedIntents);
   for (const [index, intent] of parsed.proposedIntents.entries()) {
     if (!isIntent(intent) || !allowed.has(intent.kind)) throw new Error(`Agent result intent ${index} is not authorized`);
@@ -89,13 +98,28 @@ export function validateRuntimeCapabilityReceipt(receipt: RuntimeCapabilityRecei
   for (const [key, value] of Object.entries(receipt)) {
     if (key.endsWith("Digest") && (typeof value !== "string" || !/^[a-f0-9]{64}$/u.test(value))) throw new TypeError(`Runtime receipt ${key} is not a SHA-256 digest`);
   }
-  for (const key of ["executableVersion", "isolationAdapterId", "model", "modelTransportAdapterId", "reasoning", "runnerAdapterId", "runnerProfile"] as const) {
+  for (const key of ["executableVersion", "isolationAdapterId", "model", "modelTransportAdapterId", "reasoning", "runId", "runnerAdapterId", "runnerProfile"] as const) {
     if (receipt[key] === "") throw new TypeError(`Runtime receipt ${key} is required`);
   }
 }
 
 function isIntent(value: unknown): value is AgentResult["proposedIntents"][number] {
   return value !== null && typeof value === "object" && !Array.isArray(value) && typeof (value as { kind?: unknown }).kind === "string" && isJsonObject((value as { payload?: JsonValue }).payload);
+}
+function assertIntentShape(value: JsonValue, index: number): void {
+  const intent = objectValue(value, `Agent result intent ${index}`);
+  assertExactKeys(intent, ["kind", "payload"], `Agent result intent ${index}`);
+  requireString(intent.kind, `Agent result intent ${index} kind`);
+  objectValue(intent.payload, `Agent result intent ${index} payload`);
+}
+function requireString(value: JsonValue | undefined, label: string): string {
+  if (typeof value !== "string" || value === "") throw new TypeError(`${label} must be a non-empty string`);
+  return value;
+}
+function requireDigest(value: JsonValue | undefined, label: string): string {
+  const result = requireString(value, label);
+  if (!/^[a-f0-9]{64}$/u.test(result)) throw new TypeError(`${label} must be a SHA-256 digest`);
+  return result;
 }
 function isJsonObject(value: JsonValue | undefined): value is JsonObject { return value !== null && typeof value === "object" && !Array.isArray(value); }
 function objectValue(value: JsonValue | undefined, label: string): JsonObject { if (!isJsonObject(value)) throw new TypeError(`${label} must be an object`); return value; }

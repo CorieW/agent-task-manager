@@ -83,6 +83,7 @@ export function validateSubAgentDefinition(
   if (definition.selection.maxCandidateSummaries > 100) issues.push(issue("candidate_limit_too_large", "Candidate summary limit cannot exceed 100", "selection.maxCandidateSummaries"));
   if (definition.contextBudgetBytes > 10_000_000) issues.push(issue("context_budget_too_large", "Context budget cannot exceed 10000000 bytes", "contextBudgetBytes"));
   if (definition.deadlineSeconds > 86_400) issues.push(issue("deadline_too_large", "Deadline cannot exceed 86400 seconds", "deadlineSeconds"));
+  if (definition.retry.maxAttempts > 5) issues.push(issue("retry_limit_too_large", "Retry attempts cannot exceed 5", "retry.maxAttempts"));
   if (Object.keys(definition.transitions).length === 0) issues.push(issue("transitions_missing", "At least one outcome transition is required", "transitions"));
   return issues;
 }

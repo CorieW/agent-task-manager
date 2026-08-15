@@ -21,8 +21,17 @@
     }
   },
   "runtime": {
+    "allowedEnvironmentNames": [],
+    "allowedNetworkOrigins": [],
+    "allowedReadRoots": [
+      "C:/Projects/replace-with-your-repository"
+    ],
+    "allowedWriteRoots": [
+      "C:/AgentTaskManager/local-demo/worktrees"
+    ],
     "concurrencyMode": "single-host",
     "outputLimitBytes": 1000000,
+    "postKillReapMilliseconds": 5000,
     "root": "C:/AgentTaskManager/local-demo",
     "terminationGraceMilliseconds": 5000
   }

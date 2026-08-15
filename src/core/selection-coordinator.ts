@@ -29,6 +29,8 @@ export interface SelectionContext {
 }
 
 export interface AssignmentPromotion {
+  readonly operationDigest: string;
+  readonly ownerId: string;
   readonly runLeaseId: string;
   readonly targetSubAgentId: string;
   readonly taskId: string;
@@ -213,7 +215,7 @@ async function acquireAndProject(input: {
   const priorIntent = await readAssignmentIntent(input.provider, intentKey, input);
   if (priorIntent?.state === "complete") {
     if (priorIntent.runLeaseId === null || priorIntent.taskLeaseId === null) throw new Error("Completed assignment intent is missing lease identities");
-    return { runLeaseId: priorIntent.runLeaseId, targetSubAgentId: input.target.id, taskId: input.taskId, taskLeaseId: priorIntent.taskLeaseId };
+    return { operationDigest: input.operationDigest, ownerId: input.ownerId, runLeaseId: priorIntent.runLeaseId, targetSubAgentId: input.target.id, taskId: input.taskId, taskLeaseId: priorIntent.taskLeaseId };
   }
   await writeAssignmentIntent(input.provider, intentKey, input, priorIntent ?? {
     runLeaseId: input.existingRunLeaseId,
@@ -262,7 +264,7 @@ async function acquireAndProject(input: {
   }
   if (!activityMatches(await input.provider.getSubAgentActivity(input.target.id), afterProjection)) throw new Error("Selected Sub-agent activity did not verify");
   await writeAssignmentIntent(input.provider, intentKey, input, { runLeaseId, state: "complete", taskLeaseId: taskLease.leaseId });
-  return { runLeaseId, targetSubAgentId: input.target.id, taskId: input.taskId, taskLeaseId: taskLease.leaseId };
+  return { operationDigest: input.operationDigest, ownerId: input.ownerId, runLeaseId, targetSubAgentId: input.target.id, taskId: input.taskId, taskLeaseId: taskLease.leaseId };
 }
 
 type AssignmentIntentState = "compensated" | "complete" | "prepared" | "run_acquired" | "task_acquired";

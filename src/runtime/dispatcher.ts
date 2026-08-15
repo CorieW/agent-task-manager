@@ -1,11 +1,14 @@
-// Launches one activated Sub-agent through verified control-plane and tool boundaries.
+// Launches one currently assigned Sub-agent through environment-bound trusted adapters.
 import { digestJson } from "../core/digest.js";
+import { activateDefinitions, type ActivatedDefinition } from "../core/definition-activation.js";
+import type { ActivationRuntime, AssignmentPromotion } from "../core/selection-coordinator.js";
+import { assertSupportedJsonSchema } from "../core/json-schema.js";
 import { toJsonValue, type JsonObject } from "../domain/json.js";
 import type { AgentTaskProvider } from "../provider/agent-task-provider.js";
-import type { ActivatedDefinition } from "../core/definition-activation.js";
 import { compileRunContext } from "./context-compiler.js";
-import { parseAgentResult, type AgentResult, type RuntimeCapabilityReceipt } from "./contracts.js";
-import type { AgentRunnerAdapter, ModelTransportAdapter, ToolIsolationAdapter, ToolIsolationPolicy } from "./adapters.js";
+import { parseAgentResult, validateRuntimeCapabilityReceipt, type AgentResult, type RuntimeCapabilityReceipt } from "./contracts.js";
+import type { ModelTransportSession, ToolIsolationPolicy, ToolIsolationSession } from "./adapters.js";
+import { compileToolIsolationPolicy, type ResolvedRuntimeEnvironment } from "./environment.js";
 import { superviseProcess, type ProcessTelemetry } from "./process-supervisor.js";
 
 export interface DispatchResult {
@@ -14,106 +17,177 @@ export interface DispatchResult {
   readonly telemetry: ProcessTelemetry;
 }
 
+export class RuntimeDispatchError extends Error {
+  public constructor(public readonly code: string, message: string, options?: ErrorOptions) { super(message, options); }
+}
+class RetryableNoVerdictError extends RuntimeDispatchError {}
+
 export async function dispatchActivatedAgent(input: {
   readonly activated: ActivatedDefinition;
+  readonly activationRuntime: ActivationRuntime;
   readonly additionalInput: JsonObject;
-  readonly graceMilliseconds?: number;
-  readonly modelTransport: ModelTransportAdapter;
-  readonly outputLimitBytes: number;
+  readonly promotion: AssignmentPromotion;
   readonly provider: AgentTaskProvider;
-  readonly runId: string;
-  readonly runner: AgentRunnerAdapter;
-  readonly taskId: string;
-  readonly toolIsolation: ToolIsolationAdapter;
-  readonly toolPolicy: ToolIsolationPolicy;
+  readonly runtime: ResolvedRuntimeEnvironment;
 }): Promise<DispatchResult> {
-  const definition = input.activated.resolved.definition;
   try {
-    if (input.toolPolicy.runId !== input.runId) throw new Error("Tool isolation policy belongs to a different run");
-    validateToolIsolationPolicy(input.toolPolicy);
-    const [runnerIdentity, controlPlane, isolation] = await Promise.all([
-      input.runner.identity(),
-      input.modelTransport.prepare({ model: definition.model, reasoning: definition.reasoning, runId: input.runId }),
-      input.toolIsolation.prepare(input.toolPolicy),
-    ]);
-    if (runnerIdentity.id !== input.runner.id) throw new Error("Agent runner identity does not match its registered adapter");
-    if (!runnerIdentity.supportedProfiles.includes(definition.runnerProfile)) throw new Error(`Agent runner does not support profile ${definition.runnerProfile}`);
-    if (controlPlane.receipt.model !== definition.model || controlPlane.receipt.reasoning !== definition.reasoning) throw new Error("Model transport receipt does not match the definition");
-    const runtimeReceipt: RuntimeCapabilityReceipt = {
-      controlPlaneSeparated: true,
-      credentialExposedToTools: false,
-      executableDigest: runnerIdentity.executableDigest,
-      executableVersion: runnerIdentity.executableVersion,
-      filesystemPolicyDigest: isolation.receipt.filesystemPolicyDigest,
-      isolationAdapterId: input.toolIsolation.id,
-      model: definition.model,
-      modelTransportDigest: controlPlane.receipt.digest,
-      modelTransportAdapterId: input.modelTransport.id,
-      networkPolicyDigest: isolation.receipt.networkPolicyDigest,
-      reasoning: definition.reasoning,
-      runnerProfile: definition.runnerProfile,
-      runnerAdapterId: input.runner.id,
-      schema: "runtime-capability-receipt-v1",
-      toolEnvironmentDigest: isolation.receipt.environmentDigest,
-      toolProcessTreeEnforced: true,
-    };
-    const context = await compileRunContext({
-      activated: input.activated, additionalInput: input.additionalInput, provider: input.provider,
-      runId: input.runId, runtimeReceipt, taskId: input.taskId,
-    });
-    const outputResource = input.activated.resolved.resources.find((resource) => resource.key === definition.outputSchema);
-    if (outputResource === undefined) throw new Error("Output schema Resource is absent from the resolved definition");
-    const outputSchema = jsonObject(JSON.parse(outputResource.body), "Output schema");
-    let lastError: unknown;
-    for (let attempt = 1; attempt <= definition.retry.maxAttempts; attempt += 1) {
-      try {
-        const process = await input.runner.start({
-          context, controlPlaneHandle: controlPlane.opaqueHandle, outputLimitBytes: input.outputLimitBytes,
-          outputSchema, toolIsolationHandle: isolation.opaqueHandle,
-        });
-        const supervised = await superviseProcess({
-          deadlineMilliseconds: definition.deadlineSeconds * 1000,
-          graceMilliseconds: input.graceMilliseconds ?? 5_000,
-          outputLimitBytes: input.outputLimitBytes,
-          process,
-        });
-        if (supervised.telemetry.toolViolation !== null) throw new Error(`Unauthorized tool operation: ${supervised.telemetry.toolViolation}`);
-        if (supervised.telemetry.timedOut) throw new Error("Agent process exceeded its deadline");
-        if (supervised.completion.exitCode !== 0) throw new Error(`Agent process exited with code ${supervised.completion.exitCode ?? "unknown"}`);
-        const result = parseAgentResult({ allowedIntents: definition.allowedIntents, context, outputSchema, raw: supervised.completion.stdout });
-        return { contextDigest: context.digest, result, telemetry: supervised.telemetry };
-      } catch (error) {
-        lastError = error;
-        if (definition.retry.noVerdict !== "retry" || attempt === definition.retry.maxAttempts) throw error;
-      }
-    }
-    throw lastError instanceof Error ? lastError : new Error("Agent execution failed without a result");
+    const activated = await verifyLiveAssignment(input);
+    return await dispatchVerified({ ...input, activated });
   } catch (error) {
-    await recordRuntimeError(input, error);
+    try { await recordRuntimeError(input, error); }
+    catch (recordingError) { throw new AggregateError([error, recordingError], "Agent runtime failed and Error persistence also failed", { cause: error }); }
     throw error;
   }
 }
 
-async function recordRuntimeError(input: {
+async function dispatchVerified(input: {
   readonly activated: ActivatedDefinition;
+  readonly activationRuntime: ActivationRuntime;
+  readonly additionalInput: JsonObject;
+  readonly promotion: AssignmentPromotion;
   readonly provider: AgentTaskProvider;
-  readonly runId: string;
-  readonly taskId: string;
-}, error: unknown): Promise<void> {
-  const message = error instanceof Error ? error.message : String(error);
+  readonly runtime: ResolvedRuntimeEnvironment;
+}): Promise<DispatchResult> {
   const definition = input.activated.resolved.definition;
-  const basis = { definitionDigest: input.activated.resolved.digest, message, runId: input.runId, taskId: input.taskId };
+  const runId = input.promotion.ownerId;
+  const deadlineAt = Date.now() + definition.deadlineSeconds * 1000;
+  const policy = compileToolIsolationPolicy({ grant: input.activated.grant, runId, runtime: input.runtime });
+  const policyDigest = digestJson(toJsonValue(policy));
+  const runnerIdentity = await withinDeadline(input.runtime.runner.identity(), deadlineAt, "runner_identity_timeout");
+  validateRunnerIdentity(input.runtime, definition.runnerProfile, runnerIdentity);
+  let controlPlane: ModelTransportSession | null = null;
+  let isolation: ToolIsolationSession | null = null;
+  let primaryError: unknown;
+  try {
+    controlPlane = await withinDeadline(input.runtime.modelTransport.prepare({ model: definition.model, reasoning: definition.reasoning, runId }), deadlineAt, "model_prepare_timeout");
+    validateModelReceipt(input.runtime, definition.model, definition.reasoning, runId, controlPlane);
+    isolation = await withinDeadline(input.runtime.toolIsolation.prepare(policy), deadlineAt, "isolation_prepare_timeout");
+    validateIsolationReceipt(input.runtime, runId, policyDigest, isolation);
+    const runtimeReceipt: RuntimeCapabilityReceipt = {
+      controlPlaneSeparated: controlPlane.receipt.separatedFromToolProcesses,
+      credentialExposedToTools: controlPlane.receipt.credentialExposedToTools,
+      executableDigest: runnerIdentity.executableDigest,
+      executableVersion: runnerIdentity.executableVersion,
+      filesystemPolicyDigest: isolation.receipt.filesystemPolicyDigest,
+      isolationAdapterId: isolation.receipt.adapterId,
+      model: controlPlane.receipt.model,
+      modelTransportDigest: controlPlane.receipt.digest,
+      modelTransportAdapterId: controlPlane.receipt.adapterId,
+      networkPolicyDigest: isolation.receipt.networkPolicyDigest,
+      reasoning: controlPlane.receipt.reasoning,
+      runId,
+      runnerProfile: definition.runnerProfile,
+      runnerAdapterId: runnerIdentity.id,
+      runtimeEnvironmentDigest: input.runtime.digest,
+      schema: "runtime-capability-receipt-v1",
+      toolEnvironmentDigest: isolation.receipt.environmentDigest,
+      toolPolicyDigest: isolation.receipt.policyDigest,
+      toolProcessTreeEnforced: isolation.receipt.processTreeEnforced,
+    };
+    validateRuntimeCapabilityReceipt(runtimeReceipt);
+    const context = await compileRunContext({ activated: input.activated, additionalInput: input.additionalInput, provider: input.provider, runId, runtimeReceipt, taskId: input.promotion.taskId });
+    const outputResource = input.activated.resolved.resources.find((resource) => resource.key === definition.outputSchema);
+    if (outputResource === undefined) throw new RuntimeDispatchError("output_schema_missing", "Output schema Resource is absent from the resolved definition");
+    const outputSchema = jsonObject(JSON.parse(outputResource.body), "Output schema");
+    assertSupportedJsonSchema(outputSchema, "Output schema");
+    let lastNoVerdict: RetryableNoVerdictError | null = null;
+    for (let attempt = 1; attempt <= definition.retry.maxAttempts; attempt += 1) {
+      const remaining = deadlineAt - Date.now();
+      if (remaining < 1) throw new RuntimeDispatchError("deadline_exceeded", "Agent dispatch exceeded its total deadline");
+      try {
+        const process = await withinDeadline(input.runtime.runner.start({ context, controlPlaneHandle: controlPlane.opaqueHandle, outputLimitBytes: input.runtime.config.outputLimitBytes, outputSchema, toolIsolationHandle: isolation.opaqueHandle }), deadlineAt, "runner_start_timeout");
+        const supervised = await superviseProcess({
+          deadlineMilliseconds: remaining,
+          graceMilliseconds: input.runtime.config.terminationGraceMilliseconds,
+          outputLimitBytes: input.runtime.config.outputLimitBytes,
+          postKillReapMilliseconds: input.runtime.config.postKillReapMilliseconds,
+          process,
+        });
+        if (supervised.telemetry.toolViolation !== null) throw new RuntimeDispatchError("tool_policy_violation", "Agent attempted an unauthorized tool operation");
+        if (supervised.telemetry.timedOut) throw new RuntimeDispatchError("deadline_exceeded", "Agent process exceeded the total dispatch deadline");
+        if (supervised.completion.exitCode !== 0) throw new RetryableNoVerdictError("process_no_verdict", `Agent process exited without a verdict (${supervised.completion.exitCode ?? "unknown"})`);
+        const result = parseAgentResult({ allowedIntents: definition.allowedIntents, allowedOutcomes: Object.keys(definition.transitions), context, outputSchema, raw: supervised.stdout });
+        return { contextDigest: context.digest, result, telemetry: supervised.telemetry };
+      } catch (error) {
+        if (!(error instanceof RetryableNoVerdictError) || definition.retry.noVerdict !== "retry" || attempt === definition.retry.maxAttempts) throw error;
+        lastNoVerdict = error;
+      }
+    }
+    throw lastNoVerdict ?? new RuntimeDispatchError("missing_result", "Agent execution ended without a result");
+  } catch (error) {
+    primaryError = error;
+    throw error;
+  } finally {
+    await closeSessions([isolation, controlPlane], primaryError, input.runtime.config.postKillReapMilliseconds);
+  }
+}
+
+async function verifyLiveAssignment(input: {
+  readonly activated: ActivatedDefinition;
+  readonly activationRuntime: ActivationRuntime;
+  readonly promotion: AssignmentPromotion;
+  readonly provider: AgentTaskProvider;
+}): Promise<ActivatedDefinition> {
+  const definitionId = input.activated.resolved.definition.id;
+  if (input.promotion.targetSubAgentId !== definitionId) throw new RuntimeDispatchError("assignment_mismatch", "Assignment targets a different Sub-agent");
+  const fresh = await activateDefinitions({ ...input.activationRuntime, provider: input.provider });
+  const matches = fresh.filter(({ resolved }) => resolved.definition.id === definitionId);
+  if (matches.length !== 1 || matches[0] === undefined || matches[0].digest !== input.activated.digest) throw new RuntimeDispatchError("activation_changed", "Sub-agent definition, Resources, or capability grant changed before dispatch");
+  const intent = await input.provider.getOptionalResource(`assignment-intent/${input.promotion.operationDigest}`);
+  if (intent === null) throw new RuntimeDispatchError("assignment_receipt_missing", "Assignment promotion receipt is missing");
+  const value = jsonObject(JSON.parse(intent.body), "Assignment promotion receipt");
+  if (value.schema !== "assignment-intent-v1" || value.state !== "complete" || value.operationDigest !== input.promotion.operationDigest || value.ownerId !== input.promotion.ownerId || value.runLeaseId !== input.promotion.runLeaseId || value.taskLeaseId !== input.promotion.taskLeaseId || value.targetSubAgentId !== definitionId || value.taskId !== input.promotion.taskId) {
+    throw new RuntimeDispatchError("assignment_receipt_invalid", "Assignment promotion receipt does not match the dispatch");
+  }
+  const projection = await input.provider.getLeaseProjection(definitionId);
+  if (!projection.runLeaseIds.includes(input.promotion.runLeaseId) || !projection.taskLeaseIds.includes(input.promotion.taskLeaseId) || !projection.taskIds.includes(input.promotion.taskId)) throw new RuntimeDispatchError("assignment_inactive", "Assignment leases are not active");
+  const activity = await input.provider.getSubAgentActivity(definitionId);
+  if (activity.status !== "Online" || !sameSet(activity.taskIds, projection.taskIds)) throw new RuntimeDispatchError("activity_mismatch", "Sub-agent Status or Working On does not match active leases");
+  const task = await input.provider.getTaskSnapshot(input.promotion.taskId);
+  if (task.archived) throw new RuntimeDispatchError("task_archived", "Assigned Task is archived");
+  return matches[0];
+}
+
+function validateRunnerIdentity(runtime: ResolvedRuntimeEnvironment, profile: string, identity: Awaited<ReturnType<ResolvedRuntimeEnvironment["runner"]["identity"]>>): void {
+  if (identity.id !== runtime.runner.id || identity.id === "") throw new RuntimeDispatchError("runner_identity_invalid", "Agent runner identity does not match the configured adapter");
+  if (!identity.supportedProfiles.includes(profile)) throw new RuntimeDispatchError("runner_profile_unsupported", `Agent runner does not support profile ${profile}`);
+  requireDigest(identity.executableDigest, "Runner executable digest");
+  if (identity.executableVersion === "") throw new RuntimeDispatchError("runner_identity_invalid", "Runner executable version is required");
+}
+function validateModelReceipt(runtime: ResolvedRuntimeEnvironment, model: string, reasoning: string, runId: string, session: ModelTransportSession): void {
+  const receipt = session.receipt;
+  if (receipt.adapterId !== runtime.modelTransport.id || receipt.runId !== runId || receipt.model !== model || receipt.reasoning !== reasoning || receipt.separatedFromToolProcesses !== true || receipt.credentialExposedToTools !== false) throw new RuntimeDispatchError("model_receipt_invalid", "Model transport receipt does not prove the configured control-plane boundary");
+  requireDigest(receipt.digest, "Model transport digest");
+}
+function validateIsolationReceipt(runtime: ResolvedRuntimeEnvironment, runId: string, policyDigest: string, session: ToolIsolationSession): void {
+  const receipt = session.receipt;
+  if (receipt.adapterId !== runtime.toolIsolation.id || receipt.runId !== runId || receipt.policyDigest !== policyDigest || receipt.processTreeEnforced !== true) throw new RuntimeDispatchError("isolation_receipt_invalid", "Tool isolation receipt does not prove the configured policy boundary");
+  for (const [label, value] of [["environment", receipt.environmentDigest], ["filesystem", receipt.filesystemPolicyDigest], ["network", receipt.networkPolicyDigest]] as const) requireDigest(value, `Tool isolation ${label} digest`);
+}
+
+async function closeSessions(sessions: readonly (ModelTransportSession | ToolIsolationSession | null)[], primaryError: unknown, timeoutMilliseconds: number): Promise<void> {
+  const failures: unknown[] = [];
+  for (const session of sessions) if (session !== null) { try { await withinDeadline(session.close(), Date.now() + timeoutMilliseconds, "session_close_timeout"); } catch (error) { failures.push(error); } }
+  if (failures.length === 0) return;
+  if (primaryError === undefined) throw new AggregateError(failures, "Runtime session cleanup failed");
+  throw new AggregateError([primaryError, ...failures], "Agent runtime failed and session cleanup also failed", { cause: primaryError });
+}
+
+async function recordRuntimeError(input: { readonly activated: ActivatedDefinition; readonly promotion: AssignmentPromotion; readonly provider: AgentTaskProvider }, error: unknown): Promise<void> {
+  const code = error instanceof RuntimeDispatchError ? error.code : "unexpected_runtime_failure";
+  const definition = input.activated.resolved.definition;
+  const basis = { code, definitionDigest: input.activated.resolved.digest, runId: input.promotion.ownerId, taskId: input.promotion.taskId };
   const operationDigest = digestJson(toJsonValue(basis));
   await input.provider.createOrUpdateError({
-    description: `Sub-agent runtime failed closed: ${message}`,
-    errorKey: `agent-runtime:${input.runId}`,
+    description: `Sub-agent runtime failed closed with code ${code}. No exception text or credential-bearing adapter output was persisted.`,
+    errorKey: `agent-runtime:${input.promotion.ownerId}`,
     idempotencyKey: `agent-runtime:${operationDigest}`,
-    relatedRunId: input.runId,
+    relatedRunId: input.promotion.ownerId,
     relatedSubAgentId: definition.id,
-    relatedTaskId: input.taskId,
-    resolution: "Inspect the runtime capability receipts and process telemetry. Correct the adapter, policy, or agent output, then start a new verified attempt.",
+    relatedTaskId: input.promotion.taskId,
+    resolution: "Inspect trusted runtime telemetry and receipts outside the provider. Correct the assignment, adapter, policy, or result contract, then start a new verified attempt.",
     severity: "high",
-    title: "Sub-agent runtime failure",
+    title: `Sub-agent runtime ${code}`,
   });
 }
 
@@ -122,22 +196,13 @@ function jsonObject(value: unknown, label: string): JsonObject {
   if (json === null || typeof json !== "object" || Array.isArray(json)) throw new TypeError(`${label} must be an object`);
   return json;
 }
-
-function validateToolIsolationPolicy(policy: ToolIsolationPolicy): void {
-  for (const [label, values] of [["allowedEnvironmentNames", policy.allowedEnvironmentNames], ["allowedReadRoots", policy.allowedReadRoots], ["allowedWriteRoots", policy.allowedWriteRoots]] as const) {
-    if (new Set(values).size !== values.length || values.some((value) => value === "")) throw new TypeError(`Tool policy ${label} must contain unique non-empty values`);
-  }
-  const secretName = /(?:AUTH|CREDENTIAL|KEY|PASSWORD|SECRET|TOKEN)/iu;
-  if (policy.allowedEnvironmentNames.some((name) => secretName.test(name))) throw new Error("Tool policy cannot expose secret-shaped environment variables");
-  for (const root of [...policy.allowedReadRoots, ...policy.allowedWriteRoots]) {
-    if (!/^(?:[A-Za-z]:[\\/]|\/)/u.test(root)) throw new TypeError(`Tool policy root must be absolute: ${root}`);
-  }
-  if (policy.network.mode === "none" && policy.network.allowedOrigins.length !== 0) throw new Error("Network-none policy cannot list allowed origins");
-  if (policy.network.mode === "allowlist" && policy.network.allowedOrigins.length === 0) throw new Error("Network allowlist policy requires at least one origin");
-  for (const origin of policy.network.allowedOrigins) {
-    const url = new URL(origin);
-    if ((url.protocol !== "http:" && url.protocol !== "https:") || url.username !== "" || url.password !== "" || url.pathname !== "/" || url.search !== "" || url.hash !== "") {
-      throw new TypeError(`Tool policy origin is invalid: ${origin}`);
-    }
-  }
+function requireDigest(value: string, label: string): void { if (!/^[a-f0-9]{64}$/u.test(value)) throw new RuntimeDispatchError("receipt_digest_invalid", `${label} is invalid`); }
+function sameSet(left: readonly string[], right: readonly string[]): boolean { return [...new Set(left)].sort().join("\0") === [...new Set(right)].sort().join("\0"); }
+async function withinDeadline<T>(promise: Promise<T>, deadlineAt: number, code: string): Promise<T> {
+  const remaining = deadlineAt - Date.now();
+  if (remaining < 1) throw new RuntimeDispatchError(code, "Trusted runtime operation exceeded its deadline");
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([promise, new Promise<T>((_resolve, reject) => { timer = setTimeout(() => reject(new RuntimeDispatchError(code, "Trusted runtime operation exceeded its deadline")), remaining); })]);
+  } finally { if (timer !== undefined) clearTimeout(timer); }
 }

@@ -1,9 +1,10 @@
 // Resolves the immutable Resource graph needed by one provider-defined role.
 import { digestJson } from "./digest.js";
-import { toJsonValue } from "../domain/json.js";
+import { toJsonValue, type JsonObject } from "../domain/json.js";
 import type { ResourceRecord, ResourceRef, SubAgentDefinition } from "../domain/records.js";
 import type { AgentTaskProvider } from "../provider/agent-task-provider.js";
 import { parseTaskQueryContract, type TaskQueryContract } from "./task-query-contract.js";
+import { assertSupportedJsonSchema } from "./json-schema.js";
 
 export interface ResolvedDefinition {
   readonly definition: SubAgentDefinition;
@@ -119,23 +120,7 @@ function assertClosedJsonSchema(resource: ResourceRecord): void {
   if (schema.type !== "object" || schema.additionalProperties !== false || typeof schema.properties !== "object" || schema.properties === null) {
     throw new TypeError(`Schema Resource is not a closed object schema: ${resource.key}`);
   }
-  validateSchemaNode(schema, resource.key);
-}
-
-function validateSchemaNode(value: unknown, key: string): void {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return;
-  const schema = value as Record<string, unknown>;
-  if (schema.type === "object") {
-    if (schema.additionalProperties !== false || schema.properties === null || typeof schema.properties !== "object" || Array.isArray(schema.properties)) {
-      throw new TypeError(`Schema Resource contains a non-closed object: ${key}`);
-    }
-    for (const child of Object.values(schema.properties as Record<string, unknown>)) validateSchemaNode(child, key);
-  }
-  if (schema.type === "array") validateSchemaNode(schema.items, key);
-  for (const branch of ["allOf", "anyOf", "oneOf"] as const) {
-    const values = schema[branch];
-    if (Array.isArray(values)) for (const child of values) validateSchemaNode(child, key);
-  }
+  assertSupportedJsonSchema(schema as JsonObject, `Schema Resource ${resource.key}`);
 }
 
 function assertResourceKind(resource: ResourceRecord, expected: string): void {

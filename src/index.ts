@@ -7,6 +7,7 @@ export * from "./core/digest.js";
 export * from "./core/dry-run.js";
 export * from "./core/idempotency-ledger.js";
 export * from "./core/invocation-scheduler.js";
+export * from "./core/json-schema.js";
 export * from "./core/migration-plan.js";
 export * from "./core/pagination.js";
 export * from "./core/outcome-router.js";

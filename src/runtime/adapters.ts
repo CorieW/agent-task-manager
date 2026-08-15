@@ -1,14 +1,17 @@
-// Defines pluggable trusted model, tool-isolation, and agent-runner boundaries.
+// Defines pluggable trusted model, tool-isolation, runner, and process-lifecycle boundaries.
 import type { JsonObject } from "../domain/json.js";
 import type { RunContext } from "./contracts.js";
 
 export interface ModelTransportSession {
+  close(): Promise<void>;
   readonly opaqueHandle: unknown;
   readonly receipt: {
+    readonly adapterId: string;
     readonly credentialExposedToTools: false;
     readonly digest: string;
     readonly model: string;
     readonly reasoning: string;
+    readonly runId: string;
     readonly separatedFromToolProcesses: true;
   };
 }
@@ -27,12 +30,16 @@ export interface ToolIsolationPolicy {
 }
 
 export interface ToolIsolationSession {
+  close(): Promise<void>;
   readonly opaqueHandle: unknown;
   readonly receipt: {
+    readonly adapterId: string;
     readonly environmentDigest: string;
     readonly filesystemPolicyDigest: string;
     readonly networkPolicyDigest: string;
+    readonly policyDigest: string;
     readonly processTreeEnforced: true;
+    readonly runId: string;
   };
 }
 
@@ -50,13 +57,18 @@ export interface AgentRunnerIdentity {
 
 export interface AgentProcessCompletion {
   readonly exitCode: number | null;
-  readonly stderr: string;
-  readonly stdout: string;
   readonly toolViolation: string | null;
 }
 
+export interface AgentProcessOutput {
+  readonly channel: "stderr" | "stdout";
+  readonly data: string | Uint8Array;
+}
+
 export interface SupervisedAgentProcess {
+  cleanup(): Promise<void>;
   killTree(): Promise<void>;
+  output(): AsyncIterable<AgentProcessOutput>;
   terminateTree(): Promise<void>;
   wait(): Promise<AgentProcessCompletion>;
 }
