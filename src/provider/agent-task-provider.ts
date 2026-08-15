@@ -1,0 +1,58 @@
+import type {
+  ActivityMutation,
+  ConditionalTaskMutation,
+  ErrorMutation,
+  LeaseRelease,
+  LeaseRenewal,
+  LeaseRequest,
+  LeaseResult,
+  ResourceMutation,
+  ResourceRecord,
+  ResourceRef,
+  SubAgentDefinition,
+  TaskQuery,
+  TaskSnapshot,
+  TaskSummary,
+} from "../domain/records.js";
+import type {
+  ProviderCapabilities,
+  ProviderEnvironment,
+  ReconciliationResult,
+  ValidationReport,
+  WriteReceipt,
+} from "../domain/provider.js";
+import type {
+  TableValidationReport,
+  WorkspaceMigrationPlan,
+  WorkspaceMigrationStep,
+  WorkspaceSchemaRequest,
+  WorkspaceSchemaSnapshot,
+} from "../domain/schema.js";
+
+export interface AgentTaskProvider {
+  getCapabilities(): Promise<ProviderCapabilities>;
+  validateEnvironment(environment: ProviderEnvironment): Promise<ValidationReport>;
+  validateTables(): Promise<TableValidationReport>;
+  inspectWorkspaceSchema(): Promise<WorkspaceSchemaSnapshot>;
+  planWorkspaceChanges(request: WorkspaceSchemaRequest): Promise<WorkspaceMigrationPlan>;
+  applyWorkspaceStep(step: WorkspaceMigrationStep): Promise<WriteReceipt>;
+  reconcileWorkspaceStep(stepId: string): Promise<ReconciliationResult>;
+
+  listSubAgentDefinitions(): Promise<readonly SubAgentDefinition[]>;
+  getSubAgentDefinition(id: string): Promise<SubAgentDefinition>;
+  updateSubAgentActivity(change: ActivityMutation): Promise<WriteReceipt>;
+
+  listTaskSummaries(query: TaskQuery): Promise<readonly TaskSummary[]>;
+  getTaskSnapshot(taskId: string): Promise<TaskSnapshot>;
+  applyTaskMutation(mutation: ConditionalTaskMutation): Promise<WriteReceipt>;
+
+  getResources(refs: readonly ResourceRef[]): Promise<readonly ResourceRecord[]>;
+  putResource(record: ResourceMutation): Promise<WriteReceipt>;
+
+  acquireLease(request: LeaseRequest): Promise<LeaseResult>;
+  renewLease(request: LeaseRenewal): Promise<LeaseResult>;
+  releaseLease(request: LeaseRelease): Promise<WriteReceipt>;
+
+  createOrUpdateError(error: ErrorMutation): Promise<WriteReceipt>;
+  reconcileIntent(intentId: string): Promise<ReconciliationResult>;
+}
