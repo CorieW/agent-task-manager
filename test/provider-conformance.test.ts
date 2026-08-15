@@ -436,3 +436,14 @@ test("CLI help lists only implemented commands", () => {
   assert.match(result.stdout, /migrate --plan/);
   assert.doesNotMatch(result.stdout, /start|dispatch|tasks eligible/);
 });
+
+test("serialized provider emulator rejects lossy non-JSON values", async () => {
+  const provider = new SerializedProviderEmulator(new InMemoryProvider(environment, target));
+  await assert.rejects(
+    provider.validateEnvironment({
+      ...environment,
+      connection: { invalid: undefined } as unknown as ProviderEnvironment["connection"],
+    }),
+    /JSON-compatible/u,
+  );
+});

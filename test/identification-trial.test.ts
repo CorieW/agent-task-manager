@@ -92,6 +92,56 @@ test("stops when any frozen Task, definition, Resource, or workspace basis chang
   assert.equal(step.report.observations.length, 0);
 });
 
+test("binds the provider identity and physical workspace identity", async () => {
+  const firstProvider = await preparedProvider("workspace-a");
+  const secondProvider = await preparedProvider("workspace-b");
+  const preparation = await prepareIdentificationTrial(firstProvider, request());
+  assert.equal(preparation.state, "ready");
+  if (preparation.state !== "ready") return;
+  const step = await recordIdentificationTrialObservation(
+    secondProvider,
+    preparation.plan,
+    startIdentificationTrial(preparation.plan),
+    observation(preparation.plan, "task-001"),
+  );
+  assert.equal(step.report.state, "blocked");
+  assert.equal(step.report.blocker?.code, "trial_basis_changed");
+});
+
+test("rejects malformed outcomes, incomplete counters, and duplicate role rows", async () => {
+  const provider = await preparedProvider();
+  const preparation = await prepareIdentificationTrial(provider, request());
+  assert.equal(preparation.state, "ready");
+  if (preparation.state !== "ready") return;
+  const report = startIdentificationTrial(preparation.plan);
+  const valid = observation(preparation.plan, "task-001");
+  await assert.rejects(
+    recordIdentificationTrialObservation(provider, preparation.plan, report, { ...valid, outcome: "skipped" } as unknown as TrialTaskObservation),
+    /outcome is invalid/u,
+  );
+  const { errors: _errors, ...incomplete } = valid.roleMetrics[0]!;
+  const second = valid.roleMetrics[1]!;
+  await assert.rejects(
+    recordIdentificationTrialObservation(provider, preparation.plan, report, { ...valid, roleMetrics: [incomplete, second] } as unknown as TrialTaskObservation),
+    /unexpected or missing fields/u,
+  );
+  await assert.rejects(
+    recordIdentificationTrialObservation(provider, preparation.plan, report, { ...valid, roleMetrics: [valid.roleMetrics[0]!, valid.roleMetrics[0]!] }),
+    /repeat a definition/u,
+  );
+});
+
+test("uses distinct replay identities for different definition blockers", async () => {
+  const provider = await preparedProvider();
+  const missingA = await prepareIdentificationTrial(provider, { ...request(), definitionIds: ["missing-a"] });
+  const missingB = await prepareIdentificationTrial(provider, { ...request(), definitionIds: ["missing-b"] });
+  assert.equal(missingA.state, "blocked");
+  assert.equal(missingB.state, "blocked");
+  if (missingA.state !== "blocked" || missingB.state !== "blocked") return;
+  assert.notEqual(missingA.blocker.error.errorKey, missingB.blocker.error.errorKey);
+  assert.notEqual(missingA.blocker.error.idempotencyKey, missingB.blocker.error.idempotencyKey);
+});
+
 test("fails closed before trial execution when provider tables are not ready", async () => {
   const requiredTarget: WorkspaceSchemaDescriptor = {
     digest: "required",
@@ -105,8 +155,13 @@ test("fails closed before trial execution when provider tables are not ready", a
   if (preparation.state === "blocked") assert.equal(preparation.blocker.code, "workspace_not_ready");
 });
 
-async function preparedProvider(): Promise<InMemoryProvider> {
-  const provider = new InMemoryProvider(environment, target);
+async function preparedProvider(providerIdentity = "memory"): Promise<InMemoryProvider> {
+  const provider = new InMemoryProvider(environment, target, {
+    capturedAt: "2026-08-15T00:00:00.000Z",
+    digest: sha256("[]"),
+    providerIdentity,
+    tables: [],
+  });
   for (const record of resources()) await provider.putResource(record);
   provider.seedDefinition(definition("incident-summarizer", "Incident Summarizer", "prompt/incidents"));
   provider.seedDefinition(definition("dependency-cartographer", "Dependency Cartographer", "prompt/dependencies"));

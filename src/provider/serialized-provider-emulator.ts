@@ -25,6 +25,7 @@ import type {
   ValidationReport,
   WriteReceipt,
 } from "../domain/provider.js";
+import { toJsonValue } from "../domain/json.js";
 import type {
   TableValidationReport,
   WorkspaceMigrationPlan,
@@ -42,7 +43,7 @@ export interface SeedableAgentTaskProvider extends AgentTaskProvider {
 
 function crossBoundary<T>(value: T): T {
   if (value === undefined) return value;
-  return JSON.parse(JSON.stringify(value)) as T;
+  return JSON.parse(JSON.stringify(toJsonValue(value))) as T;
 }
 
 export class SerializedProviderEmulator implements SeedableAgentTaskProvider {
