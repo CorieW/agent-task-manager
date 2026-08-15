@@ -99,14 +99,91 @@ and only if the sub-agent owns an active run lease, while `Working On` contains
 exactly its active task leases. The manager exhausts paginated relation values
 before comparing or replacing either projection.
 
+## Authoring Sub-agent definitions
+
+Each Sub-agents row is authoritative for one logical role. Its page contains
+exactly one `## Sub-agent definition` heading followed by one JSON code block.
+The JSON is a closed `sub-agent-definition-v1` manifest; the logical `id` is
+independent of the provider row ID. `Name`, `Enabled`, `Revision`, and `Model`
+must exactly match their row properties.
+
+```json
+{
+  "schema": "sub-agent-definition-v1",
+  "id": "security-auditor",
+  "name": "Security Auditor",
+  "enabled": true,
+  "revision": 1,
+  "model": "gpt-5.6-sol",
+  "reasoning": "high",
+  "runnerProfile": "read-only",
+  "priority": 40,
+  "maxConcurrency": 1,
+  "maxAssignmentsPerRun": 1,
+  "maxAssignmentDepth": 2,
+  "deadlineSeconds": 1800,
+  "contextBudgetBytes": 250000,
+  "invocation": { "mode": "manual", "scheduleResource": null },
+  "selection": {
+    "mode": "self",
+    "acceptsAssignmentsFrom": ["self", "explicit"],
+    "taskQueryResource": "query/security-review",
+    "resultSchema": "schema/task-selection-result-v1",
+    "maxCandidateSummaries": 25
+  },
+  "promptResources": ["prompt/security-auditor"],
+  "inputResourceSelectors": ["policy/security"],
+  "outputSchema": "schema/security-audit-result-v1",
+  "capabilities": ["repository.read"],
+  "prohibitedCapabilities": ["repository.write"],
+  "requiredProviderCapabilities": ["leases=atomic"],
+  "allowedIntents": ["error.upsert", "task.status.transition"],
+  "transitions": { "succeeded": "Security Review Complete", "blocked": "Needs Human Resolution" },
+  "retry": { "maxAttempts": 1, "noVerdict": "block" }
+}
+```
+
+Allowed invocation modes are `manual`, `event`, and `scheduled`; scheduled
+definitions must reference an `invocation-schedule-v1` Resource. Selection mode
+is `coordinator`, `self`, or `explicit`. Coordinators require
+`dispatch.coordinate`. Assignment sources are `coordinator`, `self`, and
+`explicit`; `no_work` is a selection result, not a role or selection mode.
+Transitions use provider-defined Task status names or `$current`.
+
+The referenced query Resource has kind `task-query` and a closed body such as:
+
+```json
+{
+  "schema": "task-query-v1",
+  "predicate": { "status": "Security Review" },
+  "dependencySatisfiedStatuses": ["Done"],
+  "limit": 25
+}
+```
+
+Selection and output Resources have kind `json-schema` and must be recursively
+closed object schemas. Prompt, input, query, schedule, and schema dependency
+graphs are resolved transitively, digest-bound, and collectively limited by
+`contextBudgetBytes`. Candidate limits cannot exceed 100, context cannot exceed
+10 MB, and deadlines cannot exceed 86,400 seconds. The manager activates a
+definition only when its runner, model/reasoning pair, capabilities, intents,
+provider requirements, Resources, query, schedule, and transition statuses all
+verify. A coordinator can target only definitions in the immutable activated
+catalog supplied for that selection turn.
+
 ## Public API
 
 The package root exports the provider-neutral contracts, deterministic planning
 and scheduling primitives, and the complete Notion adapter surface:
 
 - `AgentTaskProvider`, `ProviderRegistry`, and `InMemoryProvider`
-- `runFoundationDryRun`, selection-result helpers, invocation scheduling,
-  pagination, canonical JSON, migration plans, and schema comparison
+- Definition APIs: `parseSubAgentDefinitionManifest`,
+  `validateSubAgentDefinition`, `validateDefinitionSet`, `resolveDefinition`,
+  `activateDefinitions`, and `compileCapabilityGrant`
+- Selection APIs: task-query/candidate helpers, `prepareSelection`,
+  `promoteSelection`, explicit-assignment helpers, and `routeOutcome`
+- `runFoundationDryRun`, selection-result helpers, source-aware invocation
+  scheduling, pagination, canonical JSON, migration plans, and schema comparison
 - `NotionProvider`, `NotionHttpTransport`, `NotionWorkspaceReader`,
   `NotionWorkspaceManager`, `NotionPageStore`, `NotionRecordReader`, and
   `NotionStateStore`
@@ -125,8 +202,10 @@ declare const target: WorkspaceSchemaDescriptor;
 const provider = new InMemoryProvider(environment, target);
 const report = await runFoundationDryRun({
   activeRuns: {},
+  dueScheduledDefinitionIds: [],
   environment,
   environmentId: "local-demo",
+  invocationSource: "manual",
   provider,
   scheduleLimit: 1,
   target,
