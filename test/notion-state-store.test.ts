@@ -16,12 +16,14 @@ import type {
 } from "../src/provider/notion/notion-transport.js";
 import { SingleHostMutex } from "../src/provider/notion/single-host-mutex.js";
 
+/** Defines the shared tables fixture for this test module. */
 const TABLES = {
   errors: "errors",
   resources: "resources",
   subAgents: "agents",
   tasks: "tasks",
 };
+/** Defines the shared Notion tables fixture for this test module. */
 const NOTION_TABLES = {
   errors: "11111111-1111-1111-1111-111111111111",
   resources: "22222222-2222-2222-2222-222222222222",
@@ -30,14 +32,19 @@ const NOTION_TABLES = {
 };
 
 test("persists replayable leases and restart-visible intent outcomes", async () => {
+  /** Defines the transport fixture for “persists replayable leases and restart-visible intent outcomes”. */
   const transport = new ResourceTransport();
+  /** Defines the now fixture for “persists replayable leases and restart-visible intent outcomes”. */
   const now = () => new Date("2026-01-01T00:00:00.000Z");
+  /** Defines the pages fixture for “persists replayable leases and restart-visible intent outcomes”. */
   const pages = new NotionPageStore(TABLES, transport, now);
+  /** Defines the first fixture for “persists replayable leases and restart-visible intent outcomes”. */
   const first = new NotionStateStore(
     pages,
     new SingleHostMutex(`state-${randomUUID()}`),
     now,
   );
+  /** Defines the request fixture for “persists replayable leases and restart-visible intent outcomes”. */
   const request = {
     expiresAt: "2026-01-01T01:00:00.000Z",
     idempotencyKey: "acquire-one",
@@ -46,9 +53,11 @@ test("persists replayable leases and restart-visible intent outcomes", async () 
     subAgentId: "agent-1",
     taskId: null,
   };
+  /** Defines the acquired fixture for “persists replayable leases and restart-visible intent outcomes”. */
   const acquired = await first.acquireLease(request);
   assert.equal(acquired.acquired, true);
 
+  /** Defines the restarted fixture for “persists replayable leases and restart-visible intent outcomes”. */
   const restarted = new NotionStateStore(
     pages,
     new SingleHostMutex(`state-${randomUUID()}`),
@@ -63,6 +72,7 @@ test("persists replayable leases and restart-visible intent outcomes", async () 
     "applied",
   );
 
+  /** Defines the concurrent fixture for “persists replayable leases and restart-visible intent outcomes”. */
   const concurrent = await restarted.acquireLease({
     ...request,
     idempotencyKey: "acquire-two",
@@ -80,15 +90,21 @@ test("persists replayable leases and restart-visible intent outcomes", async () 
 });
 
 test("does not strand stale lease release preconditions in a pending intent", async () => {
+  /** Defines the current fixture for “does not strand stale lease release preconditions in a pending intent”. */
   let current = Date.parse("2026-01-01T00:00:00.000Z");
+  /** Defines the transport fixture for “does not strand stale lease release preconditions in a pending intent”. */
   const transport = new ResourceTransport();
+  /** Defines the now fixture for “does not strand stale lease release preconditions in a pending intent”. */
   const now = () => new Date(current);
+  /** Defines the pages fixture for “does not strand stale lease release preconditions in a pending intent”. */
   const pages = new NotionPageStore(TABLES, transport, now);
+  /** Defines the state fixture for “does not strand stale lease release preconditions in a pending intent”. */
   const state = new NotionStateStore(
     pages,
     new SingleHostMutex(`state-${randomUUID()}`),
     now,
   );
+  /** Defines the acquired fixture for “does not strand stale lease release preconditions in a pending intent”. */
   const acquired = await state.acquireLease({
     expiresAt: "2026-01-01T00:10:00.000Z",
     idempotencyKey: "release-acquire",
@@ -97,6 +113,7 @@ test("does not strand stale lease release preconditions in a pending intent", as
     subAgentId: "agent-1",
     taskId: null,
   });
+  /** Defines the before fixture for “does not strand stale lease release preconditions in a pending intent”. */
   const before = await state.leaseSnapshot(acquired.leaseId!);
   assert.notEqual(before, null);
   current += 1_000;
@@ -115,6 +132,7 @@ test("does not strand stale lease release preconditions in a pending intent", as
     }),
     /release conflict/u,
   );
+  /** Defines the after fixture for “does not strand stale lease release preconditions in a pending intent”. */
   const after = await state.leaseSnapshot(acquired.leaseId!);
   assert.notEqual(after, null);
   await state.releaseLease({
@@ -126,9 +144,13 @@ test("does not strand stale lease release preconditions in a pending intent", as
 });
 
 test("does not persist an intent when its known precondition fails", async () => {
+  /** Defines the transport fixture for “does not persist an intent when its known precondition fails”. */
   const transport = new ResourceTransport();
+  /** Defines the now fixture for “does not persist an intent when its known precondition fails”. */
   const now = () => new Date("2026-01-01T00:00:00.000Z");
+  /** Defines the pages fixture for “does not persist an intent when its known precondition fails”. */
   const pages = new NotionPageStore(TABLES, transport, now);
+  /** Defines the state fixture for “does not persist an intent when its known precondition fails”. */
   const state = new NotionStateStore(
     pages,
     new SingleHostMutex(`state-${randomUUID()}`),
@@ -152,23 +174,30 @@ test("does not persist an intent when its known precondition fails", async () =>
 });
 
 test("repairs only the exact marked pending Notion Task mutation", async () => {
+  /** Defines the transport fixture for “repairs only the exact marked pending Notion Task mutation”. */
   const transport = new ResourceTransport();
   transport.seedTask(NOTION_TABLES.tasks);
+  /** Defines the now fixture for “repairs only the exact marked pending Notion Task mutation”. */
   const now = () => new Date("2026-01-01T00:00:00.000Z");
+  /** Defines the pages fixture for “repairs only the exact marked pending Notion Task mutation”. */
   const pages = new NotionPageStore(NOTION_TABLES, transport, now);
+  /** Defines the state fixture for “repairs only the exact marked pending Notion Task mutation”. */
   const state = new NotionStateStore(
     pages,
     new SingleHostMutex(`state-${randomUUID()}`),
     now,
   );
+  /** Defines the provider fixture for “repairs only the exact marked pending Notion Task mutation”. */
   const provider = new NotionProvider({
     environment: notionEnvironment(),
     environmentId: `recovery-${randomUUID()}`,
     now,
     transport,
   });
+  /** Defines the task fixture for “repairs only the exact marked pending Notion Task mutation”. */
   const task = await provider.getTaskSnapshot("task-1");
   assert.equal(Object.hasOwn(task.properties, "Manager Mutation"), false);
+  /** Defines the mutation fixture for “repairs only the exact marked pending Notion Task mutation”. */
   const mutation = {
     expectedVersion: task.version,
     idempotencyKey: "task-interrupted",
@@ -188,21 +217,27 @@ test("repairs only the exact marked pending Notion Task mutation", async () => {
     "applied",
   );
 
+  /** Defines the another fixture for “repairs only the exact marked pending Notion Task mutation”. */
   const another = new ResourceTransport();
   another.seedTask(NOTION_TABLES.tasks);
+  /** Defines the another pages fixture for “repairs only the exact marked pending Notion Task mutation”. */
   const anotherPages = new NotionPageStore(NOTION_TABLES, another, now);
+  /** Defines the another state fixture for “repairs only the exact marked pending Notion Task mutation”. */
   const anotherState = new NotionStateStore(
     anotherPages,
     new SingleHostMutex(`state-${randomUUID()}`),
     now,
   );
+  /** Defines the another provider fixture for “repairs only the exact marked pending Notion Task mutation”. */
   const anotherProvider = new NotionProvider({
     environment: notionEnvironment(),
     environmentId: `recovery-${randomUUID()}`,
     now,
     transport: another,
   });
+  /** Defines the original fixture for “repairs only the exact marked pending Notion Task mutation”. */
   const original = await anotherProvider.getTaskSnapshot("task-1");
+  /** Defines the pending fixture for “repairs only the exact marked pending Notion Task mutation”. */
   const pending = {
     expectedVersion: original.version,
     idempotencyKey: "task-pending",
@@ -221,16 +256,20 @@ test("repairs only the exact marked pending Notion Task mutation", async () => {
     /conflicts with newer state/u,
   );
 
+  /** Defines the body transport fixture for “repairs only the exact marked pending Notion Task mutation”. */
   const bodyTransport = new ResourceTransport();
   bodyTransport.seedTask(NOTION_TABLES.tasks);
   bodyTransport.failNextTaskPropertyPatch = true;
+  /** Defines the body provider fixture for “repairs only the exact marked pending Notion Task mutation”. */
   const bodyProvider = new NotionProvider({
     environment: notionEnvironment(),
     environmentId: `recovery-${randomUUID()}`,
     now,
     transport: bodyTransport,
   });
+  /** Defines the body task fixture for “repairs only the exact marked pending Notion Task mutation”. */
   const bodyTask = await bodyProvider.getTaskSnapshot("task-1");
+  /** Defines the body mutation fixture for “repairs only the exact marked pending Notion Task mutation”. */
   const bodyMutation = {
     expectedVersion: bodyTask.version,
     idempotencyKey: "task-body-pending",
@@ -254,15 +293,21 @@ test("repairs only the exact marked pending Notion Task mutation", async () => {
 });
 
 test("repairs a pending Notion Resource intent from its exact target state", async () => {
+  /** Defines the transport fixture for “repairs a pending Notion Resource intent from its exact target state”. */
   const transport = new ResourceTransport();
+  /** Defines the now fixture for “repairs a pending Notion Resource intent from its exact target state”. */
   const now = () => new Date("2026-01-01T00:00:00.000Z");
+  /** Defines the pages fixture for “repairs a pending Notion Resource intent from its exact target state”. */
   const pages = new NotionPageStore(TABLES, transport, now);
+  /** Defines the state fixture for “repairs a pending Notion Resource intent from its exact target state”. */
   const state = new NotionStateStore(
     pages,
     new SingleHostMutex(`state-${randomUUID()}`),
     now,
   );
+  /** Defines the body fixture for “repairs a pending Notion Resource intent from its exact target state”. */
   const body = '{"schema":"test-resource-v1"}';
+  /** Defines the record fixture for “repairs a pending Notion Resource intent from its exact target state”. */
   const record: ResourceMutation = {
     body,
     dependencies: [],
@@ -274,6 +319,7 @@ test("repairs a pending Notion Resource intent from its exact target state", asy
     version: "v1",
   };
   await state.beginIntent(record.idempotencyKey, "resource", record);
+  /** Defines the provider fixture for “repairs a pending Notion Resource intent from its exact target state”. */
   const provider = new NotionProvider({
     environment: notionEnvironment(),
     environmentId: `recovery-${randomUUID()}`,
@@ -297,16 +343,23 @@ test("repairs a pending Notion Resource intent from its exact target state", asy
 });
 
 test("does not repair an old pending Resource intent over newer state", async () => {
+  /** Defines the transport fixture for “does not repair an old pending Resource intent over newer state”. */
   const transport = new ResourceTransport();
+  /** Defines the now fixture for “does not repair an old pending Resource intent over newer state”. */
   const now = () => new Date("2026-01-01T00:00:00.000Z");
+  /** Defines the pages fixture for “does not repair an old pending Resource intent over newer state”. */
   const pages = new NotionPageStore(TABLES, transport, now);
+  /** Defines the state fixture for “does not repair an old pending Resource intent over newer state”. */
   const state = new NotionStateStore(
     pages,
     new SingleHostMutex(`state-${randomUUID()}`),
     now,
   );
+  /** Defines the old body fixture for “does not repair an old pending Resource intent over newer state”. */
   const oldBody = '{"revision":1}';
+  /** Defines the newer body fixture for “does not repair an old pending Resource intent over newer state”. */
   const newerBody = '{"revision":2}';
+  /** Defines the old fixture for “does not repair an old pending Resource intent over newer state”. */
   const old: ResourceMutation = {
     body: oldBody,
     dependencies: [],
@@ -317,6 +370,7 @@ test("does not repair an old pending Resource intent over newer state", async ()
     state: "active",
     version: "v1",
   };
+  /** Defines the newer fixture for “does not repair an old pending Resource intent over newer state”. */
   const newer: ResourceMutation = {
     ...old,
     body: newerBody,
@@ -326,6 +380,7 @@ test("does not repair an old pending Resource intent over newer state", async ()
   };
   await state.beginIntent(old.idempotencyKey, "resource", old);
   await pages.createResource(newer);
+  /** Defines the provider fixture for “does not repair an old pending Resource intent over newer state”. */
   const provider = new NotionProvider({
     environment: notionEnvironment(),
     environmentId: `recovery-${randomUUID()}`,
@@ -340,14 +395,19 @@ test("does not repair an old pending Resource intent over newer state", async ()
 });
 
 test("repairs a pending Notion Error intent from its exact target state", async () => {
+  /** Defines the transport fixture for “repairs a pending Notion Error intent from its exact target state”. */
   const transport = new ResourceTransport();
+  /** Defines the now fixture for “repairs a pending Notion Error intent from its exact target state”. */
   const now = () => new Date("2026-01-01T00:00:00.000Z");
+  /** Defines the pages fixture for “repairs a pending Notion Error intent from its exact target state”. */
   const pages = new NotionPageStore(TABLES, transport, now);
+  /** Defines the state fixture for “repairs a pending Notion Error intent from its exact target state”. */
   const state = new NotionStateStore(
     pages,
     new SingleHostMutex(`state-${randomUUID()}`),
     now,
   );
+  /** Defines the error fixture for “repairs a pending Notion Error intent from its exact target state”. */
   const error = {
     description: "Publication is unavailable.",
     errorKey: "publication/missing",
@@ -362,6 +422,7 @@ test("repairs a pending Notion Error intent from its exact target state", async 
   };
   await state.beginIntent(error.idempotencyKey, "error", error);
   await pages.createOrUpdateError(error);
+  /** Defines the provider fixture for “repairs a pending Notion Error intent from its exact target state”. */
   const provider = new NotionProvider({
     environment: notionEnvironment(),
     environmentId: `recovery-${randomUUID()}`,
@@ -378,12 +439,18 @@ test("repairs a pending Notion Error intent from its exact target state", async 
   );
 });
 
+/** Implements resource transport. */
 class ResourceTransport implements NotionTransport {
+  /** Contains blocks for resource transport. */
   readonly #blocks = new Map<string, JsonObject[]>();
+  /** Contains pages for resource transport. */
   readonly #pages = new Map<string, JsonObject>();
+  /** Contains clock for resource transport. */
   #clock = 0;
+  /** Contains fail next task property patch for resource transport. */
   public failNextTaskPropertyPatch = false;
 
+  /** Seeds task. */
   public seedTask(parent = "tasks"): void {
     this.#pages.set(
       "task-1",
@@ -415,26 +482,35 @@ class ResourceTransport implements NotionTransport {
     this.#blocks.set("task-1", []);
   }
 
+  /** Executes one provider request. */
   public async request(request: NotionRequest): Promise<JsonObject> {
+    /** Defines the data source fixture used by request. */
     const dataSource = /^\/v1\/data_sources\/([^/]+)$/u.exec(request.path);
     if (request.method === "GET" && dataSource?.[1] !== undefined)
       return { id: dataSource[1], object: "data_source" };
     if (/^\/v1\/data_sources\/[^/]+\/query$/u.test(request.path)) {
+      /** Defines the filter fixture used by request. */
       const filter = objectValue(objectValue(request.body).filter);
+      /** Defines the property fixture used by request. */
       const property = String(filter.property);
+      /** Defines the expected fixture used by request. */
       const expected = String(
         objectValue(filter.title).equals ??
           objectValue(filter.rich_text).equals ??
           objectValue(filter.select).equals,
       );
+      /** Defines the results fixture used by request. */
       const results = [...this.#pages.values()].filter(
         (page) => propertyValue(page, property) === expected,
       );
       return { has_more: false, next_cursor: null, results };
     }
     if (request.method === "POST" && request.path === "/v1/pages") {
+      /** Defines the body fixture used by request. */
       const body = objectValue(request.body);
+      /** Defines the ID fixture used by request. */
       const id = `resource-${this.#pages.size + 1}`;
+      /** Defines the page fixture used by request. */
       const page = this.page(
         id,
         objectValue(body.properties),
@@ -450,15 +526,19 @@ class ResourceTransport implements NotionTransport {
       );
       return page;
     }
+    /** Defines the page match fixture used by request. */
     const pageMatch = /^\/v1\/pages\/(.+)$/u.exec(request.path);
     if (pageMatch?.[1] !== undefined) {
+      /** Defines the current fixture used by request. */
       const current = required(this.#pages.get(pageMatch[1]));
       if (request.method === "GET") return current;
       if (pageMatch[1] === "task-1" && this.failNextTaskPropertyPatch) {
         this.failNextTaskPropertyPatch = false;
         throw new Error("simulated Task property interruption");
       }
+      /** Defines the body fixture used by request. */
       const body = objectValue(request.body);
+      /** Defines the next fixture used by request. */
       const next = this.page(
         pageMatch[1],
         mergeProperties(
@@ -470,6 +550,7 @@ class ResourceTransport implements NotionTransport {
       this.#pages.set(pageMatch[1], next);
       return next;
     }
+    /** Defines the children fixture used by request. */
     const children = /^\/v1\/blocks\/(.+)\/children$/u.exec(request.path);
     if (children?.[1] !== undefined && request.method === "GET") {
       return {
@@ -479,7 +560,9 @@ class ResourceTransport implements NotionTransport {
       };
     }
     if (children?.[1] !== undefined && request.method === "PATCH") {
+      /** Defines the existing fixture used by request. */
       const existing = this.#blocks.get(children[1]) ?? [];
+      /** Defines the added fixture used by request. */
       const added = (objectValue(request.body).children as JsonObject[]).map(
         (item, index) => ({
           ...item,
@@ -487,6 +570,7 @@ class ResourceTransport implements NotionTransport {
         }),
       );
       this.#blocks.set(children[1], [...existing, ...added]);
+      /** Defines the current fixture used by request. */
       const current = required(this.#pages.get(children[1]));
       this.#pages.set(
         children[1],
@@ -498,9 +582,11 @@ class ResourceTransport implements NotionTransport {
       );
       return { results: added };
     }
+    /** Defines the block fixture used by request. */
     const block = /^\/v1\/blocks\/(.+)$/u.exec(request.path);
     if (block?.[1] !== undefined && request.method === "PATCH") {
       for (const [pageId, blocks] of this.#blocks) {
+        /** Defines the index fixture used by request. */
         const index = blocks.findIndex(
           (candidate) => candidate.id === block[1],
         );
@@ -509,6 +595,7 @@ class ResourceTransport implements NotionTransport {
             ...required(blocks[index]),
             ...objectValue(request.body),
           };
+          /** Defines the current fixture used by request. */
           const current = required(this.#pages.get(pageId));
           this.#pages.set(
             pageId,
@@ -525,14 +612,17 @@ class ResourceTransport implements NotionTransport {
     throw new Error(`Unexpected ${request.method} ${request.path}`);
   }
 
+  /** Builds a simulated Notion page returned by the transport. */
   private page(
     id: string,
     properties: JsonObject,
     parent = "resources",
   ): JsonObject {
     this.#clock += 1;
+    /** Defines the normalized fixture used by page. */
     const normalized = Object.fromEntries(
       Object.entries(properties).map(([name, value]) => {
+        /** Defines the property fixture used by page. */
         const property = objectValue(value);
         return [
           name,
@@ -552,12 +642,15 @@ class ResourceTransport implements NotionTransport {
   }
 }
 
+/** Creates the merge properties test fixture. */
 function mergeProperties(prior: JsonObject, updates: JsonObject): JsonObject {
   return {
     ...prior,
     ...Object.fromEntries(
       Object.entries(updates).map(([name, value]) => {
+        /** Defines the before fixture used by merge properties. */
         const before = objectValue(prior[name]);
+        /** Defines the after fixture used by merge properties. */
         const after = objectValue(value);
         return [
           name,
@@ -572,8 +665,11 @@ function mergeProperties(prior: JsonObject, updates: JsonObject): JsonObject {
   };
 }
 
+/** Extracts a textual property value from a simulated Notion page. */
 function propertyValue(page: JsonObject, name: string): string {
+  /** Defines the property fixture used by property value. */
   const property = objectValue(objectValue(page.properties)[name]);
+  /** Defines the values fixture used by property value. */
   const values = property.title ?? property.rich_text;
   if (Array.isArray(values))
     return values
@@ -582,17 +678,20 @@ function propertyValue(page: JsonObject, name: string): string {
   return String(objectValue(property.select).name ?? "");
 }
 
+/** Returns a validated JSON object. */
 function objectValue(value: unknown): JsonObject {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as JsonObject)
     : {};
 }
 
+/** Returns a fixture value or fails the test. */
 function required<T>(value: T | undefined): T {
   if (value === undefined) throw new Error("Fixture value missing");
   return value;
 }
 
+/** Creates the Notion environment test fixture. */
 function notionEnvironment(): ProviderEnvironment {
   return {
     bootstrapParent: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",

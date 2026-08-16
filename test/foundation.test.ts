@@ -28,6 +28,7 @@ test("canonicalize normalizes strings and rejects normalized key collisions", ()
 });
 
 test("environment configuration permits missing tables only as null values", () => {
+  /** Defines the config fixture for “environment configuration permits missing tables only as null values”. */
   const config = parseEnvironmentConfig({
     environmentId: "demo",
     provider: {
@@ -97,6 +98,7 @@ test("environment configuration is closed and reports missing required fields", 
 });
 
 test("runtime readiness requires closed adapter and isolation environment definitions", () => {
+  /** Defines the config fixture for “runtime readiness requires closed adapter and isolation environment definitions”. */
   const config = parseEnvironmentConfig({
     adapters: {
       agentRunner: "runner",
@@ -145,6 +147,7 @@ test("runtime readiness requires closed adapter and isolation environment defini
 });
 
 test("migration authorization rejects a different digest", () => {
+  /** Defines the plan fixture for “migration authorization rejects a different digest”. */
   const plan = finalizeMigrationPlan({
     environmentId: "demo",
     mode: "bootstrap",
@@ -160,6 +163,7 @@ test("migration authorization rejects a different digest", () => {
 });
 
 test("provider registry rejects duplicate registrations", () => {
+  /** Defines the registry fixture for “provider registry rejects duplicate registrations”. */
   const registry = new ProviderRegistry();
   registry.register("memory", () => ({}) as never);
   assert.throws(
@@ -169,6 +173,7 @@ test("provider registry rejects duplicate registrations", () => {
 });
 
 test("schema comparison distinguishes bootstrap and incompatible drift", () => {
+  /** Defines the target fixture for “schema comparison distinguishes bootstrap and incompatible drift”. */
   const target = {
     digest: "target",
     providerType: "memory",
@@ -191,6 +196,7 @@ test("schema comparison distinguishes bootstrap and incompatible drift", () => {
     ],
     version: "v1",
   };
+  /** Defines the missing fixture for “schema comparison distinguishes bootstrap and incompatible drift”. */
   const missing = compareWorkspaceSchema(
     {
       capturedAt: "2026-01-01T00:00:00.000Z",
@@ -202,6 +208,7 @@ test("schema comparison distinguishes bootstrap and incompatible drift", () => {
   );
   assert.equal(missing.state, "needs_bootstrap");
 
+  /** Defines the incompatible fixture for “schema comparison distinguishes bootstrap and incompatible drift”. */
   const incompatible = compareWorkspaceSchema(
     {
       capturedAt: "2026-01-01T00:00:00.000Z",

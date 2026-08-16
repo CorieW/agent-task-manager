@@ -17,6 +17,7 @@ import {
   normalizeNotionIdentifier,
 } from "../src/provider/notion/notion-workspace-reader.js";
 
+/** Defines the shared IDs fixture for this test module. */
 const IDS = {
   errors: "22222222-2222-2222-2222-222222222222",
   resources: "11111111-1111-1111-1111-111111111111",
@@ -24,16 +25,21 @@ const IDS = {
   tasks: "33333333-3333-3333-3333-333333333333",
 } as const;
 
+/** Implements fake transport. */
 class FakeTransport implements NotionTransport {
+  /** Contains requests for fake transport. */
   public readonly requests: NotionRequest[] = [];
 
+  /** Executes one provider request. */
   public async request(request: NotionRequest): Promise<JsonObject> {
     this.requests.push(request);
     if (request.path === "/v1/users/me") {
       return { bot: { workspace_name: "Demo" }, id: "bot-1", object: "user" };
     }
+    /** Defines the match fixture used by request. */
     const match = /^\/v1\/data_sources\/(.+)$/u.exec(request.path);
     if (match?.[1] !== undefined) {
+      /** Defines the kind fixture used by request. */
       const kind = Object.entries(IDS).find(([, id]) => id === match[1])?.[0];
       assert.ok(kind);
       return source(match[1], kind);
@@ -57,7 +63,9 @@ test("normalizes Notion URLs and collection identifiers", () => {
 });
 
 test("collects every Notion page and rejects broken cursors", async () => {
+  /** Defines the seen fixture for “collects every Notion page and rejects broken cursors”. */
   const seen: Array<string | null> = [];
+  /** Defines the rows fixture for “collects every Notion page and rejects broken cursors”. */
   const rows = await collectNotionPages(async (cursor) => {
     seen.push(cursor);
     return cursor === null
@@ -80,7 +88,9 @@ test("collects every Notion page and rejects broken cursors", async () => {
 });
 
 test("uses authenticated, versioned Notion HTTP requests without exposing tokens", async () => {
+  /** Defines the observed fixture for “uses authenticated, versioned Notion HTTP requests without exposing tokens”. */
   let observed: Request | undefined;
+  /** Defines the transport fixture for “uses authenticated, versioned Notion HTTP requests without exposing tokens”. */
   const transport = new NotionHttpTransport({
     fetch: async (input, init) => {
       observed = new Request(input, init);
@@ -103,13 +113,16 @@ test("uses authenticated, versioned Notion HTTP requests without exposing tokens
 });
 
 test("inspects all configured tables into a canonical snapshot", async () => {
+  /** Defines the transport fixture for “inspects all configured tables into a canonical snapshot”. */
   const transport = new FakeTransport();
+  /** Defines the reader fixture for “inspects all configured tables into a canonical snapshot”. */
   const reader = new NotionWorkspaceReader(
     environment(),
     createNotionWorkspaceSchema(),
     transport,
     () => new Date(0),
   );
+  /** Defines the snapshot fixture for “inspects all configured tables into a canonical snapshot”. */
   const snapshot = await reader.inspectWorkspaceSchema();
   assert.equal(snapshot.providerIdentity, "bot-1:Demo");
   assert.equal(snapshot.tables.length, 4);
@@ -130,7 +143,9 @@ test("inspects all configured tables into a canonical snapshot", async () => {
 });
 
 test("rejects logical tables that alias one physical data source", async () => {
+  /** Defines the transport fixture for “rejects logical tables that alias one physical data source”. */
   const transport = new FakeTransport();
+  /** Defines the aliased fixture for “rejects logical tables that alias one physical data source”. */
   const aliased = {
     ...environment(),
     tables: {
@@ -140,6 +155,7 @@ test("rejects logical tables that alias one physical data source", async () => {
       tasks: IDS.resources,
     },
   };
+  /** Defines the reader fixture for “rejects logical tables that alias one physical data source”. */
   const reader = new NotionWorkspaceReader(
     aliased,
     createNotionWorkspaceSchema(),
@@ -152,6 +168,7 @@ test("rejects logical tables that alias one physical data source", async () => {
 });
 
 test("aborts Notion HTTP calls at the configured deadline", async () => {
+  /** Defines the transport fixture for “aborts Notion HTTP calls at the configured deadline”. */
   const transport = new NotionHttpTransport({
     fetch: async (_input, init) =>
       new Promise<Response>((_resolve, reject) => {
@@ -173,6 +190,7 @@ test("aborts Notion HTTP calls at the configured deadline", async () => {
   );
 });
 
+/** Creates a provider environment fixture. */
 function environment(): ProviderEnvironment {
   return {
     bootstrapParent: null,
@@ -182,7 +200,9 @@ function environment(): ProviderEnvironment {
   };
 }
 
+/** Creates the source test fixture. */
 function source(id: string, kind: string): JsonObject {
+  /** Defines the common fixture used by source. */
   const common = {
     id,
     last_edited_time: "2026-01-01T00:00:00.000Z",

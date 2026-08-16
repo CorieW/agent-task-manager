@@ -10,6 +10,7 @@ import type {
   NotionTransport,
 } from "../src/provider/notion/notion-transport.js";
 
+/** Defines the shared tables fixture for this test module. */
 const TABLES = {
   errors: "errors",
   resources: "resources",
@@ -17,7 +18,9 @@ const TABLES = {
   tasks: "tasks",
 };
 
+/** Implements records transport. */
 class RecordsTransport implements NotionTransport {
+  /** Executes one provider request. */
   public async request(request: NotionRequest): Promise<JsonObject> {
     if (request.path === "/v1/data_sources/tasks/query") {
       return { has_more: false, next_cursor: null, results: [taskPage()] };
@@ -62,13 +65,16 @@ class RecordsTransport implements NotionTransport {
 }
 
 test("decodes task summaries and exhausts relation property pagination", async () => {
+  /** Defines the reader fixture for “decodes task summaries and exhausts relation property pagination”. */
   const reader = new NotionRecordReader(TABLES, new RecordsTransport());
+  /** Defines the summaries fixture for “decodes task summaries and exhausts relation property pagination”. */
   const summaries = await reader.listTaskSummaries({
     cursor: null,
     limit: 10,
     predicate: { status: "Todo" },
   });
   assert.equal(summaries.length, 1);
+  /** Defines the task fixture for “decodes task summaries and exhausts relation property pagination”. */
   const task = await reader.getTaskSnapshot("task-1");
   assert.deepEqual(task.dependencies, ["dep-1", "dep-2"]);
   assert.equal(task.body, "Task details");
@@ -79,7 +85,9 @@ test("decodes task summaries and exhausts relation property pagination", async (
 });
 
 test("loads strict Sub-agent definitions from their managed range", async () => {
+  /** Defines the reader fixture for “loads strict Sub-agent definitions from their managed range”. */
   const reader = new NotionRecordReader(TABLES, new RecordsTransport());
+  /** Defines the agent fixture for “loads strict Sub-agent definitions from their managed range”. */
   const [agent] = await reader.listSubAgentDefinitions();
   assert.equal(agent?.name, "Coordinator");
   assert.equal(agent?.selection.mode, "coordinator");
@@ -92,7 +100,9 @@ test("loads strict Sub-agent definitions from their managed range", async () => 
 });
 
 test("verifies Resources against their content digest", async () => {
+  /** Defines the reader fixture for “verifies Resources against their content digest”. */
   const reader = new NotionRecordReader(TABLES, new RecordsTransport());
+  /** Defines the resource fixture for “verifies Resources against their content digest”. */
   const [resource] = await reader.getResources([
     {
       digest: sha256("resource text"),
@@ -103,6 +113,7 @@ test("verifies Resources against their content digest", async () => {
   assert.equal(resource?.body, "resource text");
 });
 
+/** Builds page. */
 function taskPage(): JsonObject {
   return {
     archived: false,
@@ -128,6 +139,7 @@ function taskPage(): JsonObject {
   };
 }
 
+/** Creates the agent page test fixture. */
 function agentPage(): JsonObject {
   return {
     id: "agent-1",
@@ -151,6 +163,7 @@ function agentPage(): JsonObject {
   };
 }
 
+/** Builds page. */
 function resourcePage(): JsonObject {
   return {
     id: "resource-1",
@@ -179,6 +192,7 @@ function resourcePage(): JsonObject {
   };
 }
 
+/** Creates a Sub-agent definition fixture. */
 function definition(): JsonObject {
   return {
     allowedIntents: ["task.update"],
@@ -216,10 +230,12 @@ function definition(): JsonObject {
   };
 }
 
+/** Creates the blocks test fixture. */
 function blocks(results: JsonObject[]): JsonObject {
   return { has_more: false, next_cursor: null, results };
 }
 
+/** Builds a simulated managed heading and code-block section. */
 function managed(heading: string, body: string): JsonObject[] {
   return [
     { heading_2: rich(heading), id: "heading", type: "heading_2" },
@@ -227,6 +243,7 @@ function managed(heading: string, body: string): JsonObject[] {
   ];
 }
 
+/** Converts rich. */
 function rich(value: string): JsonObject {
   return { rich_text: [{ plain_text: value }] };
 }

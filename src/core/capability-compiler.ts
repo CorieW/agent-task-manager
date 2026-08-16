@@ -2,23 +2,34 @@
 import type { ProviderCapabilities } from "../domain/provider.js";
 import type { SubAgentDefinition } from "../domain/records.js";
 
+/** Canonical fields for capability grant. */
 export interface CapabilityGrant {
+  /** Effect intents the definition may invoke. */
   readonly allowedIntents: readonly string[];
+  /** Capabilities included in capability grant. */
   readonly capabilities: readonly string[];
+  /** Provider requirements included in capability grant. */
   readonly providerRequirements: readonly string[];
 }
 
+/** Builds a least-privilege grant from a definition and installed capabilities. */
 export function compileCapabilityGrant(input: {
+  /** Definition for compile capability grant input. */
   readonly definition: SubAgentDefinition;
+  /** Installed capabilities included in compile capability grant input. */
   readonly installedCapabilities: readonly string[];
+  /** Installed intents included in compile capability grant input. */
   readonly installedIntents?: readonly string[];
+  /** Provider capabilities for compile capability grant input. */
   readonly providerCapabilities: ProviderCapabilities;
 }): CapabilityGrant {
+  /** Distinct installed tracked during compile capability grant. */
   const installed = new Set(input.installedCapabilities);
   for (const capability of input.definition.capabilities) {
     if (!installed.has(capability))
       throw new Error(`Capability adapter is unavailable: ${capability}`);
   }
+  /** Distinct prohibited tracked during compile capability grant. */
   const prohibited = new Set(input.definition.prohibitedCapabilities);
   if (
     input.definition.capabilities.some((capability) =>
@@ -30,6 +41,7 @@ export function compileCapabilityGrant(input: {
     if (!providerRequirementMet(input.providerCapabilities, requirement))
       throw new Error(`Provider capability is unavailable: ${requirement}`);
   }
+  /** Distinct installed intents tracked during compile capability grant. */
   const installedIntents = new Set(
     input.installedIntents ?? input.definition.allowedIntents,
   );
@@ -45,13 +57,16 @@ export function compileCapabilityGrant(input: {
   };
 }
 
+/** Checks one encoded provider-capability requirement against observed capabilities. */
 function providerRequirementMet(
   capabilities: ProviderCapabilities,
   requirement: string,
 ): boolean {
+  /** Name and expected used during provider requirement met. */
   const [name, expected] = requirement.split("=", 2);
   if (name === undefined || name === "") return false;
   if (!(name in capabilities)) return false;
+  /** Provider capability value compared with the encoded requirement. */
   const actual = capabilities[name as keyof ProviderCapabilities];
   return expected === undefined ? actual === true : String(actual) === expected;
 }

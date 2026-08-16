@@ -1,11 +1,15 @@
 /** Validates the deliberately small, closed JSON-Schema dialect used by provider Resources. */
 import type { JsonObject, JsonValue } from "../domain/json.js";
 
+/** Structured issue detected while validating schema validation. */
 export interface SchemaValidationIssue {
+  /** Message for schema validation issue. */
   readonly message: string;
+  /** Path for schema validation issue. */
   readonly path: string;
 }
 
+/** JSON Schema keywords accepted for every supported node. */
 const COMMON_KEYS = new Set([
   "$schema",
   "allOf",
@@ -17,6 +21,7 @@ const COMMON_KEYS = new Set([
   "title",
   "type",
 ]);
+/** JSON Schema keywords accepted for each primitive type. */
 const TYPE_KEYS: Readonly<Record<string, ReadonlySet<string>>> = {
   array: new Set(["items", "maxItems", "minItems", "uniqueItems"]),
   boolean: new Set(),
@@ -33,6 +38,7 @@ const TYPE_KEYS: Readonly<Record<string, ReadonlySet<string>>> = {
   string: new Set(["maxLength", "minLength"]),
 };
 
+/** Rejects JSON Schema outside the supported closed subset. */
 export function assertSupportedJsonSchema(
   schema: JsonObject,
   label = "JSON Schema",
@@ -40,23 +46,28 @@ export function assertSupportedJsonSchema(
   assertSchemaNode(schema, "$", label);
 }
 
+/** Returns all violations of a value against the supported JSON Schema subset. */
 export function validateJsonSchemaValue(
   schema: JsonObject,
   value: JsonValue,
 ): readonly SchemaValidationIssue[] {
+  /** Validation issues collected during this operation. */
   const issues: SchemaValidationIssue[] = [];
   validateNode(schema, value, "$", issues);
   return issues;
 }
 
+/** Rejects unsupported JSON Schema nodes recursively. */
 function assertSchemaNode(
   schema: JsonObject,
   path: string,
   label: string,
 ): void {
+  /** Type used during assert schema node. */
   const type = schema.type;
   if (type !== undefined && (typeof type !== "string" || !(type in TYPE_KEYS)))
     throw new TypeError(`${label} ${path}.type is unsupported`);
+  /** Distinct allowed tracked during assert schema node. */
   const allowed = new Set(COMMON_KEYS);
   if (typeof type === "string")
     for (const key of TYPE_KEYS[type] ?? []) allowed.add(key);
@@ -76,6 +87,7 @@ function assertSchemaNode(
   )
     throw new TypeError(`${label} ${path}.enum must be a non-empty array`);
   for (const branch of ["allOf", "anyOf", "oneOf"] as const) {
+    /** Object currently undergoing field-level validation. */
     const value = schema[branch];
     if (value === undefined) continue;
     if (
@@ -115,6 +127,7 @@ function assertSchemaNode(
   }
   if (type === "number" || type === "integer")
     for (const key of ["minimum", "maximum"] as const) {
+      /** Object currently undergoing field-level validation. */
       const value = schema[key];
       if (
         value !== undefined &&
@@ -126,6 +139,7 @@ function assertSchemaNode(
     assertBounds(schema.minimum, schema.maximum, `${label} ${path} numeric`);
 }
 
+/** Rejects unsupported object-schema keywords and shapes. */
 function assertObjectSchema(
   schema: JsonObject,
   path: string,
@@ -172,6 +186,7 @@ function assertObjectSchema(
   );
 }
 
+/** Rejects values that are not non-negative integers. */
 function assertNonNegativeInteger(
   value: JsonValue | undefined,
   label: string,
@@ -180,6 +195,7 @@ function assertNonNegativeInteger(
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0)
     throw new TypeError(`${label} must be a non-negative integer`);
 }
+/** Rejects unsupported numeric JSON Schema bounds. */
 function assertBounds(
   minimum: JsonValue | undefined,
   maximum: JsonValue | undefined,
@@ -193,6 +209,7 @@ function assertBounds(
     throw new TypeError(`${label} minimum cannot exceed maximum`);
 }
 
+/** Validates a JSON value against one schema node. */
 function validateNode(
   schema: JsonObject,
   value: JsonValue,
@@ -206,6 +223,7 @@ function validateNode(
     !schema.enum.some((candidate) => sameJson(candidate, value))
   )
     issues.push({ message: "is not an allowed enum value", path });
+  /** Type used during validate node. */
   const type = schema.type;
   if (typeof type === "string" && !matchesType(type, value)) {
     issues.push({ message: `must have type ${type}`, path });
@@ -223,13 +241,16 @@ function validateNode(
     validateBranches(key, schema[key], value, path, issues);
 }
 
+/** Validates object fields, required keys, and additional properties. */
 function validateObject(
   schema: JsonObject,
   value: JsonObject,
   path: string,
   issues: SchemaValidationIssue[],
 ): void {
+  /** Properties used during validate object. */
   const properties = isObject(schema.properties) ? schema.properties : {};
+  /** Required used during validate object. */
   const required = Array.isArray(schema.required)
     ? (schema.required as string[])
     : [];
@@ -253,6 +274,7 @@ function validateObject(
     if (!(name in value))
       issues.push({ message: "is required", path: `${path}.${name}` });
   for (const [name, child] of Object.entries(value)) {
+    /** Child schema used during validate object. */
     const childSchema = properties[name];
     if (childSchema === undefined) {
       if (schema.additionalProperties === false)
@@ -263,6 +285,7 @@ function validateObject(
   }
 }
 
+/** Validates an array against its item schema and size bounds. */
 function validateArray(
   schema: JsonObject,
   value: readonly JsonValue[],
@@ -280,6 +303,7 @@ function validateArray(
       path,
     });
   if (schema.uniqueItems === true) {
+    /** Keys used during validate array. */
     const keys = value.map((item) => JSON.stringify(item));
     if (new Set(keys).size !== keys.length)
       issues.push({ message: "must contain unique items", path });
@@ -295,6 +319,7 @@ function validateArray(
     );
 }
 
+/** Validates a string against length and enumeration constraints. */
 function validateString(
   schema: JsonObject,
   value: string,
@@ -313,6 +338,7 @@ function validateString(
     });
 }
 
+/** Validates a number against inclusive numeric bounds. */
 function validateNumber(
   schema: JsonObject,
   value: number,
@@ -327,6 +353,7 @@ function validateNumber(
     issues.push({ message: `must be at most ${schema.maximum}`, path });
 }
 
+/** Validates anyOf or oneOf branches and reports match-count errors. */
 function validateBranches(
   kind: "allOf" | "anyOf" | "oneOf",
   raw: JsonValue | undefined,
@@ -335,11 +362,14 @@ function validateBranches(
   issues: SchemaValidationIssue[],
 ): void {
   if (!Array.isArray(raw)) return;
+  /** Branch issues used during validate branches. */
   const branchIssues = raw.map((branch) => {
+    /** Found used during validate branches. */
     const found: SchemaValidationIssue[] = [];
     validateNode(branch as JsonObject, value, path, found);
     return found;
   });
+  /** Successes satisfying the current constraints. */
   const successes = branchIssues.filter((found) => found.length === 0).length;
   if (
     (kind === "allOf" && successes !== raw.length) ||
@@ -349,6 +379,7 @@ function validateBranches(
     issues.push({ message: `does not satisfy ${kind}`, path });
 }
 
+/** Checks whether a JSON value matches a schema type keyword. */
 function matchesType(type: string, value: JsonValue): boolean {
   if (type === "null") return value === null;
   if (type === "array") return Array.isArray(value);
@@ -357,9 +388,11 @@ function matchesType(type: string, value: JsonValue): boolean {
     return typeof value === "number" && Number.isSafeInteger(value);
   return typeof value === type;
 }
+/** Reports whether a value is a non-array object. */
 function isObject(value: JsonValue | undefined): value is JsonObject {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
+/** Checks structural JSON equality through canonical serialization. */
 function sameJson(left: JsonValue | undefined, right: JsonValue): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }

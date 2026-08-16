@@ -17,43 +17,66 @@ import {
 } from "./resource-codec.js";
 import { parseHumanInteractionSlots } from "./slot-codec.js";
 
+/** Defines the data and behavior required by human slot inspection. */
 export interface HumanSlotInspection {
+  /** Indicates whether baseline valid. */
   readonly baselineValid: boolean;
+  /** Records the current consumption state for workflow decisions. */
   readonly consumptionState: HumanConsumptionRecord["state"] | "none";
+  /** Discriminates the kind variant. */
   readonly kind: HumanInteractionSlot["kind"];
+  /** Records the current response state for workflow decisions. */
   readonly responseState: "blank" | "completed";
+  /** Identifies slot. */
   readonly slotId: string;
 }
+/** Defines the data and behavior required by human recovery inspection. */
 export interface HumanRecoveryInspection {
+  /** Indicates whether archived. */
   readonly archived: boolean;
+  /** Lists the slots accepted by this contract. */
   readonly slots: readonly HumanSlotInspection[];
+  /** Records the current status for workflow decisions. */
   readonly status: string;
+  /** Identifies task. */
   readonly taskId: string;
+  /** Records the task version used for compatibility checks. */
   readonly taskVersion: string;
 }
 
+/** Defines the data and behavior required by sub agent activity inspection. */
 export interface SubAgentActivityInspection {
+  /** Provides activity to sub agent activity inspection. */
   readonly activity: Awaited<
     ReturnType<AgentTaskProvider["getSubAgentActivity"]>
   >;
+  /** Provides lease projection to sub agent activity inspection. */
   readonly leaseProjection: Awaited<
     ReturnType<AgentTaskProvider["getLeaseProjection"]>
   >;
+  /** Lists the leases accepted by this contract. */
   readonly leases: readonly LeaseSnapshot[];
+  /** Identifies sub agent. */
   readonly subAgentId: string;
 }
 
+/** Builds a read-only inspection of human recovery. */
 export async function inspectHumanRecovery(
   provider: AgentTaskProvider,
   taskId: string,
 ): Promise<HumanRecoveryInspection> {
+  /** Stores task used by inspect human recovery. */
   const task = await provider.getTaskSnapshot(taskId);
+  /** Stores slots used by inspect human recovery. */
   const slots = parseHumanInteractionSlots(task.body);
+  /** Stores inspected used by inspect human recovery. */
   const inspected: HumanSlotInspection[] = [];
   for (const slot of slots) {
+    /** Stores baseline used by inspect human recovery. */
     const baseline = await provider.getOptionalResource(
       humanSlotResourceKey(slot.slotId),
     );
+    /** Stores baseline valid used by inspect human recovery. */
     let baselineValid = false;
     if (baseline !== null) {
       try {
@@ -63,9 +86,11 @@ export async function inspectHumanRecovery(
         baselineValid = false;
       }
     }
+    /** Stores consumption used by inspect human recovery. */
     const consumption = await provider.getOptionalResource(
       humanConsumptionResourceKey(slot.slotId),
     );
+    /** Stores consumption state used by inspect human recovery. */
     let consumptionState: HumanSlotInspection["consumptionState"] = "none";
     if (consumption !== null) {
       consumptionState = parseHumanConsumptionResource(
@@ -92,6 +117,7 @@ export async function inspectHumanRecovery(
   };
 }
 
+/** Reconciles human response from observed state without blind replay. */
 export async function reconcileHumanResponse(
   provider: AgentTaskProvider,
   taskId: string,
@@ -100,10 +126,12 @@ export async function reconcileHumanResponse(
   return new HumanRecoveryManager(provider).consume(taskId, slotId);
 }
 
+/** Reconciles activity from observed state without blind replay. */
 export async function reconcileActivity(
   provider: AgentTaskProvider,
   subAgentId: string,
 ): Promise<ReconciliationResult> {
+  /** Stores basis used by reconcile activity. */
   const basis = {
     activity: await provider.getSubAgentActivity(subAgentId),
     projection: await provider.getLeaseProjection(subAgentId),
@@ -115,18 +143,23 @@ export async function reconcileActivity(
   );
 }
 
+/** Builds a read-only inspection of sub agent activity. */
 export async function inspectSubAgentActivity(
   provider: AgentTaskProvider,
   subAgentId: string,
 ): Promise<SubAgentActivityInspection> {
+  /** Stores activity used by inspect sub agent activity. */
   const activity = await provider.getSubAgentActivity(subAgentId);
+  /** Stores lease projection used by inspect sub agent activity. */
   const leaseProjection = await provider.getLeaseProjection(subAgentId);
+  /** Stores ids used by inspect sub agent activity. */
   const ids = [
     ...new Set([
       ...leaseProjection.runLeaseIds,
       ...leaseProjection.taskLeaseIds,
     ]),
   ].sort();
+  /** Stores leases used by inspect sub agent activity. */
   const leases = await Promise.all(
     ids.map((leaseId) => provider.getLeaseSnapshot(leaseId)),
   );
@@ -140,6 +173,7 @@ export async function inspectSubAgentActivity(
   };
 }
 
+/** Builds a read-only inspection of lease. */
 export async function inspectLease(
   provider: AgentTaskProvider,
   leaseId: string,
@@ -147,6 +181,7 @@ export async function inspectLease(
   return provider.getLeaseSnapshot(leaseId);
 }
 
+/** Reconciles lease from observed state without blind replay. */
 export async function reconcileLease(
   provider: AgentTaskProvider,
   leaseId: string,

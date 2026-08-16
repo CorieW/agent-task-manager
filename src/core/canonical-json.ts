@@ -1,8 +1,10 @@
 /** Canonicalizes JSON with normalized strings and deterministic object-key ordering for digest-bound protocols. */
 import type { JsonValue } from "../domain/json.js";
 
+/** Error raised when canonical JSON validation fails. */
 export class CanonicalJsonError extends TypeError {}
 
+/** Serializes a JSON value into deterministic canonical text. */
 export function canonicalize(value: JsonValue): string {
   if (typeof value === "string") {
     return JSON.stringify(value.normalize("NFC"));
@@ -25,6 +27,7 @@ export function canonicalize(value: JsonValue): string {
     return `[${value.map((entry) => canonicalize(entry)).join(",")}]`;
   }
 
+  /** Normalized used during canonicalize. */
   const normalized = Object.entries(value).map(
     ([key, entry]) => [key.normalize("NFC"), entry] as const,
   );
@@ -33,6 +36,7 @@ export function canonicalize(value: JsonValue): string {
       "Object contains keys that collide after NFC normalization",
     );
   }
+  /** Entries arranged in deterministic order. */
   const entries = normalized.sort(([left], [right]) =>
     left < right ? -1 : left > right ? 1 : 0,
   );

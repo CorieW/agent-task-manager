@@ -14,10 +14,15 @@ import {
 } from "../src/index.js";
 
 test("binds every Git call to empty hooks, closed config, and configured roots", async () => {
+  /** Defines the root fixture for “binds every Git call to empty hooks, closed config, and configured roots”. */
   const root = await mkdtemp(join(tmpdir(), "agent-task-manager-git-"));
+  /** Defines the hooks fixture for “binds every Git call to empty hooks, closed config, and configured roots”. */
   const hooks = join(root, "hooks");
+  /** Defines the repository fixture for “binds every Git call to empty hooks, closed config, and configured roots”. */
   const repository = join(root, "repo");
+  /** Defines the runtime fixture for “binds every Git call to empty hooks, closed config, and configured roots”. */
   const runtime = join(root, "runtime");
+  /** Defines the executable fixture for “binds every Git call to empty hooks, closed config, and configured roots”. */
   const executable = join(root, "git.exe");
   await Promise.all([
     mkdir(hooks),
@@ -25,12 +30,18 @@ test("binds every Git call to empty hooks, closed config, and configured roots",
     mkdir(runtime),
     writeFile(executable, "pinned"),
   ]);
+  /** Defines the calls fixture for “binds every Git call to empty hooks, closed config, and configured roots”. */
   const calls: {
+    /** Contains args for module. */
     args: readonly string[];
+    /** Contains cwd for module. */
     cwd: string;
+    /** Contains environment for module. */
     environment: Readonly<Record<string, string>>;
   }[] = [];
+  /** Defines the executor fixture for “binds every Git call to empty hooks, closed config, and configured roots”. */
   const executor: GitCommandExecutor = {
+    /** Creates the run test fixture. */
     async run(input) {
       calls.push(input);
       if (input.args.includes("--version"))
@@ -38,9 +49,13 @@ test("binds every Git call to empty hooks, closed config, and configured roots",
       return { exitCode: 1, stderr: "absent", stdout: "" };
     },
   };
+  /** Defines the owners fixture for “binds every Git call to empty hooks, closed config, and configured roots”. */
   const owners = new Map<string, WorkspaceOwnershipRecord>();
+  /** Defines the ownership fixture for “binds every Git call to empty hooks, closed config, and configured roots”. */
   const ownership: WorkspaceOwnershipStore = {
+    /** Creates the claim test fixture. */
     async claim(input) {
+      /** Defines the value fixture for “binds every Git call to empty hooks, closed config, and configured roots”. */
       const value: WorkspaceOwnershipRecord = {
         ...input,
         releaseEffectId: null,
@@ -50,12 +65,16 @@ test("binds every Git call to empty hooks, closed config, and configured roots",
       owners.set(input.workspaceKey, value);
       return value;
     },
+    /** Returns the requested test value. */
     async get(key) {
       return owners.get(key) ?? null;
     },
+    /** Releases the simulated workspace ownership. */
     async release(input) {
+      /** Defines the current fixture for “binds every Git call to empty hooks, closed config, and configured roots”. */
       const current = owners.get(input.workspaceKey);
       if (current === undefined) throw new Error("Missing test owner");
+      /** Defines the value fixture for “binds every Git call to empty hooks, closed config, and configured roots”. */
       const value: WorkspaceOwnershipRecord = {
         ...current,
         releaseEffectId: input.releaseEffectId,
@@ -65,6 +84,7 @@ test("binds every Git call to empty hooks, closed config, and configured roots",
       return value;
     },
   };
+  /** Defines the effects fixture for “binds every Git call to empty hooks, closed config, and configured roots”. */
   const effects = await LocalGitEffects.create(
     {
       executable: {
@@ -79,6 +99,7 @@ test("binds every Git call to empty hooks, closed config, and configured roots",
     },
     { executor, ownership },
   );
+  /** Defines the observed fixture for “binds every Git call to empty hooks, closed config, and configured roots”. */
   const observed = await effects.workspaceProvisionAdapter().reconcile({
     control: {
       deadlineAt: Date.now() + 1000,

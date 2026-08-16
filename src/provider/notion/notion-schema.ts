@@ -6,10 +6,13 @@ import type {
   WorkspaceSchemaDescriptor,
 } from "../../domain/schema.js";
 
+/** Defines the module-level `NOTION_TASK_MUTATION_PROPERTY` value. */
 export const NOTION_TASK_MUTATION_PROPERTY = "Manager Mutation";
+/** Defines the module-level `NOTION_TASK_MUTATION_CAPTION_PREFIX` value. */
 export const NOTION_TASK_MUTATION_CAPTION_PREFIX =
   "agent-task-manager:task-mutation:";
 
+/** Defines the module-level `TABLES` value. */
 const TABLES: readonly TableDescriptor[] = [
   {
     kind: "resources",
@@ -66,7 +69,9 @@ const TABLES: readonly TableDescriptor[] = [
   },
 ];
 
+/** Creates Notion workspace schema. */
 export function createNotionWorkspaceSchema(): WorkspaceSchemaDescriptor {
+  /** Holds the `core` intermediate used by `createNotionWorkspaceSchema`. */
   const core = {
     providerType: "notion",
     tables: TABLES,
@@ -75,6 +80,7 @@ export function createNotionWorkspaceSchema(): WorkspaceSchemaDescriptor {
   return { ...core, digest: digestJson(toJsonValue(core)) };
 }
 
+/** Defines one logical-to-physical Notion property mapping. */
 function property(
   logicalName: string,
   physicalName: string,
@@ -92,6 +98,7 @@ function property(
   } as const;
 }
 
+/** Reads relation. */
 function relation(
   logicalName: string,
   physicalName: string,

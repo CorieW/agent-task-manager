@@ -16,6 +16,7 @@ import {
   type ExternalEffectObservation,
 } from "../src/index.js";
 
+/** Defines the shared not applied fixture for this test module. */
 const notApplied: ExternalEffectObservation = {
   evidence: {},
   externalIdentity: {},
@@ -23,11 +24,16 @@ const notApplied: ExternalEffectObservation = {
 };
 
 test("runs only a pinned configured command in a broker-resolved workspace", async () => {
+  /** Defines the root fixture for “runs only a pinned configured command in a broker-resolved workspace”. */
   const root = await mkdtemp(join(tmpdir(), "agent-task-manager-command-"));
+  /** Defines the executable fixture for “runs only a pinned configured command in a broker-resolved workspace”. */
   const executable = join(root, "tool.exe");
   await writeFile(executable, "tool");
+  /** Defines the observed arguments fixture for “runs only a pinned configured command in a broker-resolved workspace”. */
   let observedArguments: readonly string[] = [];
+  /** Defines the runner fixture for “runs only a pinned configured command in a broker-resolved workspace”. */
   const runner: CommandProcessRunner = {
+    /** Creates the run test fixture. */
     async run(input) {
       observedArguments = input.arguments;
       return {
@@ -37,6 +43,7 @@ test("runs only a pinned configured command in a broker-resolved workspace", asy
       };
     },
   };
+  /** Defines the effects fixture for “runs only a pinned configured command in a broker-resolved workspace”. */
   const effects = new ConfiguredCommandEffects(
     [
       {
@@ -49,12 +56,14 @@ test("runs only a pinned configured command in a broker-resolved workspace", asy
       },
     ],
     {
+      /** Creates the locate test fixture. */
       async locate() {
         return root;
       },
     },
     runner,
   );
+  /** Defines the result fixture for “runs only a pinned configured command in a broker-resolved workspace”. */
   const result = await effects.apply({
     control: control(),
     effectId: "a".repeat(64),
@@ -83,18 +92,23 @@ test("runs only a pinned configured command in a broker-resolved workspace", asy
 });
 
 test("binds publication and browser effects to configured logical targets", async () => {
+  /** Defines the publication driver fixture for “binds publication and browser effects to configured logical targets”. */
   const publicationDriver: DraftPublicationDriver = {
+    /** Simulates effect application. */
     async apply() {
       return notApplied;
     },
+    /** Simulates effect reconciliation. */
     async reconcile() {
       return notApplied;
     },
   };
+  /** Defines the publication fixture for “binds publication and browser effects to configured logical targets”. */
   const publication = new DraftPublicationEffects(
     [{ id: "github", repositoryIds: ["repo"] }],
     publicationDriver,
   );
+  /** Defines the base fixture for “binds publication and browser effects to configured logical targets”. */
   const base = {
     baseBranch: "main",
     body: "body",
@@ -123,14 +137,18 @@ test("binds publication and browser effects to configured logical targets", asyn
       }),
     /not authorized/,
   );
+  /** Defines the browser driver fixture for “binds publication and browser effects to configured logical targets”. */
   const browserDriver: DisposableBrowserDriver = {
+    /** Simulates effect application. */
     async apply() {
       return notApplied;
     },
+    /** Simulates effect reconciliation. */
     async reconcile() {
       return notApplied;
     },
   };
+  /** Defines the browser fixture for “binds publication and browser effects to configured logical targets”. */
   const browser = new DisposableBrowserEffects(
     [
       {
@@ -157,6 +175,7 @@ test("binds publication and browser effects to configured logical targets", asyn
     "not_applied",
   );
 });
+/** Creates the control test fixture. */
 function control() {
   return {
     deadlineAt: Date.now() + 10_000,

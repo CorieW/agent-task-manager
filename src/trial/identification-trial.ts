@@ -5,109 +5,194 @@ import { toJsonValue } from "../domain/json.js";
 import type { ErrorMutation, TaskSnapshot } from "../domain/records.js";
 import type { AgentTaskProvider } from "../provider/agent-task-provider.js";
 
+/** Defines identification trial request. */
 export interface IdentificationTrialRequest {
+  /** Lists definition IDs for identification trial request. */
   readonly definitionIds: readonly string[] | null;
+  /** Identifies the identification trial request wire schema. */
   readonly schema: "identification-trial-request-v1";
+  /** Lists task IDs for identification trial request. */
   readonly taskIds: readonly string[];
+  /** Identifies trial. */
   readonly trialId: string;
 }
 
+/** Defines trial task basis. */
 export interface TrialTaskBasis {
+  /** Binds trial task basis to canonical record content. */
   readonly digest: string;
+  /** Identifies trial task basis. */
   readonly id: string;
+  /** Contains title for trial task basis. */
   readonly title: string;
+  /** Carries the opaque trial task basis version used for compatibility or concurrency checks. */
   readonly version: string;
 }
 
+/** Defines trial definition basis. */
 export interface TrialDefinitionBasis {
+  /** Binds trial definition basis to canonical record content. */
   readonly digest: string;
+  /** Identifies trial definition basis. */
   readonly id: string;
+  /** Contains resource pins for trial definition basis. */
   readonly resourcePins: readonly {
+    /** Binds trial definition basis to canonical record content. */
     readonly digest: string;
+    /** Contains key for trial definition basis. */
     readonly key: string;
+    /** Carries the opaque trial definition basis version used for compatibility or concurrency checks. */
     readonly version: string;
   }[];
+  /** Contains revision for trial definition basis. */
   readonly revision: number;
 }
 
+/** Defines identification trial plan. */
 export interface IdentificationTrialPlan {
+  /** Contains definition basis for identification trial plan. */
   readonly definitionBasis: readonly TrialDefinitionBasis[];
+  /** Binds identification trial plan to canonical record content. */
   readonly digest: string;
+  /** Contains provider identity for identification trial plan. */
   readonly providerIdentity: string;
+  /** Contains request for identification trial plan. */
   readonly request: IdentificationTrialRequest;
+  /** Identifies the identification trial plan wire schema. */
   readonly schema: "identification-trial-plan-v1";
+  /** Contains task basis for identification trial plan. */
   readonly taskBasis: readonly TrialTaskBasis[];
+  /** Binds identification trial plan to canonical workspace identity content. */
   readonly workspaceIdentityDigest: string;
+  /** Binds identification trial plan to canonical workspace schema content. */
   readonly workspaceSchemaDigest: string;
 }
 
+/** Defines identification trial blocker. */
 export interface IdentificationTrialBlocker {
+  /** Contains code for identification trial blocker. */
   readonly code: string;
+  /** Contains description for identification trial blocker. */
   readonly description: string;
+  /** Contains error for identification trial blocker. */
   readonly error: ErrorMutation;
+  /** Contains resolution for identification trial blocker. */
   readonly resolution: string;
+  /** Contains title for identification trial blocker. */
   readonly title: string;
 }
 
+/** Defines the supported identification trial preparation representation. */
 export type IdentificationTrialPreparation =
-  | { readonly blocker: IdentificationTrialBlocker; readonly state: "blocked" }
-  | { readonly plan: IdentificationTrialPlan; readonly state: "ready" };
+  | {
+      /** Contains blocker for identification trial preparation. */ readonly blocker: IdentificationTrialBlocker;
+      /** Records the state for identification trial preparation. */ readonly state: "blocked";
+    }
+  | {
+      /** Contains plan for identification trial preparation. */ readonly plan: IdentificationTrialPlan;
+      /** Records the state for identification trial preparation. */ readonly state: "ready";
+    };
 
+/** Defines trial role metrics. */
 export interface TrialRoleMetrics {
+  /** Identifies definition. */
   readonly definitionId: string;
+  /** Contains errors for trial role metrics. */
   readonly errors: number;
+  /** Contains human interventions for trial role metrics. */
   readonly humanInterventions: number;
+  /** Contains prompt bytes for trial role metrics. */
   readonly promptBytes: number;
+  /** Contains provider calls for trial role metrics. */
   readonly providerCalls: number;
+  /** Contains retries for trial role metrics. */
   readonly retries: number;
 }
 
+/** Defines trial observation issue. */
 export interface TrialObservationIssue {
+  /** Contains code for trial observation issue. */
   readonly code: string;
+  /** Contains description for trial observation issue. */
   readonly description: string;
+  /** Identifies related Sub-agent. */
   readonly relatedSubAgentId: string | null;
+  /** Contains resolution for trial observation issue. */
   readonly resolution: string;
+  /** Contains title for trial observation issue. */
   readonly title: string;
 }
 
+/** Defines trial task observation core. */
 interface TrialTaskObservationCore {
+  /** Binds trial task observation core to canonical plan content. */
   readonly planDigest: string;
+  /** Contains role metrics for trial task observation core. */
   readonly roleMetrics: readonly TrialRoleMetrics[];
+  /** Binds trial task observation core to canonical task content. */
   readonly taskDigest: string;
+  /** Identifies task. */
   readonly taskId: string;
+  /** Contains task version for trial task observation core. */
   readonly taskVersion: string;
 }
 
+/** Defines the supported trial task observation representation. */
 export type TrialTaskObservation = TrialTaskObservationCore &
   (
-    | { readonly issue: TrialObservationIssue; readonly outcome: "blocked" }
-    | { readonly issue: null; readonly outcome: "completed" }
+    | {
+        /** Contains blocking issue details, or null for a completed observation. */ readonly issue: TrialObservationIssue;
+        /** Records the outcome for trial task observation. */ readonly outcome: "blocked";
+      }
+    | {
+        /** Contains blocking issue details, or null for a completed observation. */ readonly issue: null;
+        /** Records the outcome for trial task observation. */ readonly outcome: "completed";
+      }
   );
 
+/** Defines trial metric totals. */
 export interface TrialMetricTotals {
+  /** Contains errors for trial metric totals. */
   readonly errors: number;
+  /** Contains human interventions for trial metric totals. */
   readonly humanInterventions: number;
+  /** Contains prompt bytes for trial metric totals. */
   readonly promptBytes: number;
+  /** Contains provider calls for trial metric totals. */
   readonly providerCalls: number;
+  /** Contains retries for trial metric totals. */
   readonly retries: number;
 }
 
+/** Defines identification trial report. */
 export interface IdentificationTrialReport {
+  /** Contains blocker for identification trial report. */
   readonly blocker: IdentificationTrialBlocker | null;
+  /** Binds identification trial report to canonical record content. */
   readonly digest: string;
+  /** Contains next task index for identification trial report. */
   readonly nextTaskIndex: number;
+  /** Contains observations for identification trial report. */
   readonly observations: readonly TrialTaskObservation[];
+  /** Binds identification trial report to canonical plan content. */
   readonly planDigest: string;
+  /** Identifies the identification trial report wire schema. */
   readonly schema: "identification-trial-report-v1";
+  /** Records the state for identification trial report. */
   readonly state: "blocked" | "complete" | "running";
+  /** Contains totals for identification trial report. */
   readonly totals: TrialMetricTotals;
 }
 
+/** Defines identification trial step. */
 export interface IdentificationTrialStep {
+  /** Contains error proposal for identification trial step. */
   readonly errorProposal: ErrorMutation | null;
+  /** Contains report for identification trial step. */
   readonly report: IdentificationTrialReport;
 }
 
+/** Defines the module-level `EMPTY_TOTALS` value. */
 const EMPTY_TOTALS: TrialMetricTotals = {
   errors: 0,
   humanInterventions: 0,
@@ -116,22 +201,32 @@ const EMPTY_TOTALS: TrialMetricTotals = {
   retries: 0,
 };
 
+/** Defines blocker details. */
 interface BlockerDetails {
+  /** Contains code for blocker details. */
   readonly code: string;
+  /** Optionally contains description for blocker details. */
   readonly description?: string;
+  /** Contains request for blocker details. */
   readonly request: IdentificationTrialRequest;
+  /** Contains resolution for blocker details. */
   readonly resolution: string;
+  /** Optionally identifies Sub-agent. */
   readonly subAgentId?: string | null;
+  /** Optionally identifies task. */
   readonly taskId?: string | null;
+  /** Contains title for blocker details. */
   readonly title: string;
 }
 
+/** Prepares identification trial. */
 export async function prepareIdentificationTrial(
   provider: AgentTaskProvider,
   request: IdentificationTrialRequest,
 ): Promise<IdentificationTrialPreparation> {
   assertRequest(request);
   try {
+    /** Holds the `tableReport` intermediate used by `prepareIdentificationTrial`. */
     const tableReport = await provider.validateTables();
     if (tableReport.state !== "ready") {
       return blocked({
@@ -142,9 +237,12 @@ export async function prepareIdentificationTrial(
         title: "Provider workspace is not ready",
       });
     }
+    /** Holds the `workspace` intermediate used by `prepareIdentificationTrial`. */
     const workspace = await provider.inspectWorkspaceSchema();
+    /** Holds the `taskBasis` intermediate used by `prepareIdentificationTrial`. */
     const taskBasis: TrialTaskBasis[] = [];
     for (const taskId of request.taskIds) {
+      /** Holds the `task` intermediate used by `prepareIdentificationTrial`. */
       const task = await provider.getTaskSnapshot(taskId);
       if (task.archived) {
         return blocked({
@@ -158,7 +256,9 @@ export async function prepareIdentificationTrial(
       }
       taskBasis.push(taskBasisFor(task));
     }
+    /** Holds the `definitions` intermediate used by `prepareIdentificationTrial`. */
     const definitions = await provider.listSubAgentDefinitions();
+    /** Holds the `selectedIds` intermediate used by `prepareIdentificationTrial`. */
     const selectedIds =
       request.definitionIds === null
         ? definitions
@@ -175,11 +275,14 @@ export async function prepareIdentificationTrial(
         title: "No Sub-agent definition is available",
       });
     }
+    /** Indexes entries in `byId` for `prepareIdentificationTrial`. */
     const byId = new Map(
       definitions.map((definition) => [definition.id, definition]),
     );
+    /** Holds the `definitionBasis` intermediate used by `prepareIdentificationTrial`. */
     const definitionBasis: TrialDefinitionBasis[] = [];
     for (const definitionId of selectedIds) {
+      /** Holds the `definition` intermediate used by `prepareIdentificationTrial`. */
       const definition = byId.get(definitionId);
       if (definition === undefined || !definition.enabled) {
         return blocked({
@@ -191,6 +294,7 @@ export async function prepareIdentificationTrial(
           title: "A requested Sub-agent definition is unavailable",
         });
       }
+      /** Holds the `resolved` intermediate used by `prepareIdentificationTrial`. */
       const resolved = await resolveLoadedDefinition(provider, definition);
       definitionBasis.push({
         digest: resolved.digest,
@@ -203,6 +307,7 @@ export async function prepareIdentificationTrial(
         revision: definition.revision,
       });
     }
+    /** Holds the `core` intermediate used by `prepareIdentificationTrial`. */
     const core = {
       definitionBasis,
       providerIdentity: workspace.providerIdentity,
@@ -221,6 +326,7 @@ export async function prepareIdentificationTrial(
       ),
       workspaceSchemaDigest: workspace.digest,
     };
+    /** Holds the `plan` intermediate used by `prepareIdentificationTrial`. */
     const plan = { ...core, digest: digestJson(toJsonValue(core)) };
     assertPlan(plan);
     return { plan, state: "ready" };
@@ -235,6 +341,7 @@ export async function prepareIdentificationTrial(
   }
 }
 
+/** Starts identification trial. */
 export function startIdentificationTrial(
   plan: IdentificationTrialPlan,
 ): IdentificationTrialReport {
@@ -250,6 +357,7 @@ export function startIdentificationTrial(
   });
 }
 
+/** Records identification trial observation. */
 export async function recordIdentificationTrialObservation(
   provider: AgentTaskProvider,
   plan: IdentificationTrialPlan,
@@ -260,6 +368,7 @@ export async function recordIdentificationTrialObservation(
   assertReport(report, plan);
   if (report.state !== "running")
     throw new Error("Identification trial has already stopped");
+  /** Holds the `fresh` intermediate used by `recordIdentificationTrialObservation`. */
   const fresh = await prepareIdentificationTrial(provider, plan.request);
   if (fresh.state === "blocked") return stopWithBlocker(report, fresh.blocker);
   if (fresh.plan.digest !== plan.digest) {
@@ -274,13 +383,17 @@ export async function recordIdentificationTrialObservation(
       }),
     );
   }
+  /** Defines `expectedTask` for comparison in `recordIdentificationTrialObservation`. */
   const expectedTask = plan.taskBasis[report.nextTaskIndex];
   if (expectedTask === undefined)
     throw new Error("Identification trial has no remaining Task");
   assertObservation(observation, plan, expectedTask);
+  /** Holds the `totals` intermediate used by `recordIdentificationTrialObservation`. */
   const totals = addMetrics(report.totals, observation.roleMetrics);
   if (observation.outcome === "blocked") {
+    /** Tracks the `issue` condition in `recordIdentificationTrialObservation`. */
     const issue = observation.issue;
+    /** Holds the `blocker` intermediate used by `recordIdentificationTrialObservation`. */
     const blocker = createBlocker({
       code: issue.code,
       description: issue.description,
@@ -301,6 +414,7 @@ export async function recordIdentificationTrialObservation(
       }),
     };
   }
+  /** Holds the `nextTaskIndex` intermediate used by `recordIdentificationTrialObservation`. */
   const nextTaskIndex = report.nextTaskIndex + 1;
   return {
     errorProposal: null,
@@ -314,22 +428,30 @@ export async function recordIdentificationTrialObservation(
   };
 }
 
+/** Creates a blocked trial preparation. */
 function blocked(details: BlockerDetails): IdentificationTrialPreparation {
   return { blocker: createBlocker(details), state: "blocked" };
 }
 
+/** Creates blocker. */
 function createBlocker(details: BlockerDetails): IdentificationTrialBlocker {
+  /** Groups the `code` and `request` and `resolution` and `title` intermediates used by `createBlocker`. */
   const { code, request, resolution, title } = details;
+  /** Holds the `description` intermediate used by `createBlocker`. */
   const description = details.description ?? title;
+  /** Holds the `taskId` intermediate used by `createBlocker`. */
   const taskId = details.taskId ?? null;
+  /** Holds the `subAgentId` intermediate used by `createBlocker`. */
   const subAgentId = details.subAgentId ?? null;
   assertBoundedString(code, "Blocker code", 100);
   assertBoundedString(title, "Blocker title", 200);
   assertBoundedString(description, "Blocker description", 4_000);
   assertBoundedString(resolution, "Blocker resolution", 4_000);
+  /** Holds the `entityIdentity` intermediate used by `createBlocker`. */
   const entityIdentity = digestJson(
     toJsonValue({ code, subAgentId, taskId, trialId: request.trialId }),
   );
+  /** Holds the `errorCore` intermediate used by `createBlocker`. */
   const errorCore = {
     description,
     errorKey: `trial/${request.trialId}/${entityIdentity}`,
@@ -341,7 +463,9 @@ function createBlocker(details: BlockerDetails): IdentificationTrialBlocker {
     status: "Not Fixed",
     title,
   } as const;
+  /** Holds the `operationIdentity` intermediate used by `createBlocker`. */
   const operationIdentity = digestJson(toJsonValue(errorCore));
+  /** Holds the `error` intermediate used by `createBlocker`. */
   const error: ErrorMutation = {
     ...errorCore,
     idempotencyKey: `trial-error/${operationIdentity}`,
@@ -349,6 +473,7 @@ function createBlocker(details: BlockerDetails): IdentificationTrialBlocker {
   return { code, description, error, resolution, title };
 }
 
+/** Stops with blocker. */
 function stopWithBlocker(
   report: IdentificationTrialReport,
   blocker: IdentificationTrialBlocker,
@@ -363,6 +488,7 @@ function stopWithBlocker(
   };
 }
 
+/** Builds the frozen basis for one trial Task. */
 function taskBasisFor(task: TaskSnapshot): TrialTaskBasis {
   return {
     digest: digestJson(toJsonValue(task)),
@@ -372,6 +498,7 @@ function taskBasisFor(task: TaskSnapshot): TrialTaskBasis {
   };
 }
 
+/** Adds role metrics into bounded trial totals. */
 function addMetrics(
   total: TrialMetricTotals,
   rows: readonly TrialRoleMetrics[],
@@ -396,19 +523,23 @@ function addMetrics(
   );
 }
 
+/** Finalizes and digests an identification-trial report. */
 function finalizeReport(
   core: Omit<IdentificationTrialReport, "digest">,
 ): IdentificationTrialReport {
   return { ...core, digest: digestJson(toJsonValue(core)) };
 }
 
+/** Returns report fields excluding their digest. */
 function withoutDigest(
   report: IdentificationTrialReport,
 ): Omit<IdentificationTrialReport, "digest"> {
+  /** Groups the `_digest` and `core` intermediates used by `withoutDigest`. */
   const { digest: _digest, ...core } = report;
   return core;
 }
 
+/** Rejects values that violate the request contract. */
 function assertRequest(request: IdentificationTrialRequest): void {
   assertExactKeys(
     request,
@@ -440,6 +571,7 @@ function assertRequest(request: IdentificationTrialRequest): void {
   }
 }
 
+/** Rejects values that violate the plan contract. */
 function assertPlan(plan: IdentificationTrialPlan): void {
   assertExactKeys(
     plan,
@@ -457,6 +589,7 @@ function assertPlan(plan: IdentificationTrialPlan): void {
   );
   if (plan.schema !== "identification-trial-plan-v1")
     throw new TypeError("Identification trial plan schema is invalid");
+  /** Groups the `_digest` and `core` intermediates used by `assertPlan`. */
   const { digest: _digest, ...core } = plan;
   if (digestJson(toJsonValue(core)) !== plan.digest)
     throw new Error("Identification trial plan digest is invalid");
@@ -521,6 +654,7 @@ function assertPlan(plan: IdentificationTrialPlan): void {
   assertSha256(plan.workspaceSchemaDigest, "Workspace schema digest");
 }
 
+/** Rejects values that violate the report contract. */
 function assertReport(
   report: IdentificationTrialReport,
   plan: IdentificationTrialPlan,
@@ -539,6 +673,7 @@ function assertReport(
     ],
     "Identification trial report",
   );
+  /** Groups the `_digest` and `core` intermediates used by `assertReport`. */
   const { digest: _digest, ...core } = report;
   if (
     report.schema !== "identification-trial-report-v1" ||
@@ -559,9 +694,12 @@ function assertReport(
     report.observations.length > plan.taskBasis.length
   )
     throw new Error("Identification trial report has invalid observations");
+  /** Holds the `completed` intermediate used by `assertReport`. */
   let completed = 0;
+  /** Holds the `totals` intermediate used by `assertReport`. */
   let totals = EMPTY_TOTALS;
   for (const [index, observation] of report.observations.entries()) {
+    /** Defines `expected` for comparison in `assertReport`. */
     const expected = plan.taskBasis[completed];
     if (expected === undefined)
       throw new Error(
@@ -618,6 +756,7 @@ function assertReport(
   if (report.blocker !== null) assertBlocker(report.blocker);
 }
 
+/** Rejects values that violate the observation contract. */
 function assertObservation(
   observation: TrialTaskObservation,
   plan: IdentificationTrialPlan,
@@ -664,7 +803,9 @@ function assertObservation(
     observation.roleMetrics.length === 0
   )
     throw new TypeError("Trial observation requires role metrics");
+  /** Tracks unique entries in `knownDefinitions` for `assertObservation`. */
   const knownDefinitions = new Set(plan.definitionBasis.map(({ id }) => id));
+  /** Tracks unique entries in `observedDefinitions` for `assertObservation`. */
   const observedDefinitions = new Set<string>();
   for (const row of observation.roleMetrics) {
     assertExactKeys(
@@ -738,6 +879,7 @@ function assertObservation(
   }
 }
 
+/** Rejects values that violate the exact keys contract. */
 function assertExactKeys(
   value: object,
   expected: readonly string[],
@@ -747,11 +889,13 @@ function assertExactKeys(
     throw new TypeError(`${label} has unexpected or missing fields`);
 }
 
+/** Rejects values that violate the SHA-256 contract. */
 function assertSha256(value: string, label: string): void {
   if (!/^[a-f0-9]{64}$/u.test(value))
     throw new TypeError(`${label} is invalid`);
 }
 
+/** Rejects values that violate the blocker contract. */
 function assertBlocker(blocker: IdentificationTrialBlocker): void {
   assertExactKeys(
     blocker,
@@ -790,7 +934,9 @@ function assertBlocker(blocker: IdentificationTrialBlocker): void {
     );
 }
 
+/** Adds bounded non-negative metric values. */
 function safeSum(left: number, right: number, label: string): number {
+  /** Captures `result` returned by `safeSum`. */
   const result = left + right;
   if (!Number.isSafeInteger(result))
     throw new TypeError(
@@ -799,6 +945,7 @@ function safeSum(left: number, right: number, label: string): number {
   return result;
 }
 
+/** Rejects values that violate the bounded string contract. */
 function assertBoundedString(
   value: string,
   label: string,

@@ -7,6 +7,7 @@ import type {
   WorkspaceState,
 } from "../domain/schema.js";
 
+/** Classifies schema differences into a workspace readiness state. */
 function workspaceState(
   differences: readonly SchemaDifference[],
 ): WorkspaceState {
@@ -27,13 +28,16 @@ function workspaceState(
   return "ready";
 }
 
+/** Compares observed provider tables with the canonical target schema. */
 export function compareWorkspaceSchema(
   observed: WorkspaceSchemaSnapshot,
   target: WorkspaceSchemaDescriptor,
 ): TableValidationReport {
+  /** Differences used during compare workspace schema. */
   const differences: SchemaDifference[] = [];
 
   for (const expectedTable of target.tables) {
+    /** Candidates satisfying the current constraints. */
     const candidates = observed.tables.filter(
       (table) => table.kind === expectedTable.kind,
     );
@@ -56,12 +60,15 @@ export function compareWorkspaceSchema(
       continue;
     }
 
+    /** Observed table used for comparison. */
     const observedTable = candidates[0];
     if (observedTable === undefined) continue;
     for (const expectedProperty of expectedTable.properties) {
+      /** Property used during compare workspace schema. */
       const property = observedTable.properties.find(
         (candidate) => candidate.name === expectedProperty.physicalName,
       );
+      /** Path used during compare workspace schema. */
       const path = `tables.${expectedTable.kind}.properties.${expectedProperty.physicalName}`;
       if (property === undefined) {
         if (expectedProperty.required) {

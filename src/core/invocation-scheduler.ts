@@ -2,14 +2,21 @@
 import type { SubAgentDefinition } from "../domain/records.js";
 import { validateDefinitionSet } from "./sub-agent-definition.js";
 
+/** Inputs required to perform invocation schedule. */
 export interface InvocationScheduleRequest {
+  /** Active run count indexed by sub-agent definition ID. */
   readonly activeRuns: Readonly<Record<string, number>>;
+  /** Definitions included in invocation schedule request. */
   readonly definitions: readonly SubAgentDefinition[];
+  /** Due scheduled definition IDs. */
   readonly dueScheduledDefinitionIds: readonly string[];
+  /** Limit for invocation schedule request. */
   readonly limit: number;
+  /** Source for invocation schedule request. */
   readonly source: "event" | "manual" | "scheduled";
 }
 
+/** Selects enabled definitions that are due and below their concurrency limits. */
 export function scheduleInvocations(
   request: InvocationScheduleRequest,
 ): readonly SubAgentDefinition[] {
@@ -18,6 +25,7 @@ export function scheduleInvocations(
       "Invocation schedule limit must be a positive integer",
     );
   }
+  /** Validation issues collected during this operation. */
   const issues = validateDefinitionSet(request.definitions);
   if (issues.length > 0)
     throw new Error(

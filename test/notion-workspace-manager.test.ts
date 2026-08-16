@@ -11,11 +11,15 @@ import type {
 } from "../src/provider/notion/notion-transport.js";
 import { NotionWorkspaceManager } from "../src/provider/notion/notion-workspace-manager.js";
 
+/** Defines the shared parent fixture for this test module. */
 const PARENT = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
 
+/** Implements empty workspace transport. */
 class EmptyWorkspaceTransport implements NotionTransport {
+  /** Contains requests for empty workspace transport. */
   readonly requests: NotionRequest[] = [];
 
+  /** Executes one provider request. */
   public async request(request: NotionRequest): Promise<JsonObject> {
     this.requests.push(request);
     if (request.path === "/v1/search")
@@ -28,8 +32,11 @@ class EmptyWorkspaceTransport implements NotionTransport {
 }
 
 test("plans Resources-first bootstrap with deferred relations and no writes", async () => {
+  /** Defines the transport fixture for “plans Resources-first bootstrap with deferred relations and no writes”. */
   const transport = new EmptyWorkspaceTransport();
+  /** Defines the target fixture for “plans Resources-first bootstrap with deferred relations and no writes”. */
   const target = createNotionWorkspaceSchema();
+  /** Defines the manager fixture for “plans Resources-first bootstrap with deferred relations and no writes”. */
   const manager = new NotionWorkspaceManager(
     "demo",
     environment(),
@@ -37,7 +44,9 @@ test("plans Resources-first bootstrap with deferred relations and no writes", as
     transport,
     () => new Date(0),
   );
+  /** Defines the observed fixture for “plans Resources-first bootstrap with deferred relations and no writes”. */
   const observed = await manager.inspectWorkspaceSchema();
+  /** Defines the plan fixture for “plans Resources-first bootstrap with deferred relations and no writes”. */
   const plan = await manager.planWorkspaceChanges({
     environmentId: "demo",
     mode: "bootstrap",
@@ -50,9 +59,11 @@ test("plans Resources-first bootstrap with deferred relations and no writes", as
       .map((step) => step.payload.kind),
     ["resources", "errors", "tasks", "subAgents"],
   );
+  /** Defines the last create fixture for “plans Resources-first bootstrap with deferred relations and no writes”. */
   const lastCreate = plan.steps.findLastIndex(
     (step) => step.kind === "create_table",
   );
+  /** Defines the first relation fixture for “plans Resources-first bootstrap with deferred relations and no writes”. */
   const firstRelation = plan.steps.findIndex(
     (step) => step.kind === "add_relation",
   );
@@ -72,9 +83,12 @@ test("plans Resources-first bootstrap with deferred relations and no writes", as
 });
 
 test("rediscovers current data-source search results under the configured parent", async () => {
+  /** Defines the transport fixture for “rediscovers current data-source search results under the configured parent”. */
   const transport: NotionTransport = {
+    /** Simulates one provider transport request. */
     async request(request) {
       if (request.path === "/v1/search") {
+        /** Defines the body fixture for “rediscovers current data-source search results under the configured parent”. */
         const body =
           request.body !== null &&
           typeof request.body === "object" &&
@@ -122,6 +136,7 @@ test("rediscovers current data-source search results under the configured parent
       throw new Error(`Unexpected ${request.method} ${request.path}`);
     },
   };
+  /** Defines the manager fixture for “rediscovers current data-source search results under the configured parent”. */
   const manager = new NotionWorkspaceManager(
     "demo",
     environment(),
@@ -129,10 +144,12 @@ test("rediscovers current data-source search results under the configured parent
     transport,
     () => new Date(0),
   );
+  /** Defines the snapshot fixture for “rediscovers current data-source search results under the configured parent”. */
   const snapshot = await manager.inspectWorkspaceSchema();
   assert.equal(snapshot.tables[0]?.kind, "resources");
 });
 
+/** Creates a provider environment fixture. */
 function environment(): ProviderEnvironment {
   return {
     bootstrapParent: PARENT,

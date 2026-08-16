@@ -7,6 +7,7 @@ import {
 } from "../domain/json.js";
 import type { SubAgentDefinition } from "../domain/records.js";
 
+/** Exact fields allowed in a Task selection result. */
 const SELECTION_KEYS = [
   "candidateSetDigest",
   "digest",
@@ -24,39 +25,59 @@ const SELECTION_KEYS = [
   "taskId",
 ] as const;
 
+/** Canonical fields for task selection result core. */
 export interface TaskSelectionResultCore {
+  /** SHA-256 digest of canonical candidate set content. */
   readonly candidateSetDigest: string;
+  /** Key that identifies retries of the same logical operation. */
   readonly idempotencyKey: string;
+  /** Mode for task selection result core. */
   readonly mode: "coordinator" | "explicit" | "self";
+  /** Outcome for task selection result core. */
   readonly outcome: "assignment" | "no_work";
+  /** SHA-256 digest of canonical rationale content. */
   readonly rationaleDigest: string | null;
+  /** Schema discriminator for the serialized representation. */
   readonly schema: "task-selection-result-v1";
+  /** SHA-256 digest of canonical selection basis content. */
   readonly selectionBasisDigest: string;
+  /** Selector revision for task selection result core. */
   readonly selectorRevision: number;
+  /** Stable identifier for selector run. */
   readonly selectorRunId: string;
+  /** Stable identifier for selector sub-agent. */
   readonly selectorSubAgentId: string;
+  /** Stable identifier for target sub-agent. */
   readonly targetSubAgentId: string | null;
+  /** Target sub-agent revision for task selection result core. */
   readonly targetSubAgentRevision: number | null;
+  /** Stable identifier for task. */
   readonly taskId: string | null;
 }
 
+/** Result of task selection. */
 export interface TaskSelectionResult extends TaskSelectionResultCore {
+  /** SHA-256 digest of the Task selection result fields. */
   readonly digest: string;
 }
 
+/** Attaches a canonical digest to a Task selection result. */
 export function finalizeTaskSelectionResult(
   core: TaskSelectionResultCore,
 ): TaskSelectionResult {
   return { ...core, digest: digestJson(toJsonValue(core)) };
 }
 
+/** Parses a Task selection result and verifies its canonical digest. */
 export function parseTaskSelectionResult(
   value: JsonValue,
 ): TaskSelectionResult {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     throw new TypeError("Task selection result must be an object");
   }
+  /** Record used during parse task selection result. */
   const record = value as JsonObject;
+  /** Actual keys arranged in deterministic order. */
   const actualKeys = Object.keys(record).sort();
   if (actualKeys.join("\0") !== [...SELECTION_KEYS].sort().join("\0")) {
     throw new TypeError("Task selection result has unknown or missing fields");
@@ -91,6 +112,7 @@ export function parseTaskSelectionResult(
   ) {
     throw new TypeError("selectorRevision must be a positive integer");
   }
+  /** Assigned used during parse task selection result. */
   const assigned = record.outcome === "assignment";
   for (const key of [
     "targetSubAgentId",
@@ -115,7 +137,9 @@ export function parseTaskSelectionResult(
       "targetSubAgentRevision does not match the selection outcome",
     );
   }
+  /** Result produced by parse task selection result. */
   const result = record as unknown as TaskSelectionResult;
+  /** Digest and core used during parse task selection result. */
   const { digest: _digest, ...core } = result;
   if (finalizeTaskSelectionResult(core).digest !== result.digest) {
     throw new TypeError(
@@ -132,6 +156,7 @@ export function parseTaskSelectionResult(
   return structuredClone(result);
 }
 
+/** Rejects selections that exceed the selector or target definition authority. */
 export function assertSelectionAuthority(
   result: TaskSelectionResult,
   selector: SubAgentDefinition,

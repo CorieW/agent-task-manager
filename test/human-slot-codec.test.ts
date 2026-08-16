@@ -12,6 +12,7 @@ import {
 
 test("round-trips every canonical human interaction kind", () => {
   for (const kind of ["answer", "resolution", "review", "testing"] as const) {
+    /** Defines the slot fixture for “round-trips every canonical human interaction kind”. */
     const slot = createHumanInteractionSlot({
       createdAt: "2026-08-15T10:00:00.000Z",
       generation: 1,
@@ -36,6 +37,7 @@ test("round-trips every canonical human interaction kind", () => {
 });
 
 test("accepts one response while rejecting machine-owned edits", () => {
+  /** Defines the baseline fixture for “accepts one response while rejecting machine-owned edits”. */
   const baseline = createHumanInteractionSlot({
     createdAt: "2026-08-15T10:00:00.000Z",
     generation: 2,
@@ -46,6 +48,7 @@ test("accepts one response while rejecting machine-owned edits", () => {
     sourceErrorKey: null,
     taskId: "task-1",
   });
+  /** Defines the edited fixture for “accepts one response while rejecting machine-owned edits”. */
   const edited = {
     ...baseline,
     response: { action: "approve", text: "Looks good." },
@@ -77,6 +80,7 @@ test("accepts one response while rejecting machine-owned edits", () => {
 });
 
 test("rejects malformed and duplicate slot markers", () => {
+  /** Defines the slot fixture for “rejects malformed and duplicate slot markers”. */
   const slot = createHumanInteractionSlot({
     createdAt: "2026-08-15T10:00:00.000Z",
     generation: 1,
@@ -87,6 +91,7 @@ test("rejects malformed and duplicate slot markers", () => {
     sourceErrorKey: null,
     taskId: "task-1",
   });
+  /** Defines the rendered fixture for “rejects malformed and duplicate slot markers”. */
   const rendered = renderHumanInteractionSlot(slot);
   assert.throws(
     () => parseHumanInteractionSlots(`${rendered}\n\n${rendered}`),

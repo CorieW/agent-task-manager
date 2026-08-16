@@ -29,62 +29,99 @@ import {
   type ActivatedDefinition,
 } from "./definition-activation.js";
 
+/** Canonical fields for activation runtime. */
 export interface ActivationRuntime {
+  /** Installed capabilities included in activation runtime. */
   readonly installedCapabilities: readonly string[];
+  /** Installed intents included in activation runtime. */
   readonly installedIntents: readonly string[];
+  /** Installed runner profiles included in activation runtime. */
   readonly installedRunnerProfiles: readonly string[];
+  /** Supported models included in activation runtime. */
   readonly supportedModels: Readonly<Record<string, readonly string[]>>;
 }
 
+/** Canonical fields for selection target. */
 export interface SelectionTarget {
+  /** SHA-256 digest of canonical activation content. */
   readonly activationDigest: string;
+  /** Stable identifier for selection target. */
   readonly id: string;
+  /** Revision for selection target. */
   readonly revision: number;
 }
 
+/** Digest-pinned context for selection. */
 export interface SelectionContext {
+  /** SHA-256 digest of canonical basis content. */
   readonly basisDigest: string;
+  /** Digest-pinned candidate Tasks exposed to the selector. */
   readonly candidateSet: CandidateSet;
+  /** SHA-256 digest of canonical selector definition content. */
   readonly selectorDefinitionDigest: string;
+  /** Target catalog included in selection context. */
   readonly targetCatalog: readonly SelectionTarget[];
 }
 
+/** Canonical fields for assignment promotion. */
 export interface AssignmentPromotion {
+  /** SHA-256 digest of canonical operation content. */
   readonly operationDigest: string;
+  /** Stable identifier for owner. */
   readonly ownerId: string;
+  /** Stable identifier for run lease. */
   readonly runLeaseId: string;
+  /** SHA-256 digest of canonical selection basis content. */
   readonly selectionBasisDigest: string;
+  /** Stable identifier for target sub-agent. */
   readonly targetSubAgentId: string;
+  /** Stable identifier for task. */
   readonly taskId: string;
+  /** Stable identifier for task lease. */
   readonly taskLeaseId: string;
+  /** Task status for assignment promotion. */
   readonly taskStatus: string;
+  /** Version token expected for task. */
   readonly taskVersion: string;
 }
 
+/** Canonical fields for explicit assignment core. */
 export interface ExplicitAssignmentCore {
+  /** Stable identifier for authority. */
   readonly authorityId: string;
+  /** Key that identifies retries of the same logical operation. */
   readonly idempotencyKey: string;
+  /** Schema discriminator for the serialized representation. */
   readonly schema: "explicit-assignment-v1";
+  /** SHA-256 digest of canonical selection basis content. */
   readonly selectionBasisDigest: string;
+  /** Stable identifier for target sub-agent. */
   readonly targetSubAgentId: string;
+  /** Target sub-agent revision for explicit assignment core. */
   readonly targetSubAgentRevision: number;
+  /** Stable identifier for task. */
   readonly taskId: string;
 }
 
+/** Canonical fields for explicit assignment. */
 export interface ExplicitAssignment extends ExplicitAssignmentCore {
+  /** SHA-256 digest of the explicit assignment fields. */
   readonly digest: string;
 }
 
+/** Attaches a canonical digest to an explicit assignment request. */
 export function finalizeExplicitAssignment(
   core: ExplicitAssignmentCore,
 ): ExplicitAssignment {
   return { ...core, digest: digestJson(toJsonValue(core)) };
 }
 
+/** Confirms that a recorded assignment promotion matches provider state. */
 export async function verifyAssignmentPromotion(
   provider: AgentTaskProvider,
   promotion: AssignmentPromotion,
 ): Promise<void> {
+  /** Resource loaded during verify assignment promotion. */
   const resource = await provider.getOptionalResource(
     `assignment-intent/${promotion.operationDigest}`,
   );
@@ -97,10 +134,13 @@ export async function verifyAssignmentPromotion(
   ) {
     throw new Error("Assignment promotion Resource is missing or invalid");
   }
+  /** JSON-decoded input before structural validation. */
   const parsed: unknown = JSON.parse(resource.body);
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed))
     throw new Error("Assignment promotion receipt is malformed");
+  /** Object currently undergoing field-level validation. */
   const value = parsed as Record<string, unknown>;
+  /** Promotion fields expected from the persisted operation. */
   const expected = {
     operationDigest: promotion.operationDigest,
     ownerId: promotion.ownerId,
@@ -126,8 +166,11 @@ export async function verifyAssignmentPromotion(
       );
 }
 
+/** Parses an explicit assignment and verifies its canonical digest. */
 export function parseExplicitAssignment(value: JsonValue): ExplicitAssignment {
+  /** Object used during parse explicit assignment. */
   const object = objectValue(value, "Explicit assignment");
+  /** Keys used during parse explicit assignment. */
   const keys = [
     "authorityId",
     "digest",
@@ -147,7 +190,9 @@ export function parseExplicitAssignment(value: JsonValue): ExplicitAssignment {
     (object.targetSubAgentRevision as number) < 1
   )
     throw new TypeError("Explicit assignment revision is invalid");
+  /** Parsed used during parse explicit assignment. */
   const parsed = object as unknown as ExplicitAssignment;
+  /** Digest and core used during parse explicit assignment. */
   const { digest: _digest, ...core } = parsed;
   if (finalizeExplicitAssignment(core).digest !== parsed.digest)
     throw new TypeError("Explicit assignment digest is invalid");
@@ -163,17 +208,20 @@ export function parseExplicitAssignment(value: JsonValue): ExplicitAssignment {
   return structuredClone(parsed);
 }
 
+/** Builds digest-pinned candidate and target context for a selector. */
 export async function prepareSelection(
   provider: AgentTaskProvider,
   resolved: ResolvedDefinition,
   activatedDefinitions: readonly ActivatedDefinition[],
 ): Promise<SelectionContext> {
+  /** Summaries loaded during prepare selection. */
   const summaries =
     resolved.taskQuery === null
       ? []
       : await provider.listTaskSummaries(
           taskQueryForDefinition(resolved.taskQuery, resolved.definition),
         );
+  /** Bounded, digest-pinned Task summaries exposed to selection. */
   const candidateSet =
     resolved.taskQuery === null
       ? finalizeCandidateSet(
@@ -186,6 +234,7 @@ export async function prepareSelection(
           [],
         )
       : finalizeCandidateSet(resolved.taskQuery, summaries);
+  /** Target catalog arranged in deterministic order. */
   const targetCatalog = activatedDefinitions
     .filter(({ resolved: target }) =>
       target.definition.selection.acceptsAssignmentsFrom.includes(
@@ -206,6 +255,7 @@ export async function prepareSelection(
       "Self selector is absent from the activated target catalog",
     );
   }
+  /** Canonical digest of basis. */
   const basisDigest = digestJson(
     toJsonValue({
       candidateSetDigest: candidateSet.digest,
@@ -222,24 +272,37 @@ export async function prepareSelection(
   };
 }
 
+/** Validates and promotes a selector result into provider-backed leases. */
 export async function promoteSelection(input: {
+  /** Assignment depth for promote selection input. */
   readonly assignmentDepth: number;
+  /** Activation runtime for promote selection input. */
   readonly activationRuntime: ActivationRuntime;
+  /** Timestamp at which the lease expires. */
   readonly expiresAt: string;
+  /** Stable identifier for owner. */
   readonly ownerId: string;
+  /** Provider for promote selection input. */
   readonly provider: AgentTaskProvider;
+  /** Resolved selector for promote selection input. */
   readonly resolvedSelector: ResolvedDefinition;
+  /** Result for promote selection input. */
   readonly result: TaskSelectionResult;
+  /** Selection context for promote selection input. */
   readonly selectionContext: SelectionContext;
+  /** Stable identifier for selector run lease. */
   readonly selectorRunLeaseId: string;
 }): Promise<AssignmentPromotion | null> {
   if (!Number.isSafeInteger(input.assignmentDepth) || input.assignmentDepth < 0)
     throw new Error("Selection assignment depth is invalid");
+  /** Result produced by promote selection. */
   const result = parseTaskSelectionResult(toJsonValue(input.result));
+  /** Activated loaded during promote selection. */
   const activated = await activateDefinitions({
     ...input.activationRuntime,
     provider: input.provider,
   });
+  /** Active selector used during promote selection. */
   const activeSelector = requiredActivated(
     activated,
     input.resolvedSelector.definition.id,
@@ -248,7 +311,9 @@ export async function promoteSelection(input: {
     throw new Error(
       "Selector definition or Resources changed after preparation",
     );
+  /** Selector used during promote selection. */
   const selector = activeSelector.resolved.definition;
+  /** Fresh context loaded during promote selection. */
   const freshContext = await prepareSelection(
     input.provider,
     activeSelector.resolved,
@@ -278,6 +343,7 @@ export async function promoteSelection(input: {
   }
   if (result.selectorRunId !== input.ownerId)
     throw new Error("Selection result does not match the active run owner");
+  /** Selector projection loaded during promote selection. */
   const selectorProjection = await input.provider.getLeaseProjection(
     selector.id,
   );
@@ -295,8 +361,11 @@ export async function promoteSelection(input: {
     return null;
   }
 
+  /** Target ID used during promote selection. */
   const targetId = requiredString(result.targetSubAgentId, "Selection target");
+  /** Active target used during promote selection. */
   const activeTarget = requiredActivated(activated, targetId);
+  /** Target catalog entry used during promote selection. */
   const targetCatalogEntry = input.selectionContext.targetCatalog.find(
     (entry) => entry.id === targetId,
   );
@@ -307,16 +376,20 @@ export async function promoteSelection(input: {
   ) {
     throw new Error("Selection target is outside the activated target catalog");
   }
+  /** Target used during promote selection. */
   const target = activeTarget.resolved.definition;
   assertSelectionAuthority(result, selector, target);
   if (input.assignmentDepth > target.maxAssignmentDepth)
     throw new Error("Selection exceeds the target assignment-depth limit");
+  /** Task ID used during promote selection. */
   const taskId = requiredString(result.taskId, "Selected Task");
+  /** Candidate summary matching the selected Task, when present. */
   const candidate = input.selectionContext.candidateSet.summaries.find(
     (summary) => summary.id === taskId,
   );
   if (selector.selection.taskQueryResource !== null && candidate === undefined)
     throw new Error("Selected Task is outside the bounded candidate set");
+  /** Task loaded during promote selection. */
   const task = await input.provider.getTaskSnapshot(taskId);
   verifyTaskCandidate(task, candidate);
   await verifyDependencies(
@@ -332,6 +405,7 @@ export async function promoteSelection(input: {
     input.selectorRunLeaseId,
     result.digest,
   );
+  /** Promotion loaded during promote selection. */
   const promotion = await acquireAndProject({
     existingRunLeaseId:
       result.mode === "self" ? input.selectorRunLeaseId : null,
@@ -356,23 +430,35 @@ export async function promoteSelection(input: {
   return promotion;
 }
 
+/** Validates and promotes an explicit assignment into provider-backed leases. */
 export async function promoteExplicitAssignment(input: {
+  /** Assignment for promote explicit assignment input. */
   readonly assignment: ExplicitAssignment;
+  /** Assignment depth for promote explicit assignment input. */
   readonly assignmentDepth: number;
+  /** Activation runtime for promote explicit assignment input. */
   readonly activationRuntime: ActivationRuntime;
+  /** Timestamp at which the lease expires. */
   readonly expiresAt: string;
+  /** Stable identifier for owner. */
   readonly ownerId: string;
+  /** Provider for promote explicit assignment input. */
   readonly provider: AgentTaskProvider;
+  /** Resolved target for promote explicit assignment input. */
   readonly resolvedTarget: ResolvedDefinition;
+  /** Selection context for promote explicit assignment input. */
   readonly selectionContext: SelectionContext;
 }): Promise<AssignmentPromotion> {
+  /** Parsed used during promote explicit assignment. */
   const parsed = parseExplicitAssignment(toJsonValue(input.assignment));
   if (!Number.isSafeInteger(input.assignmentDepth) || input.assignmentDepth < 0)
     throw new Error("Explicit assignment depth is invalid");
+  /** Activated loaded during promote explicit assignment. */
   const activated = await activateDefinitions({
     ...input.activationRuntime,
     provider: input.provider,
   });
+  /** Active target used during promote explicit assignment. */
   const activeTarget = requiredActivated(
     activated,
     input.resolvedTarget.definition.id,
@@ -381,6 +467,7 @@ export async function promoteExplicitAssignment(input: {
     throw new Error(
       "Explicit target definition or Resources changed after preparation",
     );
+  /** Fresh context loaded during promote explicit assignment. */
   const freshContext = await prepareSelection(
     input.provider,
     activeTarget.resolved,
@@ -393,6 +480,7 @@ export async function promoteExplicitAssignment(input: {
   ) {
     throw new Error("Explicit assignment basis changed after preparation");
   }
+  /** Target used during promote explicit assignment. */
   const target = activeTarget.resolved.definition;
   if (parsed.authorityId !== input.ownerId)
     throw new Error("Explicit assignment does not match its trusted authority");
@@ -414,11 +502,13 @@ export async function promoteExplicitAssignment(input: {
     throw new Error(
       "Explicit assignment exceeds the target assignment-depth limit",
     );
+  /** Candidate summary matching the selected Task, when present. */
   const candidate = input.selectionContext.candidateSet.summaries.find(
     (summary) => summary.id === parsed.taskId,
   );
   if (target.selection.taskQueryResource !== null && candidate === undefined)
     throw new Error("Explicit Task is outside the target candidate scope");
+  /** Task loaded during promote explicit assignment. */
   const task = await input.provider.getTaskSnapshot(parsed.taskId);
   verifyTaskCandidate(task, candidate);
   await verifyDependencies(
@@ -446,19 +536,32 @@ export async function promoteExplicitAssignment(input: {
   });
 }
 
+/** Acquires assignment leases and synchronizes their provider projections. */
 async function acquireAndProject(input: {
+  /** Stable identifier for existing run lease. */
   readonly existingRunLeaseId: string | null;
+  /** Timestamp at which the lease expires. */
   readonly expiresAt: string;
+  /** SHA-256 digest of canonical operation content. */
   readonly operationDigest: string;
+  /** Stable identifier for owner. */
   readonly ownerId: string;
+  /** Provider for acquire and project input. */
   readonly provider: AgentTaskProvider;
+  /** SHA-256 digest of canonical selection basis content. */
   readonly selectionBasisDigest: string;
+  /** Target for acquire and project input. */
   readonly target: SubAgentDefinition;
+  /** Stable identifier for task. */
   readonly taskId: string;
+  /** Task status for acquire and project input. */
   readonly taskStatus: string;
+  /** Version token expected for task. */
   readonly taskVersion: string;
 }): Promise<AssignmentPromotion> {
+  /** Intent key used during acquire and project. */
   const intentKey = `assignment-intent/${input.operationDigest}`;
+  /** Prior intent loaded during acquire and project. */
   const priorIntent = await readAssignmentIntent(
     input.provider,
     intentKey,
@@ -491,15 +594,19 @@ async function acquireAndProject(input: {
       taskLeaseId: null,
     },
   );
+  /** Before projection loaded during acquire and project. */
   const beforeProjection = await input.provider.getLeaseProjection(
     input.target.id,
   );
+  /** Before activity loaded during acquire and project. */
   const beforeActivity = await input.provider.getSubAgentActivity(
     input.target.id,
   );
   verifyActivity(beforeActivity, beforeProjection);
+  /** Run lease ID used during acquire and project. */
   let runLeaseId = input.existingRunLeaseId;
   if (runLeaseId === null) {
+    /** Run lease loaded during acquire and project. */
     const runLease = await input.provider.acquireLease({
       expiresAt: input.expiresAt,
       idempotencyKey: `selection:${input.operationDigest}:run`,
@@ -520,6 +627,7 @@ async function acquireAndProject(input: {
       taskLeaseId: null,
     });
   }
+  /** Task lease loaded during acquire and project. */
   const taskLease = await input.provider.acquireLease({
     expiresAt: input.expiresAt,
     idempotencyKey: `selection:${input.operationDigest}:task`,
@@ -549,6 +657,7 @@ async function acquireAndProject(input: {
     state: "task_acquired",
     taskLeaseId: taskLease.leaseId,
   });
+  /** After projection loaded during acquire and project. */
   const afterProjection = await input.provider.getLeaseProjection(
     input.target.id,
   );
@@ -568,6 +677,7 @@ async function acquireAndProject(input: {
     });
     throw new Error("Selection exceeds target concurrency");
   }
+  /** Current activity loaded during acquire and project. */
   const currentActivity = await input.provider.getSubAgentActivity(
     input.target.id,
   );
@@ -606,32 +716,48 @@ async function acquireAndProject(input: {
   };
 }
 
+/** Allowed assignment intent state literals. */
 type AssignmentIntentState =
   "compensated" | "complete" | "prepared" | "run_acquired" | "task_acquired";
+/** Canonical fields for assignment intent progress. */
 interface AssignmentIntentProgress {
+  /** Stable identifier for run lease. */
   readonly runLeaseId: string | null;
+  /** Current state of assignment intent progress. */
   readonly state: AssignmentIntentState;
+  /** Stable identifier for task lease. */
   readonly taskLeaseId: string | null;
 }
 
+/** Reads and validates durable progress for an assignment operation. */
 async function readAssignmentIntent(
   provider: AgentTaskProvider,
   key: string,
   input: {
+    /** SHA-256 digest of canonical operation content. */
     readonly operationDigest: string;
+    /** Stable identifier for owner. */
     readonly ownerId: string;
+    /** SHA-256 digest of canonical selection basis content. */
     readonly selectionBasisDigest: string;
+    /** Target for read assignment intent input. */
     readonly target: SubAgentDefinition;
+    /** Stable identifier for task. */
     readonly taskId: string;
+    /** Task status for read assignment intent input. */
     readonly taskStatus: string;
+    /** Version token expected for task. */
     readonly taskVersion: string;
   },
 ): Promise<AssignmentIntentProgress | null> {
+  /** Resource loaded during read assignment intent. */
   const resource = await provider.getOptionalResource(key);
   if (resource === null) return null;
+  /** JSON-decoded input before structural validation. */
   const parsed: unknown = JSON.parse(resource.body);
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed))
     throw new Error("Assignment intent is malformed");
+  /** Object currently undergoing field-level validation. */
   const value = parsed as Record<string, unknown>;
   if (
     value.schema !== "assignment-intent-v1" ||
@@ -673,20 +799,29 @@ async function readAssignmentIntent(
   };
 }
 
+/** Persists assignment progress as an idempotent Resource mutation. */
 async function writeAssignmentIntent(
   provider: AgentTaskProvider,
   key: string,
   input: {
+    /** SHA-256 digest of canonical operation content. */
     readonly operationDigest: string;
+    /** Stable identifier for owner. */
     readonly ownerId: string;
+    /** SHA-256 digest of canonical selection basis content. */
     readonly selectionBasisDigest: string;
+    /** Target for write assignment intent input. */
     readonly target: SubAgentDefinition;
+    /** Stable identifier for task. */
     readonly taskId: string;
+    /** Task status for write assignment intent input. */
     readonly taskStatus: string;
+    /** Version token expected for task. */
     readonly taskVersion: string;
   },
   progress: AssignmentIntentProgress,
 ): Promise<void> {
+  /** Body used during write assignment intent. */
   const body = JSON.stringify({
     operationDigest: input.operationDigest,
     ownerId: input.ownerId,
@@ -700,6 +835,7 @@ async function writeAssignmentIntent(
     taskStatus: input.taskStatus,
     taskVersion: input.taskVersion,
   });
+  /** Canonical digest of record. */
   const record: ResourceMutation = {
     body,
     dependencies: [],
@@ -713,19 +849,25 @@ async function writeAssignmentIntent(
   await provider.putResource(record);
 }
 
+/** Atomically reserves one assignment slot in the run's durable budget. */
 async function reserveAssignmentBudget(
   provider: AgentTaskProvider,
   definition: SubAgentDefinition,
   runIdentity: string,
   operationDigest: string,
 ): Promise<void> {
+  /** Key used during reserve assignment budget. */
   const key = `assignment-budget/${definition.id}/${runIdentity}`;
+  /** Prior loaded during reserve assignment budget. */
   const prior = await provider.getOptionalResource(key);
+  /** Operations used during reserve assignment budget. */
   let operations: string[] = [];
   if (prior !== null) {
+    /** JSON-decoded input before structural validation. */
     const parsed: unknown = JSON.parse(prior.body);
     if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed))
       throw new Error("Assignment budget is malformed");
+    /** Object currently undergoing field-level validation. */
     const value = parsed as Record<string, unknown>;
     if (
       value.schema !== "assignment-budget-v1" ||
@@ -742,6 +884,7 @@ async function reserveAssignmentBudget(
   if (operations.length > definition.maxAssignmentsPerRun)
     throw new Error("Sub-agent assignment budget is exhausted");
   operations.sort();
+  /** Body used during reserve assignment budget. */
   const body = JSON.stringify({
     operationDigests: operations,
     runIdentity,
@@ -760,6 +903,7 @@ async function reserveAssignmentBudget(
   });
 }
 
+/** Confirms that a loaded Task still matches its selected candidate summary. */
 function verifyTaskCandidate(
   task: TaskSnapshot,
   candidate: CandidateSet["summaries"][number] | undefined,
@@ -772,12 +916,14 @@ function verifyTaskCandidate(
     throw new Error("Selected Task changed after candidate compilation");
 }
 
+/** Confirms that every Task dependency has an accepted status. */
 async function verifyDependencies(
   provider: AgentTaskProvider,
   task: TaskSnapshot,
   satisfiedStatuses: readonly string[],
 ): Promise<void> {
   for (const dependencyId of task.dependencies) {
+    /** Dependency loaded during verify dependencies. */
     const dependency = await provider.getTaskSnapshot(dependencyId);
     if (dependency.archived || !satisfiedStatuses.includes(dependency.status))
       throw new Error(
@@ -786,6 +932,7 @@ async function verifyDependencies(
   }
 }
 
+/** Releases the selector lease and synchronizes its activity projection. */
 async function releaseAndProjectSelector(
   provider: AgentTaskProvider,
   subAgentId: string,
@@ -793,10 +940,13 @@ async function releaseAndProjectSelector(
   ownerId: string,
   operationDigest: string,
 ): Promise<void> {
+  /** Before projection loaded during release and project selector. */
   const beforeProjection = await provider.getLeaseProjection(subAgentId);
+  /** Before activity loaded during release and project selector. */
   const beforeActivity = await provider.getSubAgentActivity(subAgentId);
   verifyActivity(beforeActivity, beforeProjection);
   await provider.releaseLease({ expectedVersion: null, leaseId, ownerId });
+  /** After projection loaded during release and project selector. */
   const afterProjection = await provider.getLeaseProjection(subAgentId);
   if (!activityMatches(beforeActivity, afterProjection)) {
     await provider.updateSubAgentActivity({
@@ -814,10 +964,12 @@ async function releaseAndProjectSelector(
   );
 }
 
+/** Returns the single active definition matching an ID and revision. */
 function requiredActivated(
   values: readonly ActivatedDefinition[],
   id: string,
 ): ActivatedDefinition {
+  /** Matches satisfying the current constraints. */
   const matches = values.filter(
     ({ resolved }) => resolved.definition.id === id,
   );
@@ -826,6 +978,7 @@ function requiredActivated(
   return matches[0];
 }
 
+/** Confirms that provider activity matches the expected lease projection. */
 function verifyActivity(
   activity: SubAgentActivity,
   projection: LeaseProjection,
@@ -833,10 +986,12 @@ function verifyActivity(
   if (!activityMatches(activity, projection))
     throw new Error("Sub-agent activity does not match active leases");
 }
+/** Checks whether activity contains exactly the expected Tasks and online state. */
 function activityMatches(
   activity: SubAgentActivity,
   projection: LeaseProjection,
 ): boolean {
+  /** Expected status used for comparison. */
   const expectedStatus =
     projection.runLeaseIds.length === 0 ? "Offline" : "Online";
   return (
@@ -844,17 +999,20 @@ function activityMatches(
     sameSet(activity.taskIds, projection.taskIds)
   );
 }
+/** Checks whether two string collections contain the same values. */
 function sameSet(left: readonly string[], right: readonly string[]): boolean {
   return (
     [...new Set(left)].sort().join("\0") ===
     [...new Set(right)].sort().join("\0")
   );
 }
+/** Requires a non-empty string field value. */
 function requiredString(value: string | null, label: string): string {
   if (value === null || value === "")
     throw new TypeError(`${label} is missing`);
   return value;
 }
+/** Requires a field value to be a non-array JSON object. */
 function objectValue(value: JsonValue | undefined, label: string): JsonObject {
   if (
     value === null ||

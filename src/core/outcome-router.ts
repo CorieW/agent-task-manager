@@ -1,12 +1,18 @@
 /** Maps arbitrary typed outcomes through provider-defined transition data. */
 import type { SubAgentDefinition } from "../domain/records.js";
 
+/** Maps a typed outcome through provider-defined Task transitions. */
 export function routeOutcome(input: {
+  /** Current status for route outcome input. */
   readonly currentStatus: string;
+  /** Definition for route outcome input. */
   readonly definition: Pick<SubAgentDefinition, "transitions">;
+  /** Outcome for route outcome input. */
   readonly outcome: string;
+  /** Valid statuses included in route outcome input. */
   readonly validStatuses: readonly string[];
 }): string {
+  /** Configured used during route outcome. */
   const configured = input.definition.transitions[input.outcome];
   if (configured === undefined)
     throw new Error(

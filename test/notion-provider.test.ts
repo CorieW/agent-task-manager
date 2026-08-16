@@ -11,13 +11,16 @@ import type {
   NotionTransport,
 } from "../src/provider/notion/notion-transport.js";
 
+/** Implements no network transport. */
 class NoNetworkTransport implements NotionTransport {
+  /** Executes one provider request. */
   public async request(_request: NotionRequest): Promise<JsonObject> {
     throw new Error("Network should not be used by static validation");
   }
 }
 
 test("implements the provider contract and validates Notion environment fields locally", async () => {
+  /** Defines the provider fixture for “implements the provider contract and validates Notion environment fields locally”. */
   const provider: AgentTaskProvider = new NotionProvider({
     environment: environment(),
     environmentId: "demo",
@@ -35,6 +38,7 @@ test("implements the provider contract and validates Notion environment fields l
   );
 });
 
+/** Creates a provider environment fixture. */
 function environment(): ProviderEnvironment {
   return {
     bootstrapParent: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",

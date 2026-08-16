@@ -15,52 +15,82 @@ import type {
 } from "./adapters.js";
 import type { RunContext } from "./contracts.js";
 
+/** Brands trusted no-tool model handles. */
 const MODEL_HANDLE = Symbol("no-tool-model-handle");
+/** Holds the prepared no-tool isolation handle. */
 const ISOLATION_HANDLE = Symbol("no-tool-isolation-handle");
 
+/** Defines the data and behavior required by no tool model client. */
 export interface NoToolModelClient {
+  /** Streams model output for one bounded run. */
   stream(input: {
+    /** Provides context to no tool model client. */
     readonly context: RunContext;
+    /** Provides model to no tool model client. */
     readonly model: string;
+    /** Sets output limit in bytes. */
     readonly outputLimitBytes: number;
+    /** Version tag for the no tool model client representation. */
     readonly outputSchema: JsonObject;
+    /** Provides reasoning to no tool model client. */
     readonly reasoning: string;
+    /** Provides signal to no tool model client. */
     readonly signal: AbortSignal;
   }): AsyncIterable<string | Uint8Array>;
 }
 
+/** Defines the data and behavior required by no tool model handle. */
 interface NoToolModelHandle {
+  /** Brands this object as a validated no-tool model handle. */
   readonly [MODEL_HANDLE]: true;
+  /** Provides client to no tool model handle. */
   readonly client: NoToolModelClient;
+  /** Provides controller to no tool model handle. */
   readonly controller: AbortController;
+  /** Provides model to no tool model handle. */
   readonly model: string;
+  /** Provides reasoning to no tool model handle. */
   readonly reasoning: string;
+  /** Identifies run. */
   readonly runId: string;
 }
+/** Defines the data and behavior required by no tool isolation handle. */
 interface NoToolIsolationHandle {
+  /** Brands this object as a validated no-tool isolation handle. */
   readonly [ISOLATION_HANDLE]: true;
+  /** Identifies run. */
   readonly runId: string;
 }
 
+/** Implements no tool model transport adapter and its boundary checks. */
 export class NoToolModelTransportAdapter implements ModelTransportAdapter {
+  /** Creates no tool model transport adapter with its required collaborators. */
   public constructor(
-    public readonly id: string,
-    private readonly client: NoToolModelClient,
-    private readonly clientDigest: string,
+    /** Provides id to no tool model transport adapter. */ public readonly id: string,
+    /** Provides client to no tool model transport adapter. */ private readonly client: NoToolModelClient,
+    /** Stores the SHA-256 digest of client. */ private readonly clientDigest: string,
   ) {
     requireId(id, "Model transport adapter ID");
     requireDigest(clientDigest, "Model client digest");
   }
+  /** Prepares an isolated no-tool model session. */
   public async prepare(input: {
+    /** Provides model to prepare. */
     readonly model: string;
+    /** Provides reasoning to prepare. */
     readonly reasoning: string;
+    /** Identifies run. */
     readonly runId: string;
+    /** Provides signal to prepare. */
     readonly signal: AbortSignal;
   }): Promise<ModelTransportSession> {
     input.signal.throwIfAborted();
+    /** Stores controller used by prepare. */
     const controller = new AbortController();
+    /** Stores abort used by prepare. */
     const abort = (): void => controller.abort(input.signal.reason);
     input.signal.addEventListener("abort", abort, { once: true });
+    /** Stores handle used by prepare. */
     const handle: NoToolModelHandle = {
       [MODEL_HANDLE]: true,
       client: this.client,
@@ -69,8 +99,10 @@ export class NoToolModelTransportAdapter implements ModelTransportAdapter {
       reasoning: input.reasoning,
       runId: input.runId,
     };
+    /** Stores closed used by prepare. */
     let closed = false;
     return {
+      /** Releases resources owned by prepare. */
       async close() {
         if (closed) return;
         closed = true;
@@ -99,10 +131,15 @@ export class NoToolModelTransportAdapter implements ModelTransportAdapter {
   }
 }
 
+/** Implements no tool isolation adapter and its boundary checks. */
 export class NoToolIsolationAdapter implements ToolIsolationAdapter {
-  public constructor(public readonly id: string) {
+  /** Creates no tool isolation adapter with its required collaborators. */
+  public constructor(
+    /** Provides id to no tool isolation adapter. */ public readonly id: string,
+  ) {
     requireId(id, "Tool isolation adapter ID");
   }
+  /** Prepares an isolated no-tool process boundary. */
   public async prepare(
     policy: ToolIsolationPolicy,
     signal: AbortSignal,
@@ -119,12 +156,15 @@ export class NoToolIsolationAdapter implements ToolIsolationAdapter {
         "The no-tool isolation adapter accepts no filesystem, environment, or network authority",
       );
     }
+    /** Binds prepare to canonical policy content. */
     const policyDigest = digestJson(toJsonValue(policy));
+    /** Stores handle used by prepare. */
     const handle: NoToolIsolationHandle = {
       [ISOLATION_HANDLE]: true,
       runId: policy.runId,
     };
     return {
+      /** Releases resources owned by prepare. */
       async close() {},
       opaqueHandle: handle,
       receipt: {
@@ -149,10 +189,13 @@ export class NoToolIsolationAdapter implements ToolIsolationAdapter {
   }
 }
 
+/** Implements no tool agent runner adapter and its boundary checks. */
 export class NoToolAgentRunnerAdapter implements AgentRunnerAdapter {
+  /** Provides identity to no tool agent runner adapter. */
   readonly #identity: AgentRunnerIdentity;
+  /** Creates no tool agent runner adapter with its required collaborators. */
   public constructor(
-    public readonly id: string,
+    /** Provides id to no tool agent runner adapter. */ public readonly id: string,
     executableDigest: string,
     executableVersion: string,
   ) {
@@ -166,19 +209,29 @@ export class NoToolAgentRunnerAdapter implements AgentRunnerAdapter {
       supportedProfiles: ["no-tools"],
     };
   }
+  /** Returns the runner identity used for receipt verification. */
   public async identity(): Promise<AgentRunnerIdentity> {
     return structuredClone(this.#identity);
   }
+  /** Starts a bounded no-tool agent process over the prepared handles. */
   public async start(input: {
+    /** Provides context to start. */
     readonly context: RunContext;
+    /** Provides control plane handle to start. */
     readonly controlPlaneHandle: unknown;
+    /** Version tag for the start representation. */
     readonly outputSchema: JsonObject;
+    /** Sets output limit in bytes. */
     readonly outputLimitBytes: number;
+    /** Provides signal to start. */
     readonly signal: AbortSignal;
+    /** Provides tool isolation handle to start. */
     readonly toolIsolationHandle: unknown;
   }): Promise<SupervisedAgentProcess> {
     input.signal.throwIfAborted();
+    /** Stores model used by start. */
     const model = modelHandle(input.controlPlaneHandle);
+    /** Holds the validated no-tool isolation session. */
     const isolation = isolationHandle(input.toolIsolationHandle);
     if (
       model.runId !== input.context.runId ||
@@ -195,15 +248,25 @@ export class NoToolAgentRunnerAdapter implements AgentRunnerAdapter {
   }
 }
 
+/** Implements no tool agent process and its boundary checks. */
 class NoToolAgentProcess implements SupervisedAgentProcess {
+  /** Provides controller to no tool agent process. */
   readonly #controller = new AbortController();
+  /** Provides completion to no tool agent process. */
   readonly #completion: Promise<AgentProcessCompletion>;
+  /** Provides resolve completion to no tool agent process. */
   readonly #resolveCompletion: (value: AgentProcessCompletion) => void;
+  /** Provides source to no tool agent process. */
   readonly #source: AsyncIterable<string | Uint8Array>;
+  /** Provides upstream signal to no tool agent process. */
   readonly #upstreamSignal: AbortSignal;
+  /** Provides abort to no tool agent process. */
   readonly #abort: () => void;
+  /** Provides output started to no tool agent process. */
   #outputStarted = false;
+  /** Provides settled to no tool agent process. */
   #settled = false;
+  /** Creates no tool agent process with its required collaborators. */
   public constructor(
     handle: NoToolModelHandle,
     context: RunContext,
@@ -211,6 +274,7 @@ class NoToolAgentProcess implements SupervisedAgentProcess {
     outputLimitBytes: number,
     signal: AbortSignal,
   ) {
+    /** Stores resolve completion used by no tool agent process. */
     let resolveCompletion!: (value: AgentProcessCompletion) => void;
     this.#completion = new Promise((resolve) => {
       resolveCompletion = resolve;
@@ -228,15 +292,18 @@ class NoToolAgentProcess implements SupervisedAgentProcess {
     this.#abort = () => this.#controller.abort(signal.reason);
     signal.addEventListener("abort", this.#abort, { once: true });
   }
+  /** Releases resources owned by no tool agent process. */
   public async cleanup(): Promise<void> {
     this.#upstreamSignal.removeEventListener("abort", this.#abort);
     this.#controller.abort(new Error("No-tool process cleaned"));
     this.#finish(null);
   }
+  /** Forcibly terminates the complete child-process tree. */
   public async killTree(): Promise<void> {
     this.#controller.abort(new Error("No-tool process killed"));
     this.#finish(null);
   }
+  /** Streams bounded stdout and stderr events from no tool agent process. */
   public async *output(): AsyncIterable<AgentProcessOutput> {
     if (this.#outputStarted)
       throw new Error("No-tool process output may be consumed only once");
@@ -248,13 +315,16 @@ class NoToolAgentProcess implements SupervisedAgentProcess {
       this.#finish(this.#controller.signal.aborted ? null : 1);
     }
   }
+  /** Requests graceful termination of the complete child-process tree. */
   public async terminateTree(): Promise<void> {
     this.#controller.abort(new Error("No-tool process terminated"));
     this.#finish(null);
   }
+  /** Waits for no tool agent process to reach a terminal state. */
   public async wait(): Promise<AgentProcessCompletion> {
     return this.#completion;
   }
+  /** Resolves process completion exactly once and detaches cancellation listeners. */
   #finish(exitCode: number | null): void {
     if (this.#settled) return;
     this.#settled = true;
@@ -262,6 +332,7 @@ class NoToolAgentProcess implements SupervisedAgentProcess {
   }
 }
 
+/** Validates and returns a no-tool model handle. */
 function modelHandle(value: unknown): NoToolModelHandle {
   if (
     value === null ||
@@ -271,6 +342,7 @@ function modelHandle(value: unknown): NoToolModelHandle {
     throw new Error("No-tool model handle is invalid");
   return value as NoToolModelHandle;
 }
+/** Validates and returns a no-tool isolation handle. */
 function isolationHandle(value: unknown): NoToolIsolationHandle {
   if (
     value === null ||
@@ -280,9 +352,11 @@ function isolationHandle(value: unknown): NoToolIsolationHandle {
     throw new Error("No-tool isolation handle is invalid");
   return value as NoToolIsolationHandle;
 }
+/** Returns id or throws when invalid or absent. */
 function requireId(value: string, label: string): void {
   if (value === "") throw new TypeError(`${label} is required`);
 }
+/** Returns digest or throws when invalid or absent. */
 function requireDigest(value: string, label: string): void {
   if (!/^[a-f0-9]{64}$/u.test(value))
     throw new TypeError(`${label} must be a SHA-256 digest`);

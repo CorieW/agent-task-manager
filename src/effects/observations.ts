@@ -2,11 +2,13 @@
 import { toJsonValue, type JsonObject } from "../domain/json.js";
 import type { ExternalEffectObservation } from "./contracts.js";
 
+/** Creates effect observation after validating its inputs. */
 export function createEffectObservation(
   state: ExternalEffectObservation["state"],
   evidence: unknown,
   externalIdentity: unknown = {},
 ): ExternalEffectObservation {
+  /** Stores observation used by create effect observation. */
   const observation = {
     evidence: jsonObject(evidence, "External-effect evidence"),
     externalIdentity: jsonObject(externalIdentity, "External-effect identity"),
@@ -16,6 +18,7 @@ export function createEffectObservation(
   return observation;
 }
 
+/** Rejects invalid effect observation before it crosses the boundary. */
 export function validateEffectObservation(
   value: ExternalEffectObservation,
 ): void {
@@ -27,7 +30,9 @@ export function validateEffectObservation(
   jsonObject(value.externalIdentity, "External-effect identity");
 }
 
+/** Validates and returns a non-array JSON object. */
 function jsonObject(value: unknown, label: string): JsonObject {
+  /** Stores converted used by json object. */
   const converted = toJsonValue(value);
   if (
     converted === null ||

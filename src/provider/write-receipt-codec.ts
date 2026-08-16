@@ -6,17 +6,21 @@ import {
 } from "../domain/provider.js";
 import type { JsonObject, JsonValue } from "../domain/json.js";
 
+/** Parses and validates write receipt. */
 export function parseWriteReceipt(value: JsonValue): WriteReceipt {
+  /** Holds the `object` intermediate used by `parseWriteReceipt`. */
   const object = exactObject(
     value,
     ["idempotencyKey", "observedVersion", "providerRecord", "writtenAt"],
     "Write receipt",
   );
+  /** Holds the `providerRecord` intermediate used by `parseWriteReceipt`. */
   const providerRecord = exactObject(
     object.providerRecord ?? null,
     ["id", "table"],
     "Provider record",
   );
+  /** Holds the `table` intermediate used by `parseWriteReceipt`. */
   const table = requiredString(providerRecord.table, "Provider record table");
   if (!TABLE_KINDS.includes(table as TableKind))
     throw new TypeError("Provider record table is invalid");
@@ -37,6 +41,7 @@ export function parseWriteReceipt(value: JsonValue): WriteReceipt {
   };
 }
 
+/** Returns an object after enforcing its exact field set. */
 function exactObject(
   value: JsonValue,
   keys: readonly string[],
@@ -49,6 +54,7 @@ function exactObject(
   return value;
 }
 
+/** Returns a required non-empty string or throws. */
 function requiredString(value: JsonValue | undefined, label: string): string {
   if (typeof value !== "string" || value === "")
     throw new TypeError(`${label} must be a non-empty string`);

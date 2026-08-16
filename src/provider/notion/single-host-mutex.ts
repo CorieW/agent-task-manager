@@ -3,21 +3,29 @@ import { open, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+/** Implements single-host mutex. */
 export class SingleHostMutex {
+  /** Contains path for single-host mutex. */
   readonly #path: string;
+  /** Contains tail for single-host mutex. */
   #tail: Promise<void> = Promise.resolve();
 
+  /** Initializes single-host mutex. */
   public constructor(identity: string, root = tmpdir()) {
     this.#path = join(root, `agent-task-manager-${safeName(identity)}.lock`);
   }
 
+  /** Runs one callback under in-process ordering and the same-host lock file. */
   public async run<T>(operation: () => Promise<T>): Promise<T> {
+    /** Holds the `previous` intermediate used by `run`. */
     const previous = this.#tail;
+    /** Holds the `releaseQueue` intermediate used by `run`. */
     let releaseQueue!: () => void;
     this.#tail = new Promise<void>((resolve) => {
       releaseQueue = resolve;
     });
     await previous;
+    /** Holds the `handle` intermediate used by `run`. */
     let handle: Awaited<ReturnType<typeof open>> | undefined;
     try {
       handle = await this.acquire();
@@ -31,8 +39,10 @@ export class SingleHostMutex {
     }
   }
 
+  /** Acquires acquire. */
   private async acquire() {
     try {
+      /** Holds the `handle` intermediate used by `acquire`. */
       const handle = await open(this.#path, "wx", 0o600);
       await handle.writeFile(
         JSON.stringify({
@@ -45,6 +55,7 @@ export class SingleHostMutex {
     } catch (error) {
       if (!isAlreadyExists(error) || !(await this.clearStaleOwner()))
         throw error;
+      /** Holds the `handle` intermediate used by `acquire`. */
       const handle = await open(this.#path, "wx", 0o600);
       await handle.writeFile(
         JSON.stringify({
@@ -57,9 +68,12 @@ export class SingleHostMutex {
     }
   }
 
+  /** Clears stale owner. */
   private async clearStaleOwner(): Promise<boolean> {
+    /** Holds the `pid` intermediate used by `clearStaleOwner`. */
     let pid: number;
     try {
+      /** Holds the `parsed` intermediate used by `clearStaleOwner`. */
       const parsed: unknown = JSON.parse(await readFile(this.#path, "utf8"));
       if (
         parsed === null ||
@@ -78,6 +92,7 @@ export class SingleHostMutex {
   }
 }
 
+/** Converts an environment identity into a bounded lock-file name. */
 function safeName(value: string): string {
   return value
     .normalize("NFC")
@@ -85,10 +100,12 @@ function safeName(value: string): string {
     .slice(0, 120);
 }
 
+/** Reports whether already exists. */
 function isAlreadyExists(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "EEXIST";
 }
 
+/** Reports whether process alive. */
 function isProcessAlive(pid: number): boolean {
   if (!Number.isSafeInteger(pid) || pid <= 0) return false;
   try {

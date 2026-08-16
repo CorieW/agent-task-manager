@@ -11,13 +11,16 @@ import type {
   ExternalEffectRequest,
 } from "./contracts.js";
 
+/** Implements assignment effect authority and its boundary checks. */
 export class AssignmentEffectAuthority implements ExternalEffectAuthorityVerifier {
+  /** Creates assignment effect authority with its required collaborators. */
   public constructor(
-    private readonly activated: ActivatedDefinition,
-    private readonly activationRuntime: ActivationRuntime,
-    private readonly promotion: AssignmentPromotion,
-    private readonly provider: AgentTaskProvider,
+    /** Provides activated to assignment effect authority. */ private readonly activated: ActivatedDefinition,
+    /** Provides activation runtime to assignment effect authority. */ private readonly activationRuntime: ActivationRuntime,
+    /** Provides promotion to assignment effect authority. */ private readonly promotion: AssignmentPromotion,
+    /** Provides provider to assignment effect authority. */ private readonly provider: AgentTaskProvider,
   ) {}
+  /** Verifies live assignment authority for an external-effect request. */
   public async verify(request: ExternalEffectRequest): Promise<void> {
     if (
       request.source.runId !== this.promotion.ownerId ||

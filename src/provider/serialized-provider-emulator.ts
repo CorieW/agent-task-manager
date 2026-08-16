@@ -35,35 +35,49 @@ import type {
 } from "../domain/schema.js";
 import type { AgentTaskProvider } from "./agent-task-provider.js";
 
+/** Defines seedable agent task provider. */
 export interface SeedableAgentTaskProvider extends AgentTaskProvider {
+  /** Seeds definition. */
   seedDefinition(definition: SubAgentDefinition): void;
+  /** Seeds task. */
   seedTask(task: TaskSnapshot): void;
+  /** Seeds task status options. */
   seedTaskStatusOptions(options: readonly string[]): void;
 }
 
+/** Round-trips a value through the JSON provider boundary. */
 function crossBoundary<T>(value: T): T {
   return JSON.parse(JSON.stringify(toJsonValue(value))) as T;
 }
 
+/** Implements serialized provider emulator. */
 export class SerializedProviderEmulator implements SeedableAgentTaskProvider {
-  public constructor(private readonly backing: SeedableAgentTaskProvider) {}
+  /** Initializes serialized provider emulator. */
+  public constructor(
+    /** Contains backing for serialized provider emulator. */ private readonly backing: SeedableAgentTaskProvider,
+  ) {}
 
+  /** Seeds definition. */
   public seedDefinition(definition: SubAgentDefinition): void {
     this.backing.seedDefinition(crossBoundary(definition));
   }
 
+  /** Seeds task. */
   public seedTask(task: TaskSnapshot): void {
     this.backing.seedTask(crossBoundary(task));
   }
 
+  /** Seeds task status options. */
   public seedTaskStatusOptions(options: readonly string[]): void {
     this.backing.seedTaskStatusOptions(crossBoundary(options));
   }
 
+  /** Returns capabilities. */
   public async getCapabilities(): Promise<ProviderCapabilities> {
     return crossBoundary(await this.backing.getCapabilities());
   }
 
+  /** Validates environment. */
   public async validateEnvironment(
     environment: ProviderEnvironment,
   ): Promise<ValidationReport> {
@@ -72,14 +86,17 @@ export class SerializedProviderEmulator implements SeedableAgentTaskProvider {
     );
   }
 
+  /** Validates tables. */
   public async validateTables(): Promise<TableValidationReport> {
     return crossBoundary(await this.backing.validateTables());
   }
 
+  /** Inspects workspace schema without mutation. */
   public async inspectWorkspaceSchema(): Promise<WorkspaceSchemaSnapshot> {
     return crossBoundary(await this.backing.inspectWorkspaceSchema());
   }
 
+  /** Plans ordered additive workspace changes without applying them. */
   public async planWorkspaceChanges(
     request: WorkspaceSchemaRequest,
   ): Promise<WorkspaceMigrationPlan> {
@@ -88,6 +105,7 @@ export class SerializedProviderEmulator implements SeedableAgentTaskProvider {
     );
   }
 
+  /** Applies workspace step. */
   public async applyWorkspaceStep(
     step: WorkspaceMigrationStep,
   ): Promise<WriteReceipt> {
@@ -96,6 +114,7 @@ export class SerializedProviderEmulator implements SeedableAgentTaskProvider {
     );
   }
 
+  /** Reconciles workspace step against provider state. */
   public async reconcileWorkspaceStep(
     stepId: string,
   ): Promise<ReconciliationResult> {
@@ -104,30 +123,35 @@ export class SerializedProviderEmulator implements SeedableAgentTaskProvider {
     );
   }
 
+  /** Lists Sub agent definitions. */
   public async listSubAgentDefinitions(): Promise<
     readonly SubAgentDefinition[]
   > {
     return crossBoundary(await this.backing.listSubAgentDefinitions());
   }
 
+  /** Returns Sub agent definition. */
   public async getSubAgentDefinition(id: string): Promise<SubAgentDefinition> {
     return crossBoundary(
       await this.backing.getSubAgentDefinition(crossBoundary(id)),
     );
   }
 
+  /** Returns Sub agent activity. */
   public async getSubAgentActivity(id: string): Promise<SubAgentActivity> {
     return crossBoundary(
       await this.backing.getSubAgentActivity(crossBoundary(id)),
     );
   }
 
+  /** Returns lease projection. */
   public async getLeaseProjection(id: string): Promise<LeaseProjection> {
     return crossBoundary(
       await this.backing.getLeaseProjection(crossBoundary(id)),
     );
   }
 
+  /** Returns lease snapshot. */
   public async getLeaseSnapshot(
     leaseId: string,
   ): Promise<LeaseSnapshot | null> {
@@ -136,6 +160,7 @@ export class SerializedProviderEmulator implements SeedableAgentTaskProvider {
     );
   }
 
+  /** Reconciles Sub agent activity against provider state. */
   public async reconcileSubAgentActivity(
     subAgentId: string,
     idempotencyKey: string,
@@ -148,10 +173,12 @@ export class SerializedProviderEmulator implements SeedableAgentTaskProvider {
     );
   }
 
+  /** Lists task status options. */
   public async listTaskStatusOptions(): Promise<readonly string[]> {
     return crossBoundary(await this.backing.listTaskStatusOptions());
   }
 
+  /** Updates Sub agent activity. */
   public async updateSubAgentActivity(
     change: ActivityMutation,
   ): Promise<WriteReceipt> {
@@ -160,6 +187,7 @@ export class SerializedProviderEmulator implements SeedableAgentTaskProvider {
     );
   }
 
+  /** Lists task summaries. */
   public async listTaskSummaries(
     query: TaskQuery,
   ): Promise<readonly TaskSummary[]> {
@@ -168,12 +196,14 @@ export class SerializedProviderEmulator implements SeedableAgentTaskProvider {
     );
   }
 
+  /** Returns task snapshot. */
   public async getTaskSnapshot(taskId: string): Promise<TaskSnapshot> {
     return crossBoundary(
       await this.backing.getTaskSnapshot(crossBoundary(taskId)),
     );
   }
 
+  /** Applies task mutation. */
   public async applyTaskMutation(
     mutation: ConditionalTaskMutation,
   ): Promise<WriteReceipt> {
@@ -182,12 +212,14 @@ export class SerializedProviderEmulator implements SeedableAgentTaskProvider {
     );
   }
 
+  /** Returns resources. */
   public async getResources(
     refs: readonly ResourceRef[],
   ): Promise<readonly ResourceRecord[]> {
     return crossBoundary(await this.backing.getResources(crossBoundary(refs)));
   }
 
+  /** Returns optional resource. */
   public async getOptionalResource(
     key: string,
   ): Promise<ResourceRecord | null> {
@@ -196,26 +228,31 @@ export class SerializedProviderEmulator implements SeedableAgentTaskProvider {
     );
   }
 
+  /** Persists resource. */
   public async putResource(record: ResourceMutation): Promise<WriteReceipt> {
     return crossBoundary(await this.backing.putResource(crossBoundary(record)));
   }
 
+  /** Acquires lease. */
   public async acquireLease(request: LeaseRequest): Promise<LeaseResult> {
     return crossBoundary(
       await this.backing.acquireLease(crossBoundary(request)),
     );
   }
 
+  /** Renews lease. */
   public async renewLease(request: LeaseRenewal): Promise<LeaseResult> {
     return crossBoundary(await this.backing.renewLease(crossBoundary(request)));
   }
 
+  /** Releases lease. */
   public async releaseLease(request: LeaseRelease): Promise<WriteReceipt> {
     return crossBoundary(
       await this.backing.releaseLease(crossBoundary(request)),
     );
   }
 
+  /** Creates or updates the Error identified by Error Key. */
   public async createOrUpdateError(
     error: ErrorMutation,
   ): Promise<WriteReceipt> {
@@ -224,6 +261,7 @@ export class SerializedProviderEmulator implements SeedableAgentTaskProvider {
     );
   }
 
+  /** Reconciles intent against provider state. */
   public async reconcileIntent(
     intentId: string,
   ): Promise<ReconciliationResult> {

@@ -20,33 +20,42 @@ import {
 } from "./observations.js";
 import { withSingleHostEffectLock } from "./single-host-effect-lock.js";
 
+/** Signals that an external effect cannot be proven applied or not applied. */
 export class IndeterminateExternalEffectError extends Error {
+  /** Creates an indeterminate result for the identified effect. */
   public constructor(
-    public readonly effectId: string,
-    public readonly retainClaimUntilExpiry = false,
+    /** Identifies the effect whose outcome remains unknown. */ public readonly effectId: string,
+    /** Keeps the provider claim until expiry when execution may continue. */ public readonly retainClaimUntilExpiry = false,
     options?: ErrorOptions,
   ) {
     super(`External effect is indeterminate: ${effectId}`, options);
   }
 }
+/** Marks a handler that did not prove terminal cancellation within its grace period. */
 class UnacknowledgedEffectCancellationError extends Error {}
 
+/** Reconciles and executes authorized effects through a durable replay barrier. */
 export class ExternalEffectBroker {
+  /** Creates a broker over resolved handlers, durable journal, and authority verifier. */
   public constructor(
-    private readonly environment: ResolvedExternalEffectEnvironment,
-    private readonly journal: ProviderEffectJournal,
-    private readonly authority: ExternalEffectAuthorityVerifier,
-    private readonly cancellationGraceMilliseconds = 5_000,
-    private readonly unacknowledgedCancellationQuarantineMilliseconds = 86_400_000,
+    /** Resolves the handler registered for each proposed effect kind. */ private readonly environment: ResolvedExternalEffectEnvironment,
+    /** Persists intent, observation, claim, quarantine, and receipt state. */ private readonly journal: ProviderEffectJournal,
+    /** Revalidates authority before an effect crosses the broker boundary. */ private readonly authority: ExternalEffectAuthorityVerifier,
+    /** Sets cancellation grace in milliseconds. */ private readonly cancellationGraceMilliseconds = 5_000,
+    /** Sets unacknowledged cancellation quarantine in milliseconds. */ private readonly unacknowledgedCancellationQuarantineMilliseconds = 86_400_000,
   ) {}
 
+  /** Preflights every proposed intent before executing effects in proposal order. */
   public async executeResult(
     result: AgentResult,
     deadlineAt: number,
   ): Promise<readonly ExternalEffectExecution[]> {
     validateDeadline(deadlineAt);
+
+    /** Collects materialized and authorized requests before execution begins. */
     const requests = await Promise.all(
       result.proposedIntents.map(async (proposed, intentIndex) => {
+        /** Binds the proposed intent to its immutable agent-result source. */
         const request = finalizeRequest({
           kind: proposed.kind,
           payload: proposed.payload,
@@ -58,24 +67,30 @@ export class ExternalEffectBroker {
             runId: result.runId,
           },
         });
+        /** Selects the handler whose payload contract must accept the request. */
         const handler = this.environment.handlers.get(request.kind);
         handler.validate(request.payload);
         await this.authority.verify(request);
         return request;
       }),
     );
+
+    /** Preserves proposal order in the returned effect executions. */
     const executions: ExternalEffectExecution[] = [];
     for (const request of requests)
       executions.push(await this.execute(request, deadlineAt));
     return executions;
   }
 
+  /** Executes or reconciles one effect under a durable single-host claim. */
   public async execute(
     request: ExternalEffectRequest,
     deadlineAt: number,
   ): Promise<ExternalEffectExecution> {
     validateDeadline(deadlineAt);
     await this.authority.verify(request);
+
+    /** Retains the claim across cancellation grace and quarantine windows. */
     const claimExpiresAt =
       deadlineAt +
       this.cancellationGraceMilliseconds +
@@ -88,13 +103,18 @@ export class ExternalEffectBroker {
     );
   }
 
+  /** Reconciles and, only when safe, applies one claimed external effect. */
   private async executeLocked(
     request: ExternalEffectRequest,
     deadlineAt: number,
   ): Promise<ExternalEffectExecution> {
     validateRequest(request);
+
+    /** Selects and validates the handler before touching durable state. */
     const handler = this.environment.handlers.get(request.kind);
     handler.validate(request.payload);
+
+    /** Tracks durable state across reconciliation and application. */
     let record = await this.journal.read(request.effectId);
     if (record === null) {
       record = {
@@ -118,6 +138,7 @@ export class ExternalEffectBroker {
         };
     }
 
+    /** Captures the handler's observation of any prior external application. */
     let observed: ExternalEffectObservation;
     try {
       observed = await invokeHandler(
@@ -126,6 +147,7 @@ export class ExternalEffectBroker {
         this.cancellationGraceMilliseconds,
       );
     } catch (error) {
+      /** Records whether cancellation may have left reconciliation running. */
       const mayContinue = executionMayContinue(error);
       await this.pauseForUnknown(
         record,
@@ -134,6 +156,7 @@ export class ExternalEffectBroker {
       );
       throw new IndeterminateExternalEffectError(request.effectId, mayContinue);
     }
+
     validateEffectObservation(observed);
     if (record.automaticReplayBlocked) {
       if (observed.state === "applied" || observed.state === "failed")
@@ -156,6 +179,8 @@ export class ExternalEffectBroker {
       lastObservation: observed,
     };
     await this.journal.write(record);
+
+    /** Captures the observation returned by the permitted apply attempt. */
     let applied: ExternalEffectObservation;
     try {
       applied = await invokeHandler(
@@ -164,6 +189,7 @@ export class ExternalEffectBroker {
         this.cancellationGraceMilliseconds,
       );
     } catch (error) {
+      /** Records whether cancellation may have left application running. */
       const mayContinue = executionMayContinue(error);
       await this.pauseForUnknown(
         record,
@@ -172,6 +198,7 @@ export class ExternalEffectBroker {
       );
       throw new IndeterminateExternalEffectError(request.effectId, mayContinue);
     }
+
     validateEffectObservation(applied);
     if (applied.state === "indeterminate")
       return this.finalizeOrPause(record, request, applied);
@@ -182,6 +209,7 @@ export class ExternalEffectBroker {
     return this.finalizeOrPause(record, request, applied);
   }
 
+  /** Persists an indeterminate observation before surfacing an unknown outcome. */
   private async pauseForUnknown(
     record: ExternalEffectIntentRecord,
     error: unknown,
@@ -206,6 +234,7 @@ export class ExternalEffectBroker {
     }
   }
 
+  /** Finalizes a terminal observation or durably pauses an indeterminate one. */
   private async finalizeOrPause(
     record: ExternalEffectIntentRecord,
     request: ExternalEffectRequest,
@@ -219,6 +248,8 @@ export class ExternalEffectBroker {
       });
       throw new IndeterminateExternalEffectError(record.effectId);
     }
+
+    /** Converts the terminal observation into a handler-bound receipt. */
     const receipt: ExternalEffectReceipt = {
       ...observation,
       effectId: record.effectId,
@@ -226,6 +257,7 @@ export class ExternalEffectBroker {
       handlerVersion: record.handlerVersion,
       schema: "external-effect-receipt-v1",
     };
+
     await this.journal.write({
       ...record,
       automaticReplayBlocked: false,
@@ -233,6 +265,7 @@ export class ExternalEffectBroker {
       receipt,
       state: observation.state,
     });
+
     return {
       receipt,
       request: structuredClone(request),
@@ -241,17 +274,22 @@ export class ExternalEffectBroker {
   }
 }
 
+/** Derives canonical payload and effect identities for an effect request. */
 export function finalizeRequest(
   input: Omit<ExternalEffectRequest, "effectId" | "payloadDigest">,
 ): ExternalEffectRequest {
+  /** Binds the request identity to canonical payload content. */
   const payloadDigest = digestJson(toJsonValue(input.payload));
+  /** Binds one effect to its kind, payload, and immutable source identity. */
   const effectId = digestJson(
     toJsonValue({ kind: input.kind, payloadDigest, source: input.source }),
   );
   return { ...structuredClone(input), effectId, payloadDigest };
 }
 
+/** Rejects a request whose payload or effect identity cannot be rebuilt. */
 function validateRequest(request: ExternalEffectRequest): void {
+  /** Rebuilds both digests from the request's semantic inputs. */
   const rebuilt = finalizeRequest({
     kind: request.kind,
     payload: request.payload,
@@ -263,6 +301,8 @@ function validateRequest(request: ExternalEffectRequest): void {
   )
     throw new Error("External-effect request digest is invalid");
 }
+
+/** Rejects durable state that conflicts with the current request or handler. */
 function validateStoredRequest(
   record: ExternalEffectIntentRecord,
   request: ExternalEffectRequest,
@@ -281,21 +321,30 @@ function validateStoredRequest(
     );
   }
 }
+
+/** Reduces an arbitrary failure to a bounded, non-sensitive class name. */
 function safeErrorClass(error: unknown): string {
   return error instanceof Error && error.name !== ""
     ? error.name.slice(0, 100)
     : "UnknownError";
 }
+
+/** Returns whether failed cancellation may have left the effect running. */
 function executionMayContinue(error: unknown): boolean {
   return (
     error instanceof UnacknowledgedEffectCancellationError ||
     (error !== null &&
       typeof error === "object" &&
       "effectExecutionMayContinue" in error &&
-      (error as { readonly effectExecutionMayContinue?: unknown })
-        .effectExecutionMayContinue === true)
+      (
+        error as {
+          /** Marks failures whose external operation may outlive cancellation. */ readonly effectExecutionMayContinue?: unknown;
+        }
+      ).effectExecutionMayContinue === true)
   );
 }
+
+/** Rejects expired, malformed, or excessively distant effect deadlines. */
 function validateDeadline(deadlineAt: number): void {
   if (
     !Number.isSafeInteger(deadlineAt) ||
@@ -304,59 +353,80 @@ function validateDeadline(deadlineAt: number): void {
   )
     throw new TypeError("External-effect deadline is invalid");
 }
+
+/** Runs a handler under one absolute deadline and bounded cancellation grace. */
 async function invokeHandler(
   operation: (control: {
+    /** Records the canonical timestamp for deadline. */
     readonly deadlineAt: number;
+    /** Provides signal to invoke handler. */
     readonly signal: AbortSignal;
   }) => Promise<ExternalEffectObservation>,
   deadlineAt: number,
   cancellationGraceMilliseconds: number,
 ): Promise<ExternalEffectObservation> {
+  /** Owns the cancellation signal for this handler invocation. */
   const controller = new AbortController();
+  /** Computes the remaining portion of the absolute deadline. */
   const remaining = deadlineAt - Date.now();
   if (remaining < 1) throw new Error("External-effect deadline exceeded");
+
+  /** Starts the handler exactly once before racing its deadline. */
   const running = operation({ deadlineAt, signal: controller.signal });
+  /** Holds the timer for the primary deadline race. */
   let timer: NodeJS.Timeout | undefined;
-  const timed = await Promise.race([
+
+  /** Captures the handler-versus-deadline race result. */
+  const deadlineResult = await Promise.race([
     running.then(
       (value) => ({ kind: "settled" as const, value }),
       (error: unknown) => ({ error, kind: "rejected" as const }),
     ),
-    new Promise<{ readonly kind: "timeout" }>((resolve) => {
+    new Promise<{
+      /** Identifies expiration as the race outcome. */ readonly kind: "timeout";
+    }>((resolve) => {
       timer = setTimeout(() => resolve({ kind: "timeout" }), remaining);
     }),
   ]);
+
   if (timer !== undefined) clearTimeout(timer);
-  if (timed.kind === "settled") return timed.value;
-  if (timed.kind === "rejected") throw timed.error;
+  if (deadlineResult.kind === "settled") return deadlineResult.value;
+  if (deadlineResult.kind === "rejected") throw deadlineResult.error;
+
   controller.abort();
+  /** Holds the timer for the post-abort grace period. */
   let graceTimer: NodeJS.Timeout | undefined;
-  const acknowledged = await Promise.race([
+
+  /** Captures the handler-versus-cancellation-grace race result. */
+  const cancellationResult = await Promise.race([
     running.then(
       (value) => ({ kind: "fulfilled" as const, value }),
       (error: unknown) => ({ error, kind: "rejected" as const }),
     ),
-    new Promise<{ readonly kind: "timeout" }>((resolve) => {
+    new Promise<{
+      /** Identifies grace-period expiration as the race outcome. */ readonly kind: "timeout";
+    }>((resolve) => {
       graceTimer = setTimeout(
         () => resolve({ kind: "timeout" }),
         cancellationGraceMilliseconds,
       );
     }),
   ]);
+
   if (graceTimer !== undefined) clearTimeout(graceTimer);
-  if (acknowledged.kind === "timeout") {
+  if (cancellationResult.kind === "timeout") {
     void running.catch(() => undefined);
     throw new UnacknowledgedEffectCancellationError(
       "External-effect cancellation was not acknowledged",
     );
   }
   if (
-    acknowledged.kind === "rejected" &&
-    !(acknowledged.error instanceof EffectCancellationAcknowledgedError)
+    cancellationResult.kind === "rejected" &&
+    !(cancellationResult.error instanceof EffectCancellationAcknowledgedError)
   )
     throw new UnacknowledgedEffectCancellationError(
       "External-effect cancellation did not produce a verified terminal acknowledgement",
-      { cause: acknowledged.error },
+      { cause: cancellationResult.error },
     );
   throw new Error("External-effect deadline exceeded");
 }

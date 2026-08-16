@@ -10,6 +10,7 @@ import {
   type WorkspaceSchemaDescriptor,
 } from "../src/index.js";
 
+/** Defines the shared environment fixture for this test module. */
 const environment: ProviderEnvironment = {
   bootstrapParent: null,
   connection: {},
@@ -21,6 +22,7 @@ const environment: ProviderEnvironment = {
   },
   type: "memory",
 };
+/** Defines the shared target fixture for this test module. */
 const target: WorkspaceSchemaDescriptor = {
   digest: "target",
   providerType: "memory",
@@ -29,7 +31,9 @@ const target: WorkspaceSchemaDescriptor = {
 };
 
 test("requires and persists human recovery for an explicitly declared outcome", async () => {
+  /** Defines the provider fixture for “requires and persists human recovery for an explicitly declared outcome”. */
   const provider = providerWithTask();
+  /** Defines the broker fixture for “requires and persists human recovery for an explicitly declared outcome”. */
   const broker = new OutcomeTransitionBroker(provider);
   await assert.rejects(
     broker.apply({
@@ -43,6 +47,7 @@ test("requires and persists human recovery for an explicitly declared outcome", 
   );
   assert.equal((await provider.getTaskSnapshot("task-1")).status, "Coding");
 
+  /** Defines the receipt fixture for “requires and persists human recovery for an explicitly declared outcome”. */
   const receipt = await broker.apply({
     resolution: {
       createdAt: "2026-08-15T10:00:00.000Z",
@@ -76,8 +81,11 @@ test("requires and persists human recovery for an explicitly declared outcome", 
 });
 
 test("routes ordinary outcomes without accepting human recovery payloads", async () => {
+  /** Defines the provider fixture for “routes ordinary outcomes without accepting human recovery payloads”. */
   const provider = providerWithTask();
+  /** Defines the broker fixture for “routes ordinary outcomes without accepting human recovery payloads”. */
   const broker = new OutcomeTransitionBroker(provider);
+  /** Defines the receipt fixture for “routes ordinary outcomes without accepting human recovery payloads”. */
   const receipt = await broker.apply({
     definition: definition(),
     idempotencyKey: "success",
@@ -89,7 +97,9 @@ test("routes ordinary outcomes without accepting human recovery payloads", async
   assert.equal((await provider.getTaskSnapshot("task-1")).status, "Review");
 });
 
+/** Creates the provider with task test fixture. */
 function providerWithTask(): InMemoryProvider {
+  /** Defines the provider fixture used by provider with task. */
   const provider = new InMemoryProvider(environment, target);
   provider.seedTaskStatusOptions([
     "Coding",
@@ -110,6 +120,7 @@ function providerWithTask(): InMemoryProvider {
   return provider;
 }
 
+/** Creates a Sub-agent definition fixture. */
 function definition(): SubAgentDefinition {
   return {
     allowedIntents: ["task.status.transition"],

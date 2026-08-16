@@ -10,18 +10,22 @@ import {
   type ReconcilableEffectAdapter,
 } from "../src/index.js";
 
+/** Defines the shared observation fixture for this test module. */
 const observation: ExternalEffectObservation = {
   evidence: {},
   externalIdentity: {},
   state: "not_applied",
 };
+/** Creates the adapter test fixture. */
 function adapter<T>(): ReconcilableEffectAdapter<T> {
   return {
     id: "adapter",
     version: "1",
+    /** Simulates effect application. */
     async apply() {
       return observation;
     },
+    /** Simulates effect reconciliation. */
     async reconcile() {
       return observation;
     },
@@ -29,6 +33,7 @@ function adapter<T>(): ReconcilableEffectAdapter<T> {
 }
 
 test("validates immutable Git commit and push preconditions", () => {
+  /** Defines the commit fixture for “validates immutable Git commit and push preconditions”. */
   const commit = createGitCommitHandler(adapter());
   commit.validate({
     expectedHead: "a".repeat(40),
@@ -48,6 +53,7 @@ test("validates immutable Git commit and push preconditions", () => {
       }),
     /immutable revision|repository-relative/,
   );
+  /** Defines the push fixture for “validates immutable Git commit and push preconditions”. */
   const push = createGitPushHandler(adapter());
   push.validate({
     branch: "feat/broker",
@@ -72,6 +78,7 @@ test("validates immutable Git commit and push preconditions", () => {
 });
 
 test("requires a closed acyclic child-agent wave", () => {
+  /** Defines the wave fixture for “requires a closed acyclic child-agent wave”. */
   const wave = createChildAgentWaveHandler(adapter());
   wave.validate({
     maxConcurrency: 2,

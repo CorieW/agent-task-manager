@@ -19,6 +19,7 @@ import {
 } from "../src/index.js";
 import { sha256 } from "../src/core/digest.js";
 
+/** Defines the shared environment fixture for this test module. */
 const environment: ProviderEnvironment = {
   bootstrapParent: null,
   connection: {},
@@ -30,6 +31,7 @@ const environment: ProviderEnvironment = {
   },
   type: "memory",
 };
+/** Defines the shared target fixture for this test module. */
 const target: WorkspaceSchemaDescriptor = {
   digest: "target",
   providerType: "memory",
@@ -38,6 +40,7 @@ const target: WorkspaceSchemaDescriptor = {
 };
 
 test("parses a complete role contract and rejects semantic capability conflicts", () => {
+  /** Defines the parsed fixture for “parses a complete role contract and rejects semantic capability conflicts”. */
   const parsed = parseSubAgentDefinitionManifest(manifest());
   assert.equal(parsed.name, "Security Auditor");
   assert.equal(parsed.invocation.mode, "manual");
@@ -52,11 +55,14 @@ test("parses a complete role contract and rejects semantic capability conflicts"
 });
 
 test("resolves an active immutable Resource graph and closed output schemas", async () => {
+  /** Defines the provider fixture for “resolves an active immutable Resource graph and closed output schemas”. */
   const provider = new InMemoryProvider(environment, target);
+  /** Defines the definition fixture for “resolves an active immutable Resource graph and closed output schemas”. */
   const definition = parseSubAgentDefinitionManifest(manifest());
   provider.seedDefinition(definition);
   for (const resource of resources()) await provider.putResource(resource);
   provider.seedTaskStatusOptions(["Testing", "Needs Human Resolution"]);
+  /** Defines the resolved fixture for “resolves an active immutable Resource graph and closed output schemas”. */
   const resolved = await resolveDefinition(provider, definition.id);
   assert.equal(resolved.taskQuery?.limit, 5);
   assert.deepEqual(
@@ -70,6 +76,7 @@ test("resolves an active immutable Resource graph and closed output schemas", as
     ],
   );
   assert.match(resolved.digest, /^[a-f0-9]{64}$/u);
+  /** Defines the activated fixture for “resolves an active immutable Resource graph and closed output schemas”. */
   const [activated] = await activateDefinitions({
     installedCapabilities: ["repository.read"],
     installedIntents: ["error.upsert", "task.status.transition"],
@@ -81,7 +88,9 @@ test("resolves an active immutable Resource graph and closed output schemas", as
 });
 
 test("blocks activation when a provider-defined route has no Task status", async () => {
+  /** Defines the provider fixture for “blocks activation when a provider-defined route has no Task status”. */
   const provider = new InMemoryProvider(environment, target);
+  /** Defines the definition fixture for “blocks activation when a provider-defined route has no Task status”. */
   const definition = parseSubAgentDefinitionManifest(manifest());
   provider.seedDefinition(definition);
   for (const resource of resources()) await provider.putResource(resource);
@@ -99,13 +108,16 @@ test("blocks activation when a provider-defined route has no Task status", async
 });
 
 test("builds bounded candidate sets, least-privilege grants, and data-defined routes", () => {
+  /** Defines the definition fixture for “builds bounded candidate sets, least-privilege grants, and data-defined routes”. */
   const definition = parseSubAgentDefinitionManifest(manifest());
+  /** Defines the query fixture for “builds bounded candidate sets, least-privilege grants, and data-defined routes”. */
   const query = parseTaskQueryContract(taskQueryBody());
   assert.deepEqual(taskQueryForDefinition(query, definition), {
     cursor: null,
     limit: 5,
     predicate: { status: "Security Review" },
   });
+  /** Defines the candidate set fixture for “builds bounded candidate sets, least-privilege grants, and data-defined routes”. */
   const candidateSet = finalizeCandidateSet(query, [
     {
       archived: false,
@@ -128,6 +140,7 @@ test("builds bounded candidate sets, least-privilege grants, and data-defined ro
     candidateSet.summaries.map((task) => task.id),
     ["a", "b"],
   );
+  /** Defines the grant fixture for “builds bounded candidate sets, least-privilege grants, and data-defined routes”. */
   const grant = compileCapabilityGrant({
     definition,
     installedCapabilities: ["repository.read"],
@@ -167,7 +180,9 @@ test("builds bounded candidate sets, least-privilege grants, and data-defined ro
 });
 
 test("supports arbitrary provider-defined role names without core changes", () => {
+  /** Defines the security fixture for “supports arbitrary provider-defined role names without core changes”. */
   const security = parseSubAgentDefinitionManifest(manifest());
+  /** Defines the localization fixture for “supports arbitrary provider-defined role names without core changes”. */
   const localization = parseSubAgentDefinitionManifest({
     ...manifest(),
     humanResolutionOutcomes: [],
@@ -182,6 +197,7 @@ test("supports arbitrary provider-defined role names without core changes", () =
   );
 });
 
+/** Creates the manifest test fixture. */
 function manifest(): JsonObject {
   return {
     allowedIntents: ["task.status.transition", "error.upsert"],
@@ -226,6 +242,7 @@ function manifest(): JsonObject {
   };
 }
 
+/** Creates the resources test fixture. */
 function resources(): ResourceMutation[] {
   return [
     resource("policy/base", "policy", "Base policy"),
@@ -237,6 +254,7 @@ function resources(): ResourceMutation[] {
     resource("schema/work", "json-schema", closedSchema()),
   ];
 }
+/** Builds resource. */
 function resource(
   key: string,
   kind: string,
@@ -254,6 +272,7 @@ function resource(
     version: "v1",
   };
 }
+/** Builds query body. */
 function taskQueryBody(): string {
   return JSON.stringify({
     dependencySatisfiedStatuses: ["Done"],
@@ -262,6 +281,7 @@ function taskQueryBody(): string {
     schema: "task-query-v1",
   });
 }
+/** Creates the closed schema test fixture. */
 function closedSchema(): string {
   return JSON.stringify({
     additionalProperties: false,

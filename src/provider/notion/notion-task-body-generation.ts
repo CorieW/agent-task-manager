@@ -2,29 +2,39 @@
 import type { JsonObject, JsonValue } from "../../domain/json.js";
 import { NOTION_TASK_MUTATION_CAPTION_PREFIX } from "./notion-schema.js";
 
+/** Defines Notion task body generation. */
 export interface NotionTaskBodyGeneration {
+  /** Contains block for Notion task body generation. */
   readonly block: JsonObject;
+  /** Contains body for Notion task body generation. */
   readonly body: string;
+  /** Binds Notion task body generation to canonical record content. */
   readonly digest: string;
 }
 
+/** Decodes active task body generation from managed Task-body content. */
 export function activeTaskBodyGeneration(
   blocks: readonly JsonObject[],
 ): NotionTaskBodyGeneration | null {
+  /** Holds the `generations` intermediate used by `activeTaskBodyGeneration`. */
   const generations = blocks
     .map(taskBodyGeneration)
     .filter((value): value is NotionTaskBodyGeneration => value !== null);
   return generations.at(-1) ?? null;
 }
 
+/** Builds body generation. */
 export function taskBodyGeneration(
   block: JsonObject,
 ): NotionTaskBodyGeneration | null {
   if (block.type !== "code") return null;
+  /** Holds the `code` intermediate used by `taskBodyGeneration`. */
   const code = objectValue(block.code);
   if (code.language !== "markdown") return null;
+  /** Holds the `caption` intermediate used by `taskBodyGeneration`. */
   const caption = richTextValue(code.caption);
   if (!caption.startsWith(NOTION_TASK_MUTATION_CAPTION_PREFIX)) return null;
+  /** Holds the `digest` intermediate used by `taskBodyGeneration`. */
   const digest = caption.slice(NOTION_TASK_MUTATION_CAPTION_PREFIX.length);
   if (!/^[a-f0-9]{64}$/u.test(digest)) return null;
   return {
@@ -36,6 +46,7 @@ export function taskBodyGeneration(
   };
 }
 
+/** Returns a validated JSON object. */
 function objectValue(value: JsonValue | undefined): JsonObject {
   return value !== null &&
     value !== undefined &&
@@ -45,12 +56,15 @@ function objectValue(value: JsonValue | undefined): JsonObject {
     : {};
 }
 
+/** Converts text value. */
 function richTextValue(value: JsonValue | undefined): string {
   if (!Array.isArray(value)) return "";
   return value
     .map((item) => {
+      /** Holds the `object` intermediate used by `richTextValue`. */
       const object = objectValue(item);
       if (typeof object.plain_text === "string") return object.plain_text;
+      /** Holds the `text` intermediate used by `richTextValue`. */
       const text = objectValue(object.text);
       return typeof text.content === "string" ? text.content : "";
     })

@@ -7,6 +7,7 @@ import type {
   SubAgentDefinition,
 } from "../domain/records.js";
 
+/** Exact top-level fields allowed in a definition manifest. */
 const DEFINITION_KEYS = [
   "allowedIntents",
   "capabilities",
@@ -36,16 +37,22 @@ const DEFINITION_KEYS = [
   "transitions",
 ] as const;
 
+/** Structured issue detected while validating definition validation. */
 export interface DefinitionValidationIssue {
+  /** Code for definition validation issue. */
   readonly code: string;
+  /** Message for definition validation issue. */
   readonly message: string;
+  /** Path for definition validation issue. */
   readonly path: string;
 }
 
+/** Parses a serialized sub-agent definition and rejects invalid manifests. */
 export function parseSubAgentDefinitionManifest(
   value: JsonObject,
 ): SubAgentDefinition {
   assertExactKeys(value, DEFINITION_KEYS, "Sub-agent definition");
+  /** Definition used during parse sub-agent definition manifest. */
   const definition: SubAgentDefinition = {
     allowedIntents: uniqueStrings(value.allowedIntents, "allowedIntents"),
     capabilities: uniqueStrings(value.capabilities, "capabilities"),
@@ -98,6 +105,7 @@ export function parseSubAgentDefinitionManifest(
       "transitions",
     ),
   };
+  /** Validation issues collected during this operation. */
   const issues = validateSubAgentDefinition(definition);
   if (issues.length > 0)
     throw new TypeError(
@@ -106,10 +114,13 @@ export function parseSubAgentDefinitionManifest(
   return definition;
 }
 
+/** Returns policy and capability violations in one sub-agent definition. */
 export function validateSubAgentDefinition(
   definition: SubAgentDefinition,
 ): readonly DefinitionValidationIssue[] {
+  /** Validation issues collected during this operation. */
   const issues: DefinitionValidationIssue[] = [];
+  /** Distinct capability set tracked during validate sub-agent definition. */
   const capabilitySet = new Set(definition.capabilities);
   for (const capability of definition.prohibitedCapabilities) {
     if (capabilitySet.has(capability))
@@ -240,10 +251,13 @@ export function validateSubAgentDefinition(
   return issues;
 }
 
+/** Returns validation issues for a definition set, including duplicate IDs. */
 export function validateDefinitionSet(
   definitions: readonly SubAgentDefinition[],
 ): readonly DefinitionValidationIssue[] {
+  /** Validation issues collected during this operation. */
   const issues: DefinitionValidationIssue[] = [];
+  /** Identities indexed for lookup during validate definition set. */
   const identities = new Map<string, number>();
   for (const definition of definitions) {
     issues.push(
@@ -252,6 +266,7 @@ export function validateDefinitionSet(
         path: `${definition.id}.${entry.path}`,
       })),
     );
+    /** Prior used during validate definition set. */
     const prior = identities.get(definition.id);
     if (prior !== undefined)
       issues.push(
@@ -266,6 +281,7 @@ export function validateDefinitionSet(
   return issues;
 }
 
+/** Parses a sub-agent invocation policy. */
 function parseInvocation(value: JsonObject): InvocationPolicy {
   assertExactKeys(value, ["mode", "scheduleResource"], "invocation");
   if (
@@ -283,6 +299,7 @@ function parseInvocation(value: JsonObject): InvocationPolicy {
   };
 }
 
+/** Parses a sub-agent Task-selection policy. */
 function parseSelection(value: JsonObject): SelectionPolicy {
   assertExactKeys(
     value,
@@ -301,6 +318,7 @@ function parseSelection(value: JsonObject): SelectionPolicy {
     value.mode !== "self"
   )
     throw new TypeError("selection.mode is invalid");
+  /** Sources used during parse selection. */
   const sources = uniqueStrings(
     value.acceptsAssignmentsFrom,
     "selection.acceptsAssignmentsFrom",
@@ -333,6 +351,7 @@ function parseSelection(value: JsonObject): SelectionPolicy {
   };
 }
 
+/** Parses a sub-agent retry policy. */
 function parseRetry(value: JsonObject): RetryPolicy {
   assertExactKeys(value, ["maxAttempts", "noVerdict"], "retry");
   if (value.noVerdict !== "block" && value.noVerdict !== "retry")
@@ -343,6 +362,7 @@ function parseRetry(value: JsonObject): RetryPolicy {
   };
 }
 
+/** Issue. */
 function issue(
   code: string,
   message: string,
@@ -350,6 +370,7 @@ function issue(
 ): DefinitionValidationIssue {
   return { code, message, path };
 }
+/** Rejects objects with missing or unexpected fields. */
 function assertExactKeys(
   value: JsonObject,
   expected: readonly string[],
@@ -358,6 +379,7 @@ function assertExactKeys(
   if (Object.keys(value).sort().join("\0") !== [...expected].sort().join("\0"))
     throw new TypeError(`${label} has unexpected or missing fields`);
 }
+/** Requires an array of unique strings. */
 function uniqueStrings(
   value: JsonValue | undefined,
   label: string,
@@ -367,11 +389,13 @@ function uniqueStrings(
     value.some((item) => typeof item !== "string" || item === "")
   )
     throw new TypeError(`${label} must contain non-empty strings`);
+  /** Strings used during unique strings. */
   const strings = value as string[];
   if (new Set(strings).size !== strings.length)
     throw new TypeError(`${label} contains duplicates`);
   return [...strings];
 }
+/** Requires an object whose values are strings. */
 function stringMap(
   value: JsonObject,
   label: string,
@@ -381,6 +405,7 @@ function stringMap(
       throw new TypeError(`${label} must map non-empty strings`);
   return { ...value } as Readonly<Record<string, string>>;
 }
+/** Requires a field value to be a non-array JSON object. */
 function objectValue(value: JsonValue | undefined, label: string): JsonObject {
   if (
     value === null ||
@@ -391,34 +416,42 @@ function objectValue(value: JsonValue | undefined, label: string): JsonObject {
     throw new TypeError(`${label} must be an object`);
   return value;
 }
+/** Requires a non-empty string field value. */
 function requiredString(value: JsonValue | undefined, label: string): string {
   if (typeof value !== "string" || value === "")
     throw new TypeError(`${label} must be a non-empty string`);
   return value;
 }
+/** Requires a safe integer field value. */
 function integer(value: JsonValue | undefined, label: string): number {
   if (typeof value !== "number" || !Number.isSafeInteger(value))
     throw new TypeError(`${label} must be an integer`);
   return value;
 }
+/** Requires a positive safe integer field value. */
 function positiveInteger(value: JsonValue | undefined, label: string): number {
+  /** Result produced by positive integer. */
   const result = integer(value, label);
   if (result < 1) throw new TypeError(`${label} must be positive`);
   return result;
 }
+/** Requires a non-negative safe integer field value. */
 function nonNegativeInteger(
   value: JsonValue | undefined,
   label: string,
 ): number {
+  /** Result produced by non negative integer. */
   const result = integer(value, label);
   if (result < 0) throw new TypeError(`${label} must be non-negative`);
   return result;
 }
+/** Requires a boolean field value. */
 function booleanValue(value: JsonValue | undefined, label: string): boolean {
   if (typeof value !== "boolean")
     throw new TypeError(`${label} must be boolean`);
   return value;
 }
+/** Requires a supported schema discriminator. */
 function schemaValue(value: JsonValue | undefined): "sub-agent-definition-v1" {
   if (value !== "sub-agent-definition-v1")
     throw new TypeError("Sub-agent definition schema is invalid");

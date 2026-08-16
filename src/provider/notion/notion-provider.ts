@@ -62,29 +62,48 @@ import { NotionWorkspaceReader } from "./notion-workspace-reader.js";
 import { SingleHostMutex } from "./single-host-mutex.js";
 import { parseWriteReceipt } from "../write-receipt-codec.js";
 
+/** Defines Notion provider options. */
 export interface NotionProviderOptions {
+  /** Contains environment for Notion provider options. */
   readonly environment: ProviderEnvironment;
+  /** Identifies environment. */
   readonly environmentId: string;
+  /** Optionally contains mutex for Notion provider options. */
   readonly mutex?: SingleHostMutex;
+  /** Optionally contains now for Notion provider options. */
   readonly now?: () => Date;
+  /** Optionally contains target for Notion provider options. */
   readonly target?: WorkspaceSchemaDescriptor;
+  /** Contains transport for Notion provider options. */
   readonly transport: NotionTransport;
 }
 
+/** Defines runtime services. */
 interface RuntimeServices {
+  /** Contains pages for runtime services. */
   readonly pages: NotionPageStore;
+  /** Contains reader for runtime services. */
   readonly reader: NotionRecordReader;
+  /** Provides the Notion intent and lease state store. */
   readonly state: NotionStateStore;
 }
 
+/** Implements Notion provider. */
 export class NotionProvider implements AgentTaskProvider {
+  /** Contains environment for Notion provider. */
   readonly #environment: ProviderEnvironment;
+  /** Contains manager for Notion provider. */
   readonly #manager: NotionWorkspaceManager;
+  /** Contains mutex for Notion provider. */
   readonly #mutex: SingleHostMutex;
+  /** Contains now for Notion provider. */
   readonly #now: () => Date;
+  /** Contains target for Notion provider. */
   readonly #target: WorkspaceSchemaDescriptor;
+  /** Contains transport for Notion provider. */
   readonly #transport: NotionTransport;
 
+  /** Initializes Notion provider. */
   public constructor(options: NotionProviderOptions) {
     this.#environment = options.environment;
     this.#target = options.target ?? createNotionWorkspaceSchema();
@@ -100,6 +119,7 @@ export class NotionProvider implements AgentTaskProvider {
     );
   }
 
+  /** Returns capabilities. */
   public async getCapabilities(): Promise<ProviderCapabilities> {
     return new NotionWorkspaceReader(
       this.#environment,
@@ -109,6 +129,7 @@ export class NotionProvider implements AgentTaskProvider {
     ).getCapabilities();
   }
 
+  /** Validates environment. */
   public async validateEnvironment(
     environment: ProviderEnvironment,
   ): Promise<ValidationReport> {
@@ -120,6 +141,7 @@ export class NotionProvider implements AgentTaskProvider {
     ).validateEnvironment();
   }
 
+  /** Validates tables. */
   public async validateTables(): Promise<TableValidationReport> {
     return compareWorkspaceSchema(
       await this.#manager.inspectWorkspaceSchema(),
@@ -127,40 +149,49 @@ export class NotionProvider implements AgentTaskProvider {
     );
   }
 
+  /** Inspects workspace schema without mutation. */
   public async inspectWorkspaceSchema(): Promise<WorkspaceSchemaSnapshot> {
     return this.#manager.inspectWorkspaceSchema();
   }
 
+  /** Plans ordered additive workspace changes without applying them. */
   public async planWorkspaceChanges(
     request: WorkspaceSchemaRequest,
   ): Promise<WorkspaceMigrationPlan> {
     return this.#manager.planWorkspaceChanges(request);
   }
 
+  /** Applies workspace step. */
   public async applyWorkspaceStep(
     step: WorkspaceMigrationStep,
   ): Promise<WriteReceipt> {
     return this.#manager.applyWorkspaceStep(step);
   }
 
+  /** Reconciles workspace step against provider state. */
   public async reconcileWorkspaceStep(
     stepId: string,
   ): Promise<ReconciliationResult> {
     return this.#manager.reconcileWorkspaceStep(stepId);
   }
 
+  /** Lists Sub agent definitions. */
   public async listSubAgentDefinitions(): Promise<
     readonly SubAgentDefinition[]
   > {
     return (await this.runtime()).reader.listSubAgentDefinitions();
   }
 
+  /** Returns Sub agent definition. */
   public async getSubAgentDefinition(id: string): Promise<SubAgentDefinition> {
     return (await this.runtime()).reader.getSubAgentDefinition(id);
   }
 
+  /** Returns Sub agent activity. */
   public async getSubAgentActivity(id: string): Promise<SubAgentActivity> {
+    /** Holds the `runtime` intermediate used by `getSubAgentActivity`. */
     const runtime = await this.runtime();
+    /** Defines `observed` for comparison in `getSubAgentActivity`. */
     const observed = await runtime.pages.getSubAgentActivity(
       await runtime.reader.getSubAgentPageId(id),
     );
@@ -175,35 +206,44 @@ export class NotionProvider implements AgentTaskProvider {
     };
   }
 
+  /** Returns lease projection. */
   public async getLeaseProjection(id: string): Promise<LeaseProjection> {
     return (await this.runtime()).state.activeProjection(id);
   }
 
+  /** Returns lease snapshot. */
   public async getLeaseSnapshot(
     leaseId: string,
   ): Promise<LeaseSnapshot | null> {
     return (await this.runtime()).state.leaseSnapshot(leaseId);
   }
 
+  /** Lists task status options. */
   public async listTaskStatusOptions(): Promise<readonly string[]> {
     return (await this.runtime()).reader.listTaskStatusOptions();
   }
 
+  /** Updates Sub agent activity. */
   public async updateSubAgentActivity(
     change: ActivityMutation,
   ): Promise<WriteReceipt> {
+    /** Holds the `runtime` intermediate used by `updateSubAgentActivity`. */
     const runtime = await this.runtime();
     return runtime.state.runExclusive(async () => {
+      /** Holds the `prior` intermediate used by `updateSubAgentActivity`. */
       const prior = await runtime.state.beginIntent(
         change.idempotencyKey,
         "agent_activity",
         change,
       );
       if (prior !== undefined) return parseWriteReceipt(prior);
+      /** Holds the `projection` intermediate used by `updateSubAgentActivity`. */
       const projection = await runtime.state.activeProjection(
         change.subAgentId,
       );
+      /** Holds the `activeRuns` intermediate used by `updateSubAgentActivity`. */
       const activeRuns = projection.runLeaseIds;
+      /** Holds the `activeTasks` intermediate used by `updateSubAgentActivity`. */
       const activeTasks = projection.taskIds;
       if (
         !sameSet(activeRuns, change.nextRunLeaseIds) ||
@@ -213,6 +253,7 @@ export class NotionProvider implements AgentTaskProvider {
           "Sub-agent activity must equal the provider's active lease projection",
         );
       }
+      /** Captures `receipt` returned by `updateSubAgentActivity`. */
       const receipt = await runtime.pages.updateSubAgentActivity({
         ...change,
         subAgentId: await runtime.reader.getSubAgentPageId(change.subAgentId),
@@ -227,16 +268,19 @@ export class NotionProvider implements AgentTaskProvider {
     });
   }
 
+  /** Lists task summaries. */
   public async listTaskSummaries(
     query: TaskQuery,
   ): Promise<readonly TaskSummary[]> {
     return (await this.runtime()).reader.listTaskSummaries(query);
   }
 
+  /** Returns task snapshot. */
   public async getTaskSnapshot(taskId: string): Promise<TaskSnapshot> {
     return (await this.runtime()).reader.getTaskSnapshot(taskId);
   }
 
+  /** Applies task mutation. */
   public async applyTaskMutation(
     mutation: ConditionalTaskMutation,
   ): Promise<WriteReceipt> {
@@ -247,6 +291,7 @@ export class NotionProvider implements AgentTaskProvider {
       (runtime) => runtime.pages.applyTaskMutation(mutation),
       (runtime) => this.repairPendingTaskIntent(runtime, mutation),
       async (runtime) => {
+        /** Holds the `current` intermediate used by `applyTaskMutation`. */
         const current = await runtime.reader.getTaskSnapshot(mutation.taskId);
         if (current.version !== mutation.expectedVersion)
           throw new Error("Task version conflict");
@@ -254,18 +299,21 @@ export class NotionProvider implements AgentTaskProvider {
     );
   }
 
+  /** Returns resources. */
   public async getResources(
     refs: readonly ResourceRef[],
   ): Promise<readonly ResourceRecord[]> {
     return (await this.runtime()).reader.getResources(refs);
   }
 
+  /** Returns optional resource. */
   public async getOptionalResource(
     key: string,
   ): Promise<ResourceRecord | null> {
     return (await this.runtime()).reader.getOptionalResource(key);
   }
 
+  /** Persists resource. */
   public async putResource(record: ResourceMutation): Promise<WriteReceipt> {
     if (record.key.startsWith("system/"))
       throw new Error(
@@ -280,18 +328,22 @@ export class NotionProvider implements AgentTaskProvider {
     );
   }
 
+  /** Acquires lease. */
   public async acquireLease(request: LeaseRequest): Promise<LeaseResult> {
     return (await this.runtime()).state.acquireLease(request);
   }
 
+  /** Renews lease. */
   public async renewLease(request: LeaseRenewal): Promise<LeaseResult> {
     return (await this.runtime()).state.renewLease(request);
   }
 
+  /** Releases lease. */
   public async releaseLease(request: LeaseRelease): Promise<WriteReceipt> {
     return (await this.runtime()).state.releaseLease(request);
   }
 
+  /** Creates or updates the Error identified by Error Key. */
   public async createOrUpdateError(
     error: ErrorMutation,
   ): Promise<WriteReceipt> {
@@ -307,29 +359,41 @@ export class NotionProvider implements AgentTaskProvider {
     );
   }
 
+  /** Reconciles intent against provider state. */
   public async reconcileIntent(
     intentId: string,
   ): Promise<ReconciliationResult> {
     return (await this.runtime()).state.reconcileIntent(intentId);
   }
 
+  /** Returns the Notion workspace bootstrap manager. */
   public workspaceManager(): NotionWorkspaceManager {
     return this.#manager;
   }
 
+  /** Reconciles Sub agent activity against provider state. */
   public async reconcileSubAgentActivity(
     subAgentId: string,
     idempotencyKey: string,
   ): Promise<ReconciliationResult> {
+    /** Holds the `runtime` intermediate used by `reconcileSubAgentActivity`. */
     const runtime = await this.runtime();
+    /** Captures `result` returned by `reconcileSubAgentActivity`. */
     const result = await runtime.state.runExclusive(async () => {
+      /** Holds the `projection` intermediate used by `reconcileSubAgentActivity`. */
       const projection = await runtime.state.activeProjection(subAgentId);
+      /** Holds the `activeRunLeaseIds` intermediate used by `reconcileSubAgentActivity`. */
       const activeRunLeaseIds = projection.runLeaseIds;
+      /** Holds the `activeTaskIds` intermediate used by `reconcileSubAgentActivity`. */
       const activeTaskIds = projection.taskIds;
+      /** Holds the `subAgentPageId` intermediate used by `reconcileSubAgentActivity`. */
       const subAgentPageId = await runtime.reader.getSubAgentPageId(subAgentId);
+      /** Defines `observed` for comparison in `reconcileSubAgentActivity`. */
       const observed = await runtime.pages.getSubAgentActivity(subAgentPageId);
+      /** Defines `expectedStatus` for comparison in `reconcileSubAgentActivity`. */
       const expectedStatus =
         activeRunLeaseIds.length === 0 ? "Offline" : "Online";
+      /** Holds the `basis` intermediate used by `reconcileSubAgentActivity`. */
       const basis = {
         activeRunLeaseIds,
         activeTaskIds,
@@ -342,6 +406,7 @@ export class NotionProvider implements AgentTaskProvider {
         sameSet(observed.taskIds, activeTaskIds)
       )
         return { basis, receipt: null };
+      /** Captures `receipt` returned by `reconcileSubAgentActivity`. */
       const receipt = await runtime.pages.setSubAgentActivity(
         subAgentPageId,
         observed.status,
@@ -380,14 +445,18 @@ export class NotionProvider implements AgentTaskProvider {
     };
   }
 
+  /** Creates fresh Notion page, record, and state services. */
   private async runtime(): Promise<RuntimeServices> {
+    /** Holds the `partial` intermediate used by `runtime`. */
     const partial = await this.#manager.resolveTableIds();
     for (const kind of TABLE_KINDS)
       if (partial[kind] === undefined)
         throw new Error(
           `Notion runtime requires configured or discoverable ${kind} table`,
         );
+    /** Holds the `tables` intermediate used by `runtime`. */
     const tables = partial as NotionMutableTableIds;
+    /** Holds the `pages` intermediate used by `runtime`. */
     const pages = new NotionPageStore(tables, this.#transport, this.#now);
     return {
       pages,
@@ -396,6 +465,7 @@ export class NotionProvider implements AgentTaskProvider {
     };
   }
 
+  /** Executes repairable receipt intent. */
   private async executeRepairableReceiptIntent(
     idempotencyKey: string,
     operation: string,
@@ -404,8 +474,10 @@ export class NotionProvider implements AgentTaskProvider {
     repair: (runtime: RuntimeServices) => Promise<WriteReceipt>,
     beforeIntent?: (runtime: RuntimeServices) => Promise<void>,
   ): Promise<WriteReceipt> {
+    /** Holds the `runtime` intermediate used by `executeRepairableReceiptIntent`. */
     const runtime = await this.runtime();
     return runtime.state.runExclusive(async () => {
+      /** Holds the `prior` intermediate used by `executeRepairableReceiptIntent`. */
       let prior: JsonValue | undefined;
       try {
         prior = await runtime.state.beginIntent(
@@ -420,6 +492,7 @@ export class NotionProvider implements AgentTaskProvider {
         return repair(runtime);
       }
       if (prior !== undefined) return parseWriteReceipt(prior);
+      /** Captures `receipt` returned by `executeRepairableReceiptIntent`. */
       const receipt = await effect(runtime);
       await runtime.state.completeIntent(
         idempotencyKey,
@@ -431,15 +504,18 @@ export class NotionProvider implements AgentTaskProvider {
     });
   }
 
+  /** Repairs pending resource intent after an interrupted provider intent. */
   private async repairPendingResourceIntent(
     runtime: RuntimeServices,
     record: ResourceMutation,
   ): Promise<WriteReceipt> {
+    /** Holds the `current` intermediate used by `repairPendingResourceIntent`. */
     const current = await runtime.reader.getOptionalResource(record.key);
     if (current !== null && !sameResource(current, record))
       throw new IndeterminateProviderIntentError(
         `Pending Resource intent conflicts with newer state: ${record.key}`,
       );
+    /** Captures `receipt` returned by `repairPendingResourceIntent`. */
     const receipt = await runtime.pages.createResource(record);
     await runtime.state.completeIntent(
       record.idempotencyKey,
@@ -450,16 +526,19 @@ export class NotionProvider implements AgentTaskProvider {
     return receipt;
   }
 
+  /** Repairs pending task intent after an interrupted provider intent. */
   private async repairPendingTaskIntent(
     runtime: RuntimeServices,
     mutation: ConditionalTaskMutation,
   ): Promise<WriteReceipt> {
+    /** Holds the `current` intermediate used by `repairPendingTaskIntent`. */
     const current = await runtime.reader.getTaskSnapshot(mutation.taskId);
     if (
       (await runtime.reader.getTaskMutationMarker(mutation.taskId)) ===
         digestJson(toJsonValue(mutation)) &&
       taskMatchesTarget(current, mutation)
     ) {
+      /** Captures `receipt` returned by `repairPendingTaskIntent`. */
       const receipt = await runtime.pages.taskReceipt(
         mutation.taskId,
         mutation.idempotencyKey,
@@ -478,6 +557,7 @@ export class NotionProvider implements AgentTaskProvider {
         digestJson(toJsonValue(mutation)) &&
       normalizeText(current.body) === normalizeText(mutation.nextBody)
     ) {
+      /** Captures `receipt` returned by `repairPendingTaskIntent`. */
       const receipt =
         await runtime.pages.completeMarkedTaskProperties(mutation);
       await runtime.state.completeIntent(
@@ -493,6 +573,7 @@ export class NotionProvider implements AgentTaskProvider {
         `Pending Task intent conflicts with newer state: ${mutation.taskId}`,
       );
     }
+    /** Captures `receipt` returned by `repairPendingTaskIntent`. */
     const receipt = await runtime.pages.applyTaskMutation(mutation);
     await runtime.state.completeIntent(
       mutation.idempotencyKey,
@@ -503,11 +584,14 @@ export class NotionProvider implements AgentTaskProvider {
     return receipt;
   }
 
+  /** Repairs pending error intent after an interrupted provider intent. */
   private async repairPendingErrorIntent(
     runtime: RuntimeServices,
     error: ErrorMutation,
   ): Promise<WriteReceipt> {
+    /** Holds the `physical` intermediate used by `repairPendingErrorIntent`. */
     const physical = await this.physicalError(runtime, error);
+    /** Holds the `exact` intermediate used by `repairPendingErrorIntent`. */
     let exact: WriteReceipt | null;
     try {
       exact = await runtime.pages.errorTargetReceipt(physical);
@@ -518,6 +602,7 @@ export class NotionProvider implements AgentTaskProvider {
           : "Pending Error intent conflicts with newer state",
       );
     }
+    /** Captures `receipt` returned by `repairPendingErrorIntent`. */
     const receipt =
       exact ?? (await runtime.pages.createOrUpdateError(physical));
     await runtime.state.completeIntent(
@@ -529,6 +614,7 @@ export class NotionProvider implements AgentTaskProvider {
     return receipt;
   }
 
+  /** Replaces logical Error relations with physical Notion page IDs. */
   private async physicalError(
     runtime: RuntimeServices,
     error: ErrorMutation,
@@ -543,13 +629,16 @@ export class NotionProvider implements AgentTaskProvider {
   }
 }
 
+/** Requires a JSON object and returns its validated representation. */
 function jsonObject(value: JsonValue | undefined, label: string): JsonObject {
+  /** Holds the `checked` intermediate used by `jsonObject`. */
   const checked = toJsonValue(value);
   if (checked === null || typeof checked !== "object" || Array.isArray(checked))
     throw new TypeError(`${label} must be an object`);
   return checked;
 }
 
+/** Compares two string collections as normalized sets. */
 function sameSet(left: readonly string[], right: readonly string[]): boolean {
   return (
     [...new Set(left)].sort().join("\0") ===
@@ -557,6 +646,7 @@ function sameSet(left: readonly string[], right: readonly string[]): boolean {
   );
 }
 
+/** Reports whether a Resource record exactly matches a mutation target. */
 function sameResource(
   current: ResourceRecord,
   requested: ResourceMutation,
@@ -573,6 +663,7 @@ function sameResource(
   );
 }
 
+/** Reports whether a Task snapshot matches a conditional mutation target. */
 function taskMatchesTarget(
   current: TaskSnapshot,
   mutation: ConditionalTaskMutation,
@@ -582,12 +673,14 @@ function taskMatchesTarget(
     normalizeText(current.body) !== normalizeText(mutation.nextBody)
   )
     return false;
+  /** Holds the `targetStatus` intermediate used by `taskMatchesTarget`. */
   const targetStatus = mutation.nextStatus ?? current.status;
   if (current.status !== targetStatus) return false;
   for (const [name, target] of Object.entries(
     taskPropertiesWithStatus(mutation.nextProperties, targetStatus),
   )) {
     if (name === NOTION_TASK_MUTATION_PROPERTY) continue;
+    /** Defines `observed` for comparison in `taskMatchesTarget`. */
     const observed = current.properties[name];
     if (observed === undefined || digestJson(observed) !== digestJson(target))
       return false;
@@ -595,6 +688,7 @@ function taskMatchesTarget(
   return true;
 }
 
+/** Normalizes text. */
 function normalizeText(value: string): string {
   return value.replace(/\r\n?/gu, "\n").normalize("NFC");
 }

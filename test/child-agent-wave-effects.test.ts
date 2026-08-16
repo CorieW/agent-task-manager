@@ -14,12 +14,14 @@ import {
   type WorkspaceSchemaDescriptor,
 } from "../src/index.js";
 
+/** Defines the shared environment fixture for this test module. */
 const environment: ProviderEnvironment = {
   bootstrapParent: null,
   connection: {},
   tables: { errors: "e", resources: "r", subAgents: "a", tasks: "t" },
   type: "memory",
 };
+/** Defines the shared target fixture for this test module. */
 const target: WorkspaceSchemaDescriptor = {
   digest: "target",
   providerType: "memory",
@@ -28,14 +30,21 @@ const target: WorkspaceSchemaDescriptor = {
 };
 
 test("runs dependency-ordered nodes and persists each receipt in Resources", async () => {
+  /** Defines the provider fixture for “runs dependency-ordered nodes and persists each receipt in Resources”. */
   const provider = new InMemoryProvider(environment, target);
+  /** Defines the context a fixture for “runs dependency-ordered nodes and persists each receipt in Resources”. */
   const contextA = await context(provider, "context/a");
+  /** Defines the context b fixture for “runs dependency-ordered nodes and persists each receipt in Resources”. */
   const contextB = await context(provider, "context/b");
+  /** Defines the order fixture for “runs dependency-ordered nodes and persists each receipt in Resources”. */
   const order: string[] = [];
+  /** Defines the driver fixture for “runs dependency-ordered nodes and persists each receipt in Resources”. */
   const driver: ChildAgentNodeDriver = {
+    /** Simulates effect reconciliation. */
     async reconcile() {
       return notApplied;
     },
+    /** Creates the run test fixture. */
     async run(input) {
       order.push(input.node.nodeKey);
       if (input.node.nodeKey === "b")
@@ -50,7 +59,9 @@ test("runs dependency-ordered nodes and persists each receipt in Resources", asy
       };
     },
   };
+  /** Defines the effects fixture for “runs dependency-ordered nodes and persists each receipt in Resources”. */
   const effects = new ProviderChildAgentWaveEffects(provider, driver);
+  /** Defines the payload fixture for “runs dependency-ordered nodes and persists each receipt in Resources”. */
   const payload = {
     maxConcurrency: 2,
     nodes: [
@@ -72,10 +83,12 @@ test("runs dependency-ordered nodes and persists each receipt in Resources", asy
       },
     ],
   } as const;
+  /** Defines the control fixture for “runs dependency-ordered nodes and persists each receipt in Resources”. */
   const control = {
     deadlineAt: Date.now() + 10_000,
     signal: new AbortController().signal,
   };
+  /** Defines the result fixture for “runs dependency-ordered nodes and persists each receipt in Resources”. */
   const result = await effects.apply({
     control,
     effectId: "c".repeat(64),
@@ -92,9 +105,13 @@ test("runs dependency-ordered nodes and persists each receipt in Resources", asy
 });
 
 test("rejects malformed node receipts and changed context pins", async () => {
+  /** Defines the provider fixture for “rejects malformed node receipts and changed context pins”. */
   const provider = new InMemoryProvider(environment, target);
+  /** Defines the context digest fixture for “rejects malformed node receipts and changed context pins”. */
   const contextDigest = await context(provider, "context/a");
+  /** Defines the effect ID fixture for “rejects malformed node receipts and changed context pins”. */
   const effectId = "d".repeat(64);
+  /** Defines the node fixture for “rejects malformed node receipts and changed context pins”. */
   const node = {
     contextDigest,
     contextResource: "context/a",
@@ -103,6 +120,7 @@ test("rejects malformed node receipts and changed context pins", async () => {
     dependsOn: [],
     nodeKey: "a",
   } as const;
+  /** Defines the malformed fixture for “rejects malformed node receipts and changed context pins”. */
   const malformed = canonicalize(
     toJsonValue({
       contextDigest,
@@ -131,10 +149,13 @@ test("rejects malformed node receipts and changed context pins", async () => {
     state: "active",
     version: "v1",
   });
+  /** Defines the effects fixture for “rejects malformed node receipts and changed context pins”. */
   const effects = new ProviderChildAgentWaveEffects(provider, {
+    /** Simulates effect reconciliation. */
     async reconcile() {
       return notApplied;
     },
+    /** Creates the run test fixture. */
     async run() {
       return notApplied;
     },
@@ -152,11 +173,14 @@ test("rejects malformed node receipts and changed context pins", async () => {
   );
 });
 
+/** Creates the context test fixture. */
 async function context(
   provider: InMemoryProvider,
   key: string,
 ): Promise<string> {
+  /** Defines the body fixture used by context. */
   const body = canonicalize(toJsonValue({ input: key }));
+  /** Defines the digest fixture used by context. */
   const digest = sha256(body);
   await provider.putResource({
     body,
@@ -170,6 +194,7 @@ async function context(
   });
   return digest;
 }
+/** Defines the shared not applied fixture for this test module. */
 const notApplied: ExternalEffectObservation = {
   evidence: {},
   externalIdentity: {},

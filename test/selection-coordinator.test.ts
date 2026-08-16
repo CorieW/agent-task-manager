@@ -19,19 +19,23 @@ import {
 } from "../src/index.js";
 import { sha256 } from "../src/core/digest.js";
 
+/** Defines the shared environment fixture for this test module. */
 const environment: ProviderEnvironment = {
   bootstrapParent: null,
   connection: {},
   tables: { errors: "e", resources: "r", subAgents: "a", tasks: "t" },
   type: "memory",
 };
+/** Defines the shared target fixture for this test module. */
 const target: WorkspaceSchemaDescriptor = {
   digest: "target",
   providerType: "memory",
   tables: [],
   version: "v1",
 };
+/** Defines the shared expiry fixture for this test module. */
 const EXPIRY = "2099-01-01T00:00:00.000Z";
+/** Defines the shared activation runtime fixture for this test module. */
 const activationRuntime = {
   installedCapabilities: ["dispatch.coordinate", "repository.read"],
   installedIntents: ["task.assignment.request"],
@@ -40,7 +44,9 @@ const activationRuntime = {
 } as const;
 
 test("promotes a coordinator assignment into worker run and task leases", async () => {
+  /** Defines the provider fixture for “promotes a coordinator assignment into worker run and task leases”. */
   const provider = new InMemoryProvider(environment, target);
+  /** Defines the coordinator fixture for “promotes a coordinator assignment into worker run and task leases”. */
   const coordinator = definition(
     "coordinator",
     "Coordinator",
@@ -48,6 +54,7 @@ test("promotes a coordinator assignment into worker run and task leases", async 
     ["coordinator"],
     ["dispatch.coordinate"],
   );
+  /** Defines the worker fixture for “promotes a coordinator assignment into worker run and task leases”. */
   const worker = definition(
     "worker",
     "Migration Analyst",
@@ -61,6 +68,7 @@ test("promotes a coordinator assignment into worker run and task leases", async 
   await seedResources(provider, [coordinator, worker]);
   provider.seedTask(task("dependency", "Done", []));
   provider.seedTask(task("task-1", "Ready", ["dependency"]));
+  /** Defines the selector run fixture for “promotes a coordinator assignment into worker run and task leases”. */
   const selectorRun = await provider.acquireLease({
     expiresAt: EXPIRY,
     idempotencyKey: "selector-run",
@@ -78,12 +86,16 @@ test("promotes a coordinator assignment into worker run and task leases", async 
     nextTaskIds: [],
     subAgentId: coordinator.id,
   });
+  /** Defines the resolved fixture for “promotes a coordinator assignment into worker run and task leases”. */
   const resolved = await resolveDefinition(provider, coordinator.id);
+  /** Defines the activated fixture for “promotes a coordinator assignment into worker run and task leases”. */
   const activated = await activateDefinitions({
     ...activationRuntime,
     provider,
   });
+  /** Defines the context fixture for “promotes a coordinator assignment into worker run and task leases”. */
   const context = await prepareSelection(provider, resolved, activated);
+  /** Defines the result fixture for “promotes a coordinator assignment into worker run and task leases”. */
   const result = finalizeTaskSelectionResult({
     candidateSetDigest: context.candidateSet.digest,
     idempotencyKey: "choose-task-1",
@@ -99,6 +111,7 @@ test("promotes a coordinator assignment into worker run and task leases", async 
     targetSubAgentRevision: worker.revision,
     taskId: "task-1",
   });
+  /** Defines the promotion fixture for “promotes a coordinator assignment into worker run and task leases”. */
   const promotion = await promoteSelection({
     activationRuntime,
     assignmentDepth: 1,
@@ -129,7 +142,9 @@ test("promotes a coordinator assignment into worker run and task leases", async 
 });
 
 test("finalizes the selector run when a coordinator reports no work", async () => {
+  /** Defines the provider fixture for “finalizes the selector run when a coordinator reports no work”. */
   const provider = new InMemoryProvider(environment, target);
+  /** Defines the coordinator fixture for “finalizes the selector run when a coordinator reports no work”. */
   const coordinator = definition(
     "coordinator",
     "Coordinator",
@@ -140,6 +155,7 @@ test("finalizes the selector run when a coordinator reports no work", async () =
   provider.seedDefinition(coordinator);
   provider.seedTaskStatusOptions(["Done", "Ready"]);
   await seedResources(provider, [coordinator]);
+  /** Defines the run fixture for “finalizes the selector run when a coordinator reports no work”. */
   const run = await provider.acquireLease({
     expiresAt: EXPIRY,
     idempotencyKey: "no-work-run",
@@ -156,12 +172,16 @@ test("finalizes the selector run when a coordinator reports no work", async () =
     nextTaskIds: [],
     subAgentId: coordinator.id,
   });
+  /** Defines the resolved fixture for “finalizes the selector run when a coordinator reports no work”. */
   const resolved = await resolveDefinition(provider, coordinator.id);
+  /** Defines the activated fixture for “finalizes the selector run when a coordinator reports no work”. */
   const activated = await activateDefinitions({
     ...activationRuntime,
     provider,
   });
+  /** Defines the context fixture for “finalizes the selector run when a coordinator reports no work”. */
   const context = await prepareSelection(provider, resolved, activated);
+  /** Defines the result fixture for “finalizes the selector run when a coordinator reports no work”. */
   const result = finalizeTaskSelectionResult({
     candidateSetDigest: context.candidateSet.digest,
     idempotencyKey: "no-work",
@@ -202,7 +222,9 @@ test("finalizes the selector run when a coordinator reports no work", async () =
 });
 
 test("rejects stale/out-of-scope selections before leases", async () => {
+  /** Defines the provider fixture for “rejects stale/out-of-scope selections before leases”. */
   const provider = new InMemoryProvider(environment, target);
+  /** Defines the worker fixture for “rejects stale/out-of-scope selections before leases”. */
   const worker = definition(
     "worker",
     "Documentation Curator",
@@ -214,6 +236,7 @@ test("rejects stale/out-of-scope selections before leases", async () => {
   provider.seedTaskStatusOptions(["Done", "Ready"]);
   await seedResources(provider, [worker]);
   provider.seedTask(task("task-1", "Ready", []));
+  /** Defines the run fixture for “rejects stale/out-of-scope selections before leases”. */
   const run = await provider.acquireLease({
     expiresAt: EXPIRY,
     idempotencyKey: "run",
@@ -230,12 +253,16 @@ test("rejects stale/out-of-scope selections before leases", async () => {
     nextTaskIds: [],
     subAgentId: worker.id,
   });
+  /** Defines the resolved fixture for “rejects stale/out-of-scope selections before leases”. */
   const resolved = await resolveDefinition(provider, worker.id);
+  /** Defines the activated fixture for “rejects stale/out-of-scope selections before leases”. */
   const activated = await activateDefinitions({
     ...activationRuntime,
     provider,
   });
+  /** Defines the context fixture for “rejects stale/out-of-scope selections before leases”. */
   const context = await prepareSelection(provider, resolved, activated);
+  /** Defines the result fixture for “rejects stale/out-of-scope selections before leases”. */
   const result = finalizeTaskSelectionResult({
     candidateSetDigest: context.candidateSet.digest,
     idempotencyKey: "outside",
@@ -269,7 +296,9 @@ test("rejects stale/out-of-scope selections before leases", async () => {
 });
 
 test("promotes a trusted explicit assignment without an AI selector role", async () => {
+  /** Defines the provider fixture for “promotes a trusted explicit assignment without an AI selector role”. */
   const provider = new InMemoryProvider(environment, target);
+  /** Defines the worker fixture for “promotes a trusted explicit assignment without an AI selector role”. */
   const worker = definition(
     "worker",
     "Localization Curator",
@@ -281,12 +310,16 @@ test("promotes a trusted explicit assignment without an AI selector role", async
   provider.seedTaskStatusOptions(["Done", "Ready"]);
   await seedResources(provider, [worker]);
   provider.seedTask(task("task-1", "Ready", []));
+  /** Defines the resolved fixture for “promotes a trusted explicit assignment without an AI selector role”. */
   const resolved = await resolveDefinition(provider, worker.id);
+  /** Defines the activated fixture for “promotes a trusted explicit assignment without an AI selector role”. */
   const activated = await activateDefinitions({
     ...activationRuntime,
     provider,
   });
+  /** Defines the context fixture for “promotes a trusted explicit assignment without an AI selector role”. */
   const context = await prepareSelection(provider, resolved, activated);
+  /** Defines the assignment fixture for “promotes a trusted explicit assignment without an AI selector role”. */
   const assignment = finalizeExplicitAssignment({
     authorityId: "human-request-1",
     idempotencyKey: "explicit-1",
@@ -296,6 +329,7 @@ test("promotes a trusted explicit assignment without an AI selector role", async
     targetSubAgentRevision: worker.revision,
     taskId: "task-1",
   });
+  /** Defines the promoted fixture for “promotes a trusted explicit assignment without an AI selector role”. */
   const promoted = await promoteExplicitAssignment({
     activationRuntime,
     assignment,
@@ -313,6 +347,7 @@ test("promotes a trusted explicit assignment without an AI selector role", async
   );
 });
 
+/** Creates a Sub-agent definition fixture. */
 function definition(
   id: string,
   name: string,
@@ -356,6 +391,7 @@ function definition(
   };
 }
 
+/** Creates a Task snapshot fixture. */
 function task(
   id: string,
   status: string,
@@ -374,10 +410,12 @@ function task(
   };
 }
 
+/** Seeds resources. */
 async function seedResources(
   provider: InMemoryProvider,
   definitions: SubAgentDefinition[],
 ): Promise<void> {
+  /** Defines the records fixture used by seed resources. */
   const records = new Map<string, ResourceMutation>();
   for (const definition of definitions) {
     records.set(
@@ -409,6 +447,7 @@ async function seedResources(
   records.set("schema/work", resource("schema/work", "json-schema", schema()));
   for (const record of records.values()) await provider.putResource(record);
 }
+/** Builds resource. */
 function resource(key: string, kind: string, body: string): ResourceMutation {
   return {
     body,
@@ -421,6 +460,7 @@ function resource(key: string, kind: string, body: string): ResourceMutation {
     version: "v1",
   };
 }
+/** Creates a closed JSON Schema fixture. */
 function schema(): string {
   return JSON.stringify({
     additionalProperties: false,

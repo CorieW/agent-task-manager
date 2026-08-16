@@ -11,6 +11,7 @@ import type {
   TaskSummary,
 } from "../domain/records.js";
 
+/** Exact fields allowed in a Task query Resource. */
 const TASK_QUERY_FIELDS = new Set([
   "archived",
   "id",
@@ -20,21 +21,33 @@ const TASK_QUERY_FIELDS = new Set([
   "version",
 ]);
 
+/** Canonical fields for task query contract. */
 export interface TaskQueryContract {
+  /** Dependency satisfied statuses included in task query contract. */
   readonly dependencySatisfiedStatuses: readonly string[];
+  /** Limit for task query contract. */
   readonly limit: number;
+  /** Predicate for task query contract. */
   readonly predicate: JsonObject;
+  /** Schema discriminator for the serialized representation. */
   readonly schema: "task-query-v1";
 }
 
+/** Canonical fields for candidate set. */
 export interface CandidateSet {
+  /** SHA-256 digest of the candidate-set query and summaries. */
   readonly digest: string;
+  /** SHA-256 digest of canonical query content. */
   readonly queryDigest: string;
+  /** Summaries included in candidate set. */
   readonly summaries: readonly TaskSummary[];
 }
 
+/** Parses a bounded provider-neutral Task query Resource. */
 export function parseTaskQueryContract(body: string): TaskQueryContract {
+  /** JSON-decoded input before structural validation. */
   const raw: unknown = JSON.parse(body);
+  /** Object currently undergoing field-level validation. */
   const value = objectValue(toJsonValue(raw), "Task query");
   assertExactKeys(
     value,
@@ -49,10 +62,12 @@ export function parseTaskQueryContract(body: string): TaskQueryContract {
     (value.limit as number) > 100
   )
     throw new TypeError("Task query limit must be from 1 to 100");
+  /** Statuses used during parse task query contract. */
   const statuses = stringArray(
     value.dependencySatisfiedStatuses,
     "dependencySatisfiedStatuses",
   );
+  /** Predicate used during parse task query contract. */
   const predicate = objectValue(value.predicate, "Task query predicate");
   for (const [key, expected] of Object.entries(predicate)) {
     if (!TASK_QUERY_FIELDS.has(key))
@@ -74,6 +89,7 @@ export function parseTaskQueryContract(body: string): TaskQueryContract {
   };
 }
 
+/** Constrains a Task query to the definition's candidate-summary budget. */
 export function taskQueryForDefinition(
   contract: TaskQueryContract,
   definition: SubAgentDefinition,
@@ -85,13 +101,16 @@ export function taskQueryForDefinition(
   return { cursor: null, limit: contract.limit, predicate: contract.predicate };
 }
 
+/** Sorts Task summaries and binds them to the task-query digest. */
 export function finalizeCandidateSet(
   contract: TaskQueryContract,
   summaries: readonly TaskSummary[],
 ): CandidateSet {
+  /** Ordered arranged in deterministic order. */
   const ordered = [...summaries].sort((left, right) =>
     left.id.localeCompare(right.id),
   );
+  /** Canonical digest of query. */
   const queryDigest = digestJson(toJsonValue(contract));
   return {
     digest: digestJson(toJsonValue({ queryDigest, summaries: ordered })),
@@ -100,6 +119,7 @@ export function finalizeCandidateSet(
   };
 }
 
+/** Rejects objects with missing or unexpected fields. */
 function assertExactKeys(
   value: JsonObject,
   expected: readonly string[],
@@ -108,6 +128,7 @@ function assertExactKeys(
   if (Object.keys(value).sort().join("\0") !== [...expected].sort().join("\0"))
     throw new TypeError(`${label} has unexpected or missing fields`);
 }
+/** Requires a field value to be a non-array JSON object. */
 function objectValue(value: JsonValue | undefined, label: string): JsonObject {
   if (
     value === null ||
@@ -118,6 +139,7 @@ function objectValue(value: JsonValue | undefined, label: string): JsonObject {
     throw new TypeError(`${label} must be an object`);
   return value;
 }
+/** Requires an array containing only strings. */
 function stringArray(
   value: JsonValue | undefined,
   label: string,
