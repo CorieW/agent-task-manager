@@ -143,6 +143,64 @@ test("prepares context for a harness and completes without model dispatch", asyn
   assert.deepEqual(preparedReplay, { report, state: "complete" });
 });
 
+test("persists a blocked harness completion within the system namespace", async () => {
+  /** Strict provider exposing the same manager namespace rule as Notion. */
+  const provider = await preparedProvider([], undefined, true);
+  await prepareHarnessAssignment({
+    agentId: "planner",
+    assignmentDepth: 0,
+    environmentId: "demo",
+    expiresAt: EXPIRY,
+    input: {},
+    operationKey: "issue-001-needs-human",
+    provider,
+    taskId: "task-1",
+  });
+  /** Completion asking the manager to persist one human decision slot. */
+  const completion: HarnessAssignmentCompletion = {
+    effectAttestations: [],
+    humanResolution: {
+      createdAt: "2026-08-16T19:00:00.000Z",
+      error: {
+        description: "Product scope is not approved.",
+        errorKey: "planning/product-scope",
+        relatedAgentId: "planner",
+        relatedRunId: "run-1",
+        resolution: "Approve the product scope, then resume planning.",
+        severity: "high",
+        status: "Not Fixed",
+        title: "Product scope approval required",
+      },
+      generation: 1,
+      prompt: "Approve the primary user, MVP boundaries, and success metrics.",
+      requestedBy: "planner",
+      resumeStatus: "Ready",
+    },
+    result: {
+      outcome: "needs_human",
+      payload: { summary: "Planning requires approved product scope." },
+      proposedIntents: [],
+      schema: "harness-agent-result-v1",
+    },
+    reviewFindingKeys: null,
+    schema: "harness-assignment-completion-v1",
+    testFailureKeys: null,
+  };
+
+  /** Terminal report returned after human recovery and lease cleanup. */
+  const report = await completeHarnessAssignment({
+    completion,
+    environmentId: "demo",
+    operationKey: "issue-001-needs-human",
+    provider,
+  });
+
+  assert.equal(report.outcome, "needs_human");
+  assert.equal((await provider.getTaskSnapshot("task-1")).status, "Blocked");
+  assert.equal((await provider.getAgentActivity("planner")).status, "Offline");
+  assert.deepEqual((await provider.getAgentActivity("planner")).taskIds, []);
+});
+
 test("returns a read-only provider-defined candidate basis", async () => {
   /** Provider containing one eligible and one ineligible Task. */
   const provider = await preparedProvider();
@@ -395,11 +453,12 @@ async function preparedProvider(
     environment,
     target,
   ),
+  humanResolution = false,
 ): Promise<InMemoryProvider> {
   /** Provider-defined role used by the external harness. */
-  const definition = agentDefinition(allowedIntents);
+  const definition = agentDefinition(allowedIntents, humanResolution);
   provider.seedDefinition(definition);
-  provider.seedTaskStatusOptions(["Backlog", "Planned", "Ready"]);
+  provider.seedTaskStatusOptions(["Backlog", "Blocked", "Planned", "Ready"]);
   provider.seedTask({
     archived: false,
     body: "Task body",
@@ -416,14 +475,17 @@ async function preparedProvider(
 }
 
 /** Defines the provider-driven role and lifecycle accepted by the harness tests. */
-function agentDefinition(allowedIntents: readonly string[]): AgentDefinition {
+function agentDefinition(
+  allowedIntents: readonly string[],
+  humanResolution = false,
+): AgentDefinition {
   return {
     allowedIntents,
     capabilities: [],
     contextBudgetBytes: 100_000,
     deadlineSeconds: 60,
     enabled: true,
-    humanResolutionOutcomes: [],
+    humanResolutionOutcomes: humanResolution ? ["needs_human"] : [],
     id: "planner",
     inputResourceSelectors: [],
     invocation: { mode: "manual", scheduleResource: null },
@@ -449,7 +511,9 @@ function agentDefinition(allowedIntents: readonly string[]): AgentDefinition {
       resultSchema: "schema/selection",
       taskQueryResource: "query/planner",
     },
-    transitions: { succeeded: "Planned" },
+    transitions: humanResolution
+      ? { needs_human: "Blocked", succeeded: "Planned" }
+      : { succeeded: "Planned" },
   };
 }
 

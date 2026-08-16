@@ -12,12 +12,12 @@ import { parseHumanInteractionSlot } from "./slot-codec.js";
 
 /** Builds the deterministic provider key for this durable record. */
 export function humanSlotResourceKey(slotId: string): string {
-  return `human-slot/${slotId}`;
+  return `system/human-slot/${slotId}`;
 }
 
 /** Builds the deterministic provider key for this durable record. */
 export function humanConsumptionResourceKey(slotId: string): string {
-  return `human-consumption/${slotId}`;
+  return `system/human-consumption/${slotId}`;
 }
 
 /** Serializes human slot baseline into its canonical representation. */

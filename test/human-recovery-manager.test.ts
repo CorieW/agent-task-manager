@@ -66,8 +66,11 @@ test("creates a stable Error and resolution slot before Needs Human Resolution",
   assert.equal(slots.length, 1);
   assert.equal(slots[0]?.sourceErrorKey, "publication/missing");
   assert.equal(
-    (await provider.getOptionalResource(`human-slot/${receipt.slot.slotId}`))
-      ?.kind,
+    (
+      await provider.getOptionalResource(
+        `system/human-slot/${receipt.slot.slotId}`,
+      )
+    )?.kind,
     "system/human-interaction-slot",
   );
   /** Captures the human-interaction state used as the oracle. */
