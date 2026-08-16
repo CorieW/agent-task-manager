@@ -110,6 +110,8 @@ export class NotionProvider implements AgentTaskProvider {
   readonly #target: WorkspaceSchemaDescriptor;
   /** Notion transport used for provider requests. */
   readonly #transport: NotionTransport;
+  /** Cached names of Task properties derived from manager-owned Agent activity. */
+  #derivedTaskPropertyNames: Promise<readonly string[]> | null = null;
 
   /** Initializes Notion provider. */
   public constructor(options: NotionProviderOptions) {
@@ -225,6 +227,14 @@ export class NotionProvider implements AgentTaskProvider {
   /** Returns task status options in deterministic order. */
   public async listTaskStatusOptions(): Promise<readonly string[]> {
     return (await this.runtime()).reader.listTaskStatusOptions();
+  }
+
+  /** Returns Task properties derived from authoritative provider state elsewhere. */
+  public async listDerivedTaskPropertyNames(): Promise<readonly string[]> {
+    this.#derivedTaskPropertyNames ??= this.runtime().then((runtime) =>
+      runtime.reader.listDerivedTaskPropertyNames(),
+    );
+    return [...(await this.#derivedTaskPropertyNames)];
   }
 
   /** Updates Agent activity. */

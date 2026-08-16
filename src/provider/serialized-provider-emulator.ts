@@ -179,6 +179,11 @@ export class SerializedProviderEmulator implements SeedableAgentTaskProvider {
     return crossBoundary(await this.backing.listTaskStatusOptions());
   }
 
+  /** Returns Task properties derived from authoritative provider state elsewhere. */
+  public async listDerivedTaskPropertyNames(): Promise<readonly string[]> {
+    return crossBoundary(await this.backing.listDerivedTaskPropertyNames());
+  }
+
   /** Updates Agent activity. */
   public async updateAgentActivity(
     change: ActivityMutation,

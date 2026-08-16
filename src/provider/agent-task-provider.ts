@@ -82,6 +82,8 @@ export interface AgentTaskProvider {
   ): Promise<ReconciliationResult>;
   /** Returns task status options in deterministic order. */
   listTaskStatusOptions(): Promise<readonly string[]>;
+  /** Returns Task properties derived from authoritative provider state elsewhere. */
+  listDerivedTaskPropertyNames(): Promise<readonly string[]>;
   /** Updates Agent activity. */
   updateAgentActivity(change: ActivityMutation): Promise<WriteReceipt>;
 

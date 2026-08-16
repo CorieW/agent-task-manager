@@ -36,6 +36,23 @@ class RecordsTransport implements NotionTransport {
     if (request.path === "/v1/data_sources/agents/query") {
       return { has_more: false, next_cursor: null, results: [agentPage()] };
     }
+    if (request.path === "/v1/data_sources/agents") {
+      return {
+        properties: {
+          "Working On": {
+            relation: {
+              data_source_id: "tasks",
+              dual_property: {
+                synced_property_id: "workers",
+                synced_property_name: "Being Worked On By",
+              },
+              type: "dual_property",
+            },
+            type: "relation",
+          },
+        },
+      };
+    }
     if (request.path === "/v1/data_sources/resources/query") {
       return { has_more: false, next_cursor: null, results: [resourcePage()] };
     }
@@ -99,6 +116,15 @@ test("decodes task summaries and exhausts relation property pagination", async (
     reader.getTaskSnapshot("outside-task"),
     /configured table/,
   );
+});
+
+test("identifies reciprocal Task properties derived from Agent activity", async () => {
+  /** Reader resolving Notion's dual Working On relation metadata. */
+  const reader = new NotionRecordReader(TABLES, new RecordsTransport());
+
+  assert.deepEqual(await reader.listDerivedTaskPropertyNames(), [
+    "Being Worked On By",
+  ]);
 });
 
 test("translates a multi-status Task query into a bounded Notion filter", async () => {

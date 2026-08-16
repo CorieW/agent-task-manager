@@ -2,6 +2,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { canonicalize } from "../src/core/canonical-json.js";
+import { digestJson, sha256 } from "../src/core/digest.js";
 import {
   HumanRecoveryManager,
   InMemoryProvider,
@@ -130,6 +132,102 @@ test("replays a slot baseline after provider identity-set reordering", async () 
   /** Exact semantic replay accepted despite the provider's relation ordering. */
   const replay = await manager.request(request);
   assert.equal(replay.status, "Needs Human Resolution");
+});
+
+test("ignores provider-derived Task property changes while consuming a response", async () => {
+  /** Provider exposing a reciprocal activity relation as derived Task state. */
+  const provider = new DerivedPropertyProvider(environment, target);
+  provider.seedTaskStatusOptions(["Blocked", "Ready"]);
+  provider.seedTask({
+    archived: false,
+    body: "Task context",
+    dependencies: [],
+    id: "task-derived",
+    priority: 1,
+    properties: {
+      "Being Worked On By": ["agent-page"],
+      Status: "Ready",
+      custom: "preserved",
+    },
+    status: "Ready",
+    title: "Derived relation",
+    version: "v1",
+  });
+  /** Recovery manager protecting human-authored Task content. */
+  const manager = new HumanRecoveryManager(provider);
+  /** Human request installed while the assignment activity projection is populated. */
+  const requested = await manager.request({
+    createdAt: "2026-08-16T20:00:00.000Z",
+    error: null,
+    generation: 1,
+    kind: "answer",
+    prompt: "Approve the plan.",
+    requestedBy: "task-planner",
+    routes: { resume: "Ready" },
+    sourceErrorKey: null,
+    taskId: "task-derived",
+    waitingStatus: "Blocked",
+  });
+  /** Existing pre-fix baseline containing the derived relation being migrated. */
+  const baselineKey = `human/request/${requested.slot.slotId}`;
+  /** Persisted baseline rewritten into the legacy representation for compatibility coverage. */
+  const baseline = await provider.getOptionalOperation(baselineKey);
+  assert.notEqual(baseline, null);
+  /** Parsed legacy baseline body extended with the formerly captured projection. */
+  const legacy = JSON.parse(baseline!.body) as JsonObject;
+  /** Legacy protected properties as written before derived projections were excluded. */
+  const legacyProperties = {
+    ...(legacy.taskProperties as JsonObject),
+    "Being Worked On By": ["agent-page"],
+  };
+  /** Canonical old baseline accepted safely by the new comparison rules. */
+  const legacyBody = canonicalize({
+    ...legacy,
+    taskProperties: legacyProperties,
+    taskPropertiesDigest: digestJson(legacyProperties),
+  });
+  await provider.putOperation({
+    body: legacyBody,
+    dependencies: baseline!.dependencies,
+    digest: sha256(legacyBody),
+    idempotencyKey: "seed-legacy-human-baseline",
+    key: baseline!.key,
+    kind: baseline!.kind,
+    state: baseline!.state,
+    version: baseline!.version,
+  });
+  /** Task after lease cleanup clears Notion's reciprocal Working On relation. */
+  const waiting = await provider.getTaskSnapshot("task-derived");
+  /** Human-approved slot replacing only its designated response field. */
+  const edited = {
+    ...requested.slot,
+    response: { action: "resume", text: "Approved." },
+  };
+  await provider.applyTaskMutation({
+    expectedVersion: waiting.version,
+    idempotencyKey: "human-edit-after-activity-cleanup",
+    nextBody: waiting.body.replace(
+      renderHumanInteractionSlot(requested.slot),
+      renderHumanInteractionSlot(edited),
+    ),
+    nextProperties: {
+      ...waiting.properties,
+      "Being Worked On By": [],
+    },
+    nextStatus: null,
+    taskId: waiting.id,
+  });
+
+  /** Consumption authorized despite the unrelated manager-owned projection change. */
+  const consumption = await manager.consume(
+    "task-derived",
+    requested.slot.slotId,
+  );
+  assert.equal(consumption.state, "applied");
+  /** Final Task retains protected human-authored properties and resumes its route. */
+  const resumed = await provider.getTaskSnapshot("task-derived");
+  assert.equal(resumed.status, "Ready");
+  assert.equal(resumed.properties.custom, "preserved");
 });
 
 test("consumes one allowed human response and replays without another transition", async () => {
@@ -501,6 +599,16 @@ class InterruptingProvider extends InMemoryProvider {
       throw new Error("simulated interruption");
     }
     return super.applyTaskMutation(mutation);
+  }
+}
+
+/** In-memory provider declaring the Task-side activity relation as derived. */
+class DerivedPropertyProvider extends InMemoryProvider {
+  /** Returns the reciprocal relation controlled by Agent activity projection. */
+  public override async listDerivedTaskPropertyNames(): Promise<
+    readonly string[]
+  > {
+    return ["Being Worked On By"];
   }
 }
 

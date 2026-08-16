@@ -183,6 +183,46 @@ export class NotionRecordReader {
     return names.sort();
   }
 
+  /** Returns reciprocal Task relations maintained by manager-owned Agent activity. */
+  public async listDerivedTaskPropertyNames(): Promise<readonly string[]> {
+    /** Agent data-source metadata containing the authoritative Working On relation. */
+    const source = await this.transport.request({
+      method: "GET",
+      path: `/v1/data_sources/${this.tables.agents}`,
+    });
+    /** Configured Agent properties used to identify the reciprocal Task relation. */
+    const properties = objectValue(source.properties, "Agent properties");
+    /** Manager-owned Agent relation whose reciprocal value is provider-derived. */
+    const workingOn = objectValue(
+      properties["Working On"],
+      "Agent Working On property",
+    );
+    if (workingOn.type !== "relation")
+      throw new TypeError("Agent Working On must be relation");
+    /** Relation metadata describing the target and reciprocal Notion property. */
+    const relation = objectValue(
+      workingOn.relation,
+      "Agent Working On relation",
+    );
+    const target = relation.data_source_id ?? relation.database_id;
+    if (target !== this.tables.tasks)
+      throw new TypeError("Agent Working On must target Tasks");
+    if (relation.type === "single_property") return [];
+    if (relation.type !== "dual_property")
+      throw new TypeError("Agent Working On relation type is invalid");
+    /** Notion-created Task property updated whenever Agent Working On changes. */
+    const reciprocal = objectValue(
+      relation.dual_property,
+      "Agent Working On reciprocal relation",
+    );
+    return [
+      requiredString(
+        reciprocal.synced_property_name,
+        "Agent Working On reciprocal property name",
+      ),
+    ];
+  }
+
   /** Returns task snapshot. */
   public async getTaskSnapshot(taskId: string): Promise<TaskSnapshot> {
     /** Result of `this.getPageInTable`, retained for `getTaskSnapshot`. */

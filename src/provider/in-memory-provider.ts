@@ -625,6 +625,11 @@ export class InMemoryProvider implements AgentTaskProvider {
     return [...this.#taskStatusOptions].sort();
   }
 
+  /** Returns Task properties derived from authoritative provider state elsewhere. */
+  public async listDerivedTaskPropertyNames(): Promise<readonly string[]> {
+    return [];
+  }
+
   /** Reconciles Agent activity against provider state. */
   public async reconcileAgentActivity(
     agentId: string,

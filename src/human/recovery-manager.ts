@@ -2,7 +2,11 @@
 import { canonicalize } from "../core/canonical-json.js";
 import { digestJson, sha256 } from "../core/digest.js";
 import { taskPropertiesWithStatus } from "../core/task-properties.js";
-import { toJsonValue, type JsonValue } from "../domain/json.js";
+import {
+  toJsonValue,
+  type JsonObject,
+  type JsonValue,
+} from "../domain/json.js";
 import type {
   ErrorMutation,
   OperationMutation,
@@ -68,6 +72,9 @@ export class HumanRecoveryManager {
       throw new Error("Human resolution requests require a stable Error");
     /** Provider-declared statuses for route validation. */
     const statuses = await this.provider.listTaskStatusOptions();
+    /** Task properties whose values are projections of other manager-owned records. */
+    const derivedPropertyNames =
+      await this.provider.listDerivedTaskPropertyNames();
     requireStatuses(statuses, [
       input.waitingStatus,
       ...Object.values(input.routes),
@@ -109,19 +116,22 @@ export class HumanRecoveryManager {
         : task.body;
     /** Freezes all non-human Task properties at the waiting status. */
     const baselineProperties = taskPropertiesWithStatus(
-      task.properties,
+      withoutDerivedProperties(task.properties, derivedPropertyNames),
       input.waitingStatus,
     );
 
-    await this.writeSlotBaseline({
-      schema: "human-slot-baseline-v2",
-      slot,
-      taskArchived: task.archived,
-      taskBodyDigest: sha256(normalizeText(nextBody)),
-      taskProperties: baselineProperties,
-      taskPropertiesDigest: digestJson(baselineProperties),
-      waitingStatus: input.waitingStatus,
-    });
+    await this.writeSlotBaseline(
+      {
+        schema: "human-slot-baseline-v2",
+        slot,
+        taskArchived: task.archived,
+        taskBodyDigest: sha256(normalizeText(nextBody)),
+        taskProperties: baselineProperties,
+        taskPropertiesDigest: digestJson(baselineProperties),
+        waitingStatus: input.waitingStatus,
+      },
+      derivedPropertyNames,
+    );
 
     if (input.error !== null)
       await this.provider.createOrUpdateError({
@@ -190,6 +200,9 @@ export class HumanRecoveryManager {
     const baseline = await this.readSlotBaseline(slotId);
     if (baseline.slot.taskId !== taskId)
       throw new Error("Human slot belongs to another Task");
+    /** Task properties allowed to change as manager-owned projections advance. */
+    const derivedPropertyNames =
+      await this.provider.listDerivedTaskPropertyNames();
 
     /** Mutable state recording the Task snapshot across response verification and transition. */
     let task = await this.provider.getTaskSnapshot(taskId);
@@ -204,7 +217,7 @@ export class HumanRecoveryManager {
     if (consumption === null) {
       if (task.status !== baseline.waitingStatus)
         throw new Error("Task is not in the human slot's waiting status");
-      verifyTaskBasis(baseline, task, edited);
+      verifyTaskBasis(baseline, task, edited, derivedPropertyNames);
       consumption = {
         appliedTaskVersion: null,
         authority,
@@ -220,7 +233,7 @@ export class HumanRecoveryManager {
     }
 
     if (consumption.state === "applied") return consumption;
-    verifyTaskBasis(baseline, task, edited);
+    verifyTaskBasis(baseline, task, edited, derivedPropertyNames);
     if (
       task.status !== consumption.sourceStatus &&
       task.status !== authority.targetStatus
@@ -236,13 +249,16 @@ export class HumanRecoveryManager {
     );
     if (currentAuthority.responseDigest !== authority.responseDigest)
       throw new Error("Human response changed during consumption");
-    verifyTaskBasis(baseline, task, currentEdited);
+    verifyTaskBasis(baseline, task, currentEdited, derivedPropertyNames);
 
     await this.provider.applyTaskMutation({
       expectedVersion: consumption.sourceTaskVersion,
       idempotencyKey: `human-consume:${slotId}:${authority.responseDigest}`,
       nextBody: null,
-      nextProperties: baseline.taskProperties,
+      nextProperties: withoutDerivedProperties(
+        baseline.taskProperties,
+        derivedPropertyNames,
+      ),
       nextStatus: authority.targetStatus,
       taskId,
     });
@@ -263,6 +279,7 @@ export class HumanRecoveryManager {
   /** Persists an immutable slot baseline, accepting only exact replay. */
   private async writeSlotBaseline(
     record: HumanSlotBaselineRecord,
+    derivedPropertyNames: readonly string[],
   ): Promise<void> {
     /** Serializes the baseline into its canonical Operation body. */
     const body = serializeHumanSlotBaseline(record);
@@ -273,7 +290,7 @@ export class HumanRecoveryManager {
     if (existing !== null) {
       /** Parses the existing Operation before exact replay comparison. */
       const parsed = parseHumanRequestOperation(existing, record.slot.slotId);
-      if (!sameHumanSlotBaseline(parsed, record))
+      if (!sameHumanSlotBaseline(parsed, record, derivedPropertyNames))
         throw new Error("Human slot baseline is immutable");
       return;
     }
@@ -356,11 +373,16 @@ export class HumanRecoveryManager {
 function sameHumanSlotBaseline(
   left: HumanSlotBaselineRecord,
   right: HumanSlotBaselineRecord,
+  derivedPropertyNames: readonly string[],
 ): boolean {
   /** Canonical left-hand properties with unordered identity collections normalized. */
-  const leftProperties = normalizePropertyCollections(left.taskProperties);
+  const leftProperties = normalizePropertyCollections(
+    withoutDerivedProperties(left.taskProperties, derivedPropertyNames),
+  );
   /** Canonical right-hand properties with unordered identity collections normalized. */
-  const rightProperties = normalizePropertyCollections(right.taskProperties);
+  const rightProperties = normalizePropertyCollections(
+    withoutDerivedProperties(right.taskProperties, derivedPropertyNames),
+  );
   return (
     canonicalize(
       toJsonValue({
@@ -475,6 +497,7 @@ function verifyTaskBasis(
   baseline: HumanSlotBaselineRecord,
   task: TaskSnapshot,
   edited: HumanInteractionSlot,
+  derivedPropertyNames: readonly string[],
 ): void {
   if (task.archived !== baseline.taskArchived)
     throw new Error("Human response changed Task archive state");
@@ -492,12 +515,52 @@ function verifyTaskBasis(
   if (sha256(maskedBody) !== baseline.taskBodyDigest)
     throw new Error("Human response changed unrelated Task body content");
   /** Result of `taskPropertiesWithStatus`, retained for the verify task basis operation. */
-  const maskedProperties = taskPropertiesWithStatus(
-    task.properties,
-    baseline.waitingStatus,
+  const maskedProperties = normalizePropertyCollections(
+    taskPropertiesWithStatus(
+      withoutDerivedProperties(task.properties, derivedPropertyNames),
+      baseline.waitingStatus,
+    ),
   );
-  if (digestJson(maskedProperties) !== baseline.taskPropertiesDigest)
-    throw new Error("Human response changed unrelated Task properties");
+  /** Baseline properties after removing provider-derived projections from older records. */
+  const protectedBaseline = normalizePropertyCollections(
+    withoutDerivedProperties(baseline.taskProperties, derivedPropertyNames),
+  );
+  if (digestJson(maskedProperties) !== digestJson(protectedBaseline)) {
+    /** Property names that changed outside the designated human-response field. */
+    const changed = differingPropertyNames(
+      maskedProperties as JsonObject,
+      protectedBaseline as JsonObject,
+    );
+    throw new Error(
+      `Human response changed unrelated Task properties: ${changed.join(", ")}`,
+    );
+  }
+}
+
+/** Omits Task properties whose values are derived from authoritative state elsewhere. */
+function withoutDerivedProperties(
+  properties: JsonObject,
+  derivedPropertyNames: readonly string[],
+): JsonObject {
+  /** Derived-property names excluded from human-authored Task comparisons and writes. */
+  const excluded = new Set(derivedPropertyNames);
+  return Object.fromEntries(
+    Object.entries(properties).filter(([name]) => !excluded.has(name)),
+  );
+}
+
+/** Returns top-level Task property names whose normalized values differ. */
+function differingPropertyNames(
+  left: JsonObject,
+  right: JsonObject,
+): readonly string[] {
+  return [...new Set([...Object.keys(left), ...Object.keys(right)])]
+    .filter(
+      (name) =>
+        Object.hasOwn(left, name) !== Object.hasOwn(right, name) ||
+        canonicalize(left[name] ?? null) !== canonicalize(right[name] ?? null),
+    )
+    .sort();
 }
 
 /** Normalizes the value into its canonical boundary representation. */
