@@ -144,6 +144,10 @@ export function parseAgentResult(input: {
   readonly outputSchema: JsonObject;
   /** Provides raw to parse agent result. */
   readonly raw: string;
+  /** Ordered effect-intent subsequences required for selected outcomes. */
+  readonly requiredIntentSequenceByOutcome?: Readonly<
+    Record<string, readonly string[]>
+  >;
 }): AgentResult {
   /** Contains the parsed agent-result object under validation. */
   const value = objectValue(toJsonValue(JSON.parse(input.raw)), "Agent result");
@@ -202,6 +206,17 @@ export function parseAgentResult(input: {
     if (!allowed.has(intent.kind))
       throw new Error(`Agent result intent ${index} is not authorized`);
   }
+  /** Reads the ordered intent subsequence required by the selected outcome. */
+  const requiredSequence =
+    input.requiredIntentSequenceByOutcome?.[parsed.outcome] ?? [];
+  /** Tracks the next required intent kind while scanning proposed intents. */
+  let requiredIndex = 0;
+  for (const intent of parsed.proposedIntents)
+    if (intent.kind === requiredSequence[requiredIndex]) requiredIndex += 1;
+  if (requiredIndex !== requiredSequence.length)
+    throw new Error(
+      `Agent result outcome ${parsed.outcome} is missing its required ordered intent sequence`,
+    );
   return structuredClone(parsed);
 }
 

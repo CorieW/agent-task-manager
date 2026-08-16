@@ -37,6 +37,9 @@ const DEFINITION_KEYS = [
   "transitions",
 ] as const;
 
+/** Optional top-level fields supported by the definition manifest. */
+const OPTIONAL_DEFINITION_KEYS = ["requiredIntentSequenceByOutcome"] as const;
+
 /** Structured issue detected while validating definition validation. */
 export interface DefinitionValidationIssue {
   /** Code for definition validation issue. */
@@ -51,7 +54,13 @@ export interface DefinitionValidationIssue {
 export function parseAgentDefinitionManifest(
   value: JsonObject,
 ): AgentDefinition {
-  assertExactKeys(value, DEFINITION_KEYS, "Agent definition");
+  const schema = schemaValue(value.schema);
+  assertKeys(
+    value,
+    DEFINITION_KEYS,
+    OPTIONAL_DEFINITION_KEYS,
+    "Agent definition",
+  );
   /** Definition used during parse agent definition manifest. */
   const definition: AgentDefinition = {
     allowedIntents: uniqueStrings(value.allowedIntents, "allowedIntents"),
@@ -95,10 +104,21 @@ export function parseAgentDefinitionManifest(
       value.requiredProviderCapabilities,
       "requiredProviderCapabilities",
     ),
+    ...(value.requiredIntentSequenceByOutcome === undefined
+      ? {}
+      : {
+          requiredIntentSequenceByOutcome: stringArrayMap(
+            objectValue(
+              value.requiredIntentSequenceByOutcome,
+              "requiredIntentSequenceByOutcome",
+            ),
+            "requiredIntentSequenceByOutcome",
+          ),
+        }),
     retry: parseRetry(objectValue(value.retry, "retry")),
     revision: positiveInteger(value.revision, "revision"),
     runnerProfile: requiredString(value.runnerProfile, "runnerProfile"),
-    schema: schemaValue(value.schema),
+    schema,
     selection: parseSelection(objectValue(value.selection, "selection")),
     transitions: stringMap(
       objectValue(value.transitions, "transitions"),
@@ -248,6 +268,27 @@ export function validateAgentDefinition(
         ),
       );
   }
+  for (const [outcome, sequence] of Object.entries(
+    definition.requiredIntentSequenceByOutcome ?? {},
+  )) {
+    if (!Object.hasOwn(definition.transitions, outcome))
+      issues.push(
+        issue(
+          "required_intent_outcome_missing",
+          `Required intent sequence outcome ${outcome} has no transition`,
+          `requiredIntentSequenceByOutcome.${outcome}`,
+        ),
+      );
+    for (const intent of sequence)
+      if (!definition.allowedIntents.includes(intent))
+        issues.push(
+          issue(
+            "required_intent_not_allowed",
+            `Required intent ${intent} is not allowed`,
+            `requiredIntentSequenceByOutcome.${outcome}`,
+          ),
+        );
+  }
   return issues;
 }
 
@@ -379,6 +420,22 @@ function assertExactKeys(
   if (Object.keys(value).sort().join("\0") !== [...expected].sort().join("\0"))
     throw new TypeError(`${label} has unexpected or missing fields`);
 }
+/** Rejects objects with missing required fields or unexpected fields. */
+function assertKeys(
+  value: JsonObject,
+  required: readonly string[],
+  optional: readonly string[],
+  label: string,
+): void {
+  const actual = new Set(Object.keys(value));
+  if (
+    required.some((key) => !actual.has(key)) ||
+    [...actual].some(
+      (key) => !required.includes(key) && !optional.includes(key),
+    )
+  )
+    throw new TypeError(`${label} has unexpected or missing fields`);
+}
 /** Requires an array of unique strings. */
 function uniqueStrings(
   value: JsonValue | undefined,
@@ -404,6 +461,23 @@ function stringMap(
     if (key === "" || typeof item !== "string" || item === "")
       throw new TypeError(`${label} must map non-empty strings`);
   return { ...value } as Readonly<Record<string, string>>;
+}
+/** Requires an object whose values are non-empty arrays of unique strings. */
+function stringArrayMap(
+  value: JsonObject,
+  label: string,
+): Readonly<Record<string, readonly string[]>> {
+  /** Collects validated intent sequences by outcome. */
+  const result: Record<string, readonly string[]> = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (key === "") throw new TypeError(`${label} contains an empty outcome`);
+    /** Validates one required ordered intent sequence. */
+    const sequence = uniqueStrings(item, `${label}.${key}`);
+    if (sequence.length === 0)
+      throw new TypeError(`${label}.${key} must not be empty`);
+    result[key] = sequence;
+  }
+  return result;
 }
 /** Requires a field value to be a non-array JSON object. */
 function objectValue(value: JsonValue | undefined, label: string): JsonObject {

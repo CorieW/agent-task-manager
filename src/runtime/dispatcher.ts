@@ -277,6 +277,12 @@ async function dispatchVerified(input: {
           context,
           outputSchema,
           raw: supervised.stdout,
+          ...(definition.requiredIntentSequenceByOutcome === undefined
+            ? {}
+            : {
+                requiredIntentSequenceByOutcome:
+                  definition.requiredIntentSequenceByOutcome,
+              }),
         });
         return {
           contextDigest: context.digest,

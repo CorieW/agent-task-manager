@@ -86,6 +86,27 @@ Browser and publication transports are deployment-supplied interfaces. They
 remain unavailable until the host registers drivers that enforce disposable
 browser isolation/origin bounds or exact draft publication targets.
 
+## Draft pull requests
+
+A successful Coder result for a repository change uses the ordered intent
+sequence `git.commit`, `git.push`, then `publication.draft_pr`. The manager must
+obtain a durable `applied` receipt for each effect before it routes the Task to
+review.
+
+The publication driver treats `publicationTarget`, `repositoryId`,
+`baseBranch`, and `headBranch` as the stable Draft PR identity. It creates a
+Draft PR when none exists and updates that same open Draft PR after later
+pushes; it must not create a second PR for the same identity. The body is
+refreshed after every pushed change and uses the project-standard sections
+`Why`, `Changes`, `Testing`, `Risks`, `Evidence`, and `Links`. The conventional
+title describes the primary change and is updated only when that primary scope
+changes.
+
+The driver must preserve draft state and human review state. It fails closed
+if the matching PR is closed, merged, no longer a draft, points at an
+unexpected head, or cannot be reconciled without overwriting human-controlled
+state. Coder never merges, marks ready, approves, or closes the PR.
+
 ## Closed payloads
 
 | Kind                   | Required fields                                                                                                                                                        |

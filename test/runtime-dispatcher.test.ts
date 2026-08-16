@@ -115,6 +115,40 @@ test("dispatches only from a live assignment through environment-bound adapters"
   assert.deepEqual(prepared.provider.errors, []);
 });
 
+test("rejects an outcome that omits its required ordered intent sequence", async () => {
+  const definition: AgentDefinition = {
+    ...agentDefinition(),
+    requiredIntentSequenceByOutcome: {
+      succeeded: ["task.note"],
+    },
+    schema: "agent-definition-v1",
+  };
+  const prepared = await preparedDispatch("run-required-intent", definition);
+  const runner = resultRunner(({ context }) =>
+    finalizeAgentResult({
+      contextDigest: context.digest,
+      definitionDigest: context.definitionDigest,
+      outcome: "succeeded",
+      payload: { summary: "checked" },
+      proposedIntents: [],
+      runId: context.runId,
+      schema: "agent-result-v1",
+    }),
+  );
+
+  await assert.rejects(
+    dispatchActivatedAgent({
+      activated: prepared.activated,
+      activationRuntime,
+      additionalInput: {},
+      promotion: prepared.promotion,
+      provider: prepared.provider,
+      runtime: runtimeEnvironment(runner),
+    }),
+    /missing its required ordered intent sequence/u,
+  );
+});
+
 test("rejects fabricated isolation receipts and closes prepared sessions", async () => {
   /** Defines the prepared fixture for “rejects fabricated isolation receipts and closes prepared sessions”. */
   const prepared = await preparedDispatch("run-bad-receipt");

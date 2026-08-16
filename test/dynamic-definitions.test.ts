@@ -54,6 +54,42 @@ test("parses a complete role contract and rejects semantic capability conflicts"
   );
 });
 
+test("parses optional outcome-specific required intent sequences", () => {
+  const parsed = parseAgentDefinitionManifest({
+    ...manifest(),
+    requiredIntentSequenceByOutcome: {
+      succeeded: ["task.status.transition"],
+    },
+    schema: "agent-definition-v1",
+  });
+  assert.deepEqual(parsed.requiredIntentSequenceByOutcome, {
+    succeeded: ["task.status.transition"],
+  });
+
+  assert.throws(
+    () =>
+      parseAgentDefinitionManifest({
+        ...manifest(),
+        requiredIntentSequenceByOutcome: {
+          succeeded: ["publication.draft_pr"],
+        },
+        schema: "agent-definition-v1",
+      }),
+    /Required intent publication\.draft_pr is not allowed/u,
+  );
+  assert.throws(
+    () =>
+      parseAgentDefinitionManifest({
+        ...manifest(),
+        requiredIntentSequenceByOutcome: {
+          unknown: ["task.status.transition"],
+        },
+        schema: "agent-definition-v1",
+      }),
+    /Required intent sequence outcome unknown has no transition/u,
+  );
+});
+
 test("resolves an active immutable Resource graph and closed output schemas", async () => {
   /** Defines the provider fixture for “resolves an active immutable Resource graph and closed output schemas”. */
   const provider = new InMemoryProvider(environment, target);

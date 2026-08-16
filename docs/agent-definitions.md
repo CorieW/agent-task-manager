@@ -67,6 +67,30 @@ Transitions contain provider-defined Task statuses or `$current`.
 resolution slot before transition. The manager never infers this authority
 from a role or status name.
 
+The optional `requiredIntentSequenceByOutcome` field binds selected outcomes
+to ordered intent subsequences. Each key must name a declared transition
+outcome, and every listed intent must also appear in `allowedIntents`. A result
+for that outcome is invalid unless its proposed intents contain the configured
+sequence in order. Other authorized intents may appear before, between, or
+after the required intents.
+
+For example, a Coder that must publish every successful repository change can
+declare:
+
+```json
+{
+  "schema": "agent-definition-v1",
+  "requiredIntentSequenceByOutcome": {
+    "succeeded": ["git.commit", "git.push", "publication.draft_pr"]
+  }
+}
+```
+
+The host executes the proposed effects in order and may route the successful
+outcome only after every required effect has a durable `applied` receipt. A
+failed or indeterminate commit, push, or publication leaves the Task in its
+current state and enters the configured recovery path.
+
 Provider capability requirements use exact `ProviderCapabilities` property
 names. A bare name, such as `stableRecordIds`, requires that boolean
 capability to be `true`. A `name=value` requirement performs exact string

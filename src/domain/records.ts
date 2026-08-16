@@ -109,6 +109,10 @@ export interface AgentDefinition {
   readonly reasoning: string;
   /** Provider capabilities required to activate the definition. */
   readonly requiredProviderCapabilities: readonly string[];
+  /** Ordered effect-intent subsequences required for selected outcomes. */
+  readonly requiredIntentSequenceByOutcome?: Readonly<
+    Record<string, readonly string[]>
+  >;
   /** Revision for agent definition. */
   readonly revision: number;
   /** Retry for agent definition. */

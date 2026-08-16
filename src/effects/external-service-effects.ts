@@ -183,7 +183,7 @@ export interface DraftPublicationTarget {
 }
 /** Defines the data and behavior required by draft publication driver. */
 export interface DraftPublicationDriver {
-  /** Applies the configured provider mutation. */
+  /** Creates or refreshes the one authorized Draft PR without changing its draft state. */
   apply(input: {
     /** Provides control to draft publication driver. */
     readonly control: ExternalEffectControl;
@@ -194,7 +194,7 @@ export interface DraftPublicationDriver {
     /** Provides target to draft publication driver. */
     readonly target: DraftPublicationTarget;
   }): Promise<ExternalEffectObservation>;
-  /** Reconciles previously observed provider mutation state. */
+  /** Reconciles the stable target/repository/base/head Draft PR identity. */
   reconcile(input: {
     /** Provides control to draft publication driver. */
     readonly control: ExternalEffectControl;
