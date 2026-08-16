@@ -5,6 +5,9 @@ workflow and agent behavior.
 
 ## Guides
 
+- [External harness workflow](external-harness.md) — candidate discovery,
+  assignment preparation, external execution, and validated completion.
+
 - [Getting started and CLI](getting-started.md) — installation, Notion
   onboarding, workspace planning, inspection, and reconciliation commands.
 - [Notion provider](notion-provider.md) — managed tables, page ranges, activity

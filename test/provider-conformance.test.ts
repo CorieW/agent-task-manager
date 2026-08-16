@@ -648,7 +648,35 @@ test("CLI help lists only implemented commands", () => {
   assert.match(result.stdout, /validate/);
   assert.match(result.stdout, /init --plan/);
   assert.match(result.stdout, /migrate --plan/);
+  assert.match(result.stdout, /candidates --agent/);
+  assert.match(result.stdout, /assignment prepare/);
+  assert.match(result.stdout, /assignment complete/);
+  assert.match(result.stdout, /without invoking a model/);
   assert.doesNotMatch(result.stdout, /start|dispatch|tasks eligible/);
+});
+
+test("CLI validates assignment arguments before reading configuration", () => {
+  /** Resolves the built CLI entry point invoked by the argument-order test. */
+  const cli = fileURLToPath(new URL("../src/cli.js", import.meta.url));
+  /** Missing-Agent invocation paired with a deliberately absent config path. */
+  const result = spawnSync(
+    process.execPath,
+    [
+      cli,
+      "assignment",
+      "prepare",
+      "--operation-key",
+      "stable",
+      "--task",
+      "task-1",
+      "--config",
+      "missing-environment.json",
+    ],
+    { encoding: "utf8" },
+  );
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /--agent requires a value/u);
+  assert.doesNotMatch(result.stderr, /ENOENT|missing-environment/u);
 });
 
 test("serialized provider emulator rejects lossy non-JSON values", async () => {

@@ -35,7 +35,7 @@ export class ProviderEffectJournal {
     validateIntent(record);
     /** Result of `canonicalize`, retained for the write operation. */
     const body = canonicalize(toJsonValue(record));
-    await this.provider.putResource({
+    await this.provider.putSystemResource({
       body,
       dependencies: [],
       digest: sha256(body),

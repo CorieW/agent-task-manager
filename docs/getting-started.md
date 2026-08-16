@@ -65,6 +65,9 @@ node dist/src/cli.js migrate --apply --expected-plan-digest <sha256> [--write-en
 node dist/src/cli.js inspect --task <task-id> --json [--config <path>]
 node dist/src/cli.js inspect --agent <definition-id> --json [--config <path>]
 node dist/src/cli.js inspect --lease <lease-id> --json [--config <path>]
+node dist/src/cli.js candidates --agent <definition-id> --json [--config <path>]
+node dist/src/cli.js assignment prepare --agent <definition-id> --task <task-id> --operation-key <stable-key> --json [--config <path>]
+node dist/src/cli.js assignment complete --operation-key <stable-key> --completion <json-path|-> --json [--config <path>]
 node dist/src/cli.js reconcile activity --agent <definition-id> --json [--config <path>]
 node dist/src/cli.js reconcile human --task <task-id> --slot <sha256> --json [--config <path>]
 node dist/src/cli.js reconcile lease --lease <lease-id> --owner <owner-id> --expected-version <sha256> --json [--config <path>]
@@ -87,9 +90,17 @@ repair:
 - human reconciliation consumes one already-completed slot; and
 - lease reconciliation releases one exact lease/owner/version tuple.
 
-These commands do not discover work or dispatch an agent. Recovery CLI
-commands support Notion environments; other providers use the provider-neutral
-library APIs until CLI provider-registry wiring is added.
+`candidates` is a read-only provider-defined Task selection snapshot.
+`assignment prepare` acquires the exact Task and Agent leases and returns an
+immutable, digest-bound context. A ChatGPT Scheduled Task or another external
+harness performs the role, creates child agents when needed, and executes any
+approved external effects. `assignment complete` validates the harness result
+and ordered effect attestations, applies the provider-defined outcome, and
+releases the leases. The CLI never calls a model endpoint.
+
+Operational CLI commands currently support Notion environments. Provider-neutral
+library APIs remain available for other provider integrations. See the
+[external harness workflow](external-harness.md) for the complete handshake.
 
 Inspect a lease before releasing it. A concurrent renewal changes its opaque
 version and makes the compare-and-set fail. Released snapshots remain

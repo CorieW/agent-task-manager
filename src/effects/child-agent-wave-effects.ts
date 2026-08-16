@@ -404,7 +404,7 @@ export class ProviderChildAgentWaveEffects implements ReconcilableEffectAdapter<
       key: context.key,
       version: context.version,
     };
-    await this.provider.putResource({
+    await this.provider.putSystemResource({
       body,
       dependencies: [dependency],
       digest: sha256(body),

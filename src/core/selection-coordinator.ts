@@ -845,7 +845,7 @@ async function writeAssignmentIntent(
     state: "active",
     version: "v1",
   };
-  await provider.putResource(record);
+  await provider.putSystemResource(record);
 }
 
 /** Atomically reserves one assignment slot in the run's durable budget. */
@@ -890,7 +890,7 @@ async function reserveAssignmentBudget(
     schema: "assignment-budget-v1",
     agentId: definition.id,
   });
-  await provider.putResource({
+  await provider.putSystemResource({
     body,
     dependencies: [],
     digest: sha256(body),

@@ -43,6 +43,7 @@ export * from "./human/inspection.js";
 export * from "./human/outcome-transition-broker.js";
 export * from "./human/review-cycle-guard.js";
 export * from "./human/test-cycle-guard.js";
+export * from "./harness/assignment-session.js";
 export * from "./provider/agent-task-provider.js";
 export * from "./provider/in-memory-provider.js";
 export * from "./provider/serialized-provider-emulator.js";

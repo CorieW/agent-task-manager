@@ -232,6 +232,15 @@ export class SerializedProviderEmulator implements SeedableAgentTaskProvider {
     return crossBoundary(await this.backing.putResource(crossBoundary(record)));
   }
 
+  /** Persists a manager-owned Resource across the serialization boundary. */
+  public async putSystemResource(
+    record: ResourceMutation,
+  ): Promise<WriteReceipt> {
+    return crossBoundary(
+      await this.backing.putSystemResource(crossBoundary(record)),
+    );
+  }
+
   /** Acquires lease. */
   public async acquireLease(request: LeaseRequest): Promise<LeaseResult> {
     return crossBoundary(

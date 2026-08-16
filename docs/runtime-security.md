@@ -1,5 +1,10 @@
 # Runtime security
 
+The packaged CLI uses the external-harness workflow and never calls a model
+endpoint. The runtime interfaces below are optional library integration points,
+not CLI configuration requirements. A ChatGPT Scheduled Task or comparable
+harness owns model interaction and calls the CLI for bounded provider access.
+
 ## Environment boundary
 
 Runtime fields are mandatory before dispatch. `agentRunner`, `modelTransport`,

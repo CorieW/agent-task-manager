@@ -165,6 +165,45 @@ test("rejects an invalid Resource before persisting its intent", async () => {
   );
 });
 
+test("reserves system Resources for manager-owned writes", async () => {
+  /** Simulated Notion transport that records Resource pages. */
+  const transport = new ResourceTransport();
+  /** Provider exposing separate caller and manager Resource boundaries. */
+  const provider = new NotionProvider({
+    environment: notionEnvironment(),
+    environmentId: `system-resource-${randomUUID()}`,
+    transport,
+  });
+  /** Manager-owned assignment progress persisted through the reserved path. */
+  const body = '{"schema":"assignment-intent-v1"}';
+  /** Canonical system Resource mutation used by both boundary assertions. */
+  const record: ResourceMutation = {
+    body,
+    dependencies: [],
+    digest: sha256(body),
+    idempotencyKey: "system-resource-write",
+    key: "system/assignment-test",
+    kind: "system/assignment-intent",
+    state: "active",
+    version: "v1",
+  };
+
+  await assert.rejects(
+    provider.putResource(record),
+    /reserved by Agent Task Manager/u,
+  );
+  await provider.putSystemResource(record);
+  assert.deepEqual(await provider.getOptionalResource(record.key), {
+    body,
+    dependencies: [],
+    digest: record.digest,
+    key: record.key,
+    kind: record.kind,
+    state: record.state,
+    version: record.version,
+  });
+});
+
 test("does not strand stale lease release preconditions in a pending intent", async () => {
   /** Tracks the mutable simulated clock or current record state. */
   let current = Date.parse("2026-01-01T00:00:00.000Z");

@@ -318,6 +318,20 @@ export class NotionProvider implements AgentTaskProvider {
       throw new Error(
         "system/ Resource keys are reserved by Agent Task Manager",
       );
+    return this.writeResource(record);
+  }
+
+  /** Persists a manager-owned Resource while preserving the public reservation. */
+  public async putSystemResource(
+    record: ResourceMutation,
+  ): Promise<WriteReceipt> {
+    if (!record.key.startsWith("system/") || !record.kind.startsWith("system/"))
+      throw new Error("Manager-owned Resources require system/ key and kind");
+    return this.writeResource(record);
+  }
+
+  /** Canonicalizes and durably creates or replaces one accepted Resource. */
+  private async writeResource(record: ResourceMutation): Promise<WriteReceipt> {
     /** Canonical mutation bound to the durable intent and physical page write. */
     const prepared = prepareNotionResource(record);
     return this.executeRepairableReceiptIntent(

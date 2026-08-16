@@ -86,10 +86,10 @@ declare:
 }
 ```
 
-The host executes the proposed effects in order and may route the successful
-outcome only after every required effect has a durable `applied` receipt. A
-failed or indeterminate commit, push, or publication leaves the Task in its
-current state and enters the configured recovery path.
+The external harness executes proposed effects in order and submits one
+`applied` attestation for each effect before asking the CLI to route the
+outcome. A missing or out-of-order commit, push, or publication attestation
+leaves the Task in its current state.
 
 Provider capability requirements use exact `ProviderCapabilities` property
 names. A bare name, such as `stableRecordIds`, requires that boolean

@@ -32,6 +32,19 @@ helpers, and trial contracts.
 - `NoToolModelTransportAdapter`, `NoToolIsolationAdapter`, and
   `NoToolAgentRunnerAdapter`
 
+These runtime abstractions remain available to library hosts, but the packaged
+CLI does not construct a model client or require a model endpoint.
+
+## External harness
+
+- `prepareHarnessSelection` for a read-only provider-defined candidate basis
+- `prepareHarnessAssignment` for leases and immutable role context
+- `parseHarnessAssignmentCompletion` for the closed completion envelope
+- `completeHarnessAssignment` for result validation, outcome routing, cleanup,
+  and terminal replay
+- `HarnessRunContext`, `HarnessAssignment`, `HarnessAgentResultSubmission`,
+  `HarnessEffectAttestation`, and `HarnessAssignmentReport`
+
 ## External effects
 
 - `ExternalEffectBroker`, `ProviderEffectJournal`, and

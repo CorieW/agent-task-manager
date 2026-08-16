@@ -848,6 +848,13 @@ export class InMemoryProvider implements AgentTaskProvider {
     return clone(receipt);
   }
 
+  /** Persists a manager-owned Resource through the same in-memory boundary. */
+  public async putSystemResource(
+    record: ResourceMutation,
+  ): Promise<WriteReceipt> {
+    return this.putResource(record);
+  }
+
   /** Acquires lease. */
   public async acquireLease(request: LeaseRequest): Promise<LeaseResult> {
     /** Result of `this.lookupIdempotent`, retained for `acquireLease`. */
@@ -988,6 +995,7 @@ export class InMemoryProvider implements AgentTaskProvider {
       error,
     );
     if (prior !== undefined) return prior;
+    /** Provider-owned Error content without the mutation-only idempotency key. */
     const { idempotencyKey: _idempotencyKey, ...stored } = error;
     this.#errors.set(error.errorKey, clone(stored));
     /** Result of `this.nextEntityVersion`, retained for `createOrUpdateError`. */

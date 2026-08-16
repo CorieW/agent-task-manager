@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-/** Implements the command-line boundary for workspace validation, schema changes, inspection, and explicit recovery. */
+/** Implements the bounded CLI for workspace management, external harness assignments, inspection, and recovery. */
 import { randomUUID } from "node:crypto";
 import { readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
@@ -15,6 +15,12 @@ import { sha256 } from "./core/digest.js";
 import { assertAuthorizedPlan } from "./core/migration-plan.js";
 import { toJsonValue, type JsonObject, type JsonValue } from "./domain/json.js";
 import type { TableKind } from "./domain/provider.js";
+import {
+  completeHarnessAssignment,
+  parseHarnessAssignmentCompletion,
+  prepareHarnessAssignment,
+  prepareHarnessSelection,
+} from "./harness/assignment-session.js";
 import {
   inspectHumanRecovery,
   inspectLease,
@@ -37,6 +43,9 @@ Usage:
   agent-task-manager migrate --plan [--json] [--config <path>]
   agent-task-manager migrate --apply --expected-plan-digest <sha256> [--write-environment] [--config <path>]
   agent-task-manager inspect (--task <task-id> | --agent <definition-id> | --lease <lease-id>) [--json] [--config <path>]
+  agent-task-manager candidates --agent <definition-id> [--json] [--config <path>]
+  agent-task-manager assignment prepare --agent <definition-id> --task <task-id> --operation-key <stable-key> [--expires-at <iso-timestamp>] [--depth <integer>] [--input <json-path>] [--json] [--config <path>]
+  agent-task-manager assignment complete --operation-key <stable-key> --completion <json-path|-> [--json] [--config <path>]
   agent-task-manager reconcile activity --agent <definition-id> [--json] [--config <path>]
   agent-task-manager reconcile human --task <task-id> --slot <sha256> [--json] [--config <path>]
   agent-task-manager reconcile lease --lease <lease-id> --owner <owner-id> --expected-version <sha256> [--json] [--config <path>]
@@ -45,6 +54,9 @@ Usage:
 Planning and validation are read-only. Schema apply is human-only and requires
 the exact digest of a freshly recomputed plan. Inspect is read-only; reconcile
 performs only the explicitly named recovery operation.
+Candidates is a read-only provider-defined selection snapshot. Assignment
+prepare emits immutable context for an external harness; assignment complete
+validates the returned result and attestations without invoking a model.
 `;
 
 /** Returns the configured environment path or its conventional default. */
@@ -76,6 +88,14 @@ function option(args: readonly string[], name: string): string {
   if (value === undefined || value.startsWith("--"))
     throw new Error(`${name} requires a value`);
   return value;
+}
+
+/** Returns the value following an optional named command-line option. */
+function optionalOption(
+  args: readonly string[],
+  name: string,
+): string | undefined {
+  return args.includes(name) ? option(args, name) : undefined;
 }
 
 /** Creates the configured Notion provider using its environment token. */
@@ -116,6 +136,27 @@ export async function main(
   if (command === "providers") {
     process.stdout.write("memory\nnotion\n");
     return 0;
+  }
+
+  if (command === "candidates") {
+    /** Agent whose provider-defined Task query bounds the candidate set. */
+    const agentId = option(args, "--agent");
+    /** Environment and provider loaded only after argument validation. */
+    const config = await loadConfig(configPath(args));
+    /** Ready Notion boundary used for the candidate snapshot. */
+    const provider = await readyNotionProvider(config);
+    /** Immutable candidate basis returned to the external Task Master harness. */
+    const preparation = await prepareHarnessSelection(provider, agentId);
+    writeCommandOutput(
+      preparation,
+      args.includes("--json"),
+      `Prepared ${preparation.selection.candidateSet.summaries.length} candidate(s) for ${agentId}.`,
+    );
+    return 0;
+  }
+
+  if (command === "assignment") {
+    return assignmentCommand(args);
   }
 
   if (command === "validate") {
@@ -342,6 +383,142 @@ export async function main(
 
   process.stderr.write(`Command is not implemented yet: ${command}\n`);
   return 2;
+}
+
+/** Executes the external-harness assignment handshake. */
+async function assignmentCommand(args: readonly string[]): Promise<number> {
+  /** Assignment phase selected by the external harness. */
+  const action = args[1];
+  if (action !== "prepare" && action !== "complete")
+    throw new Error("assignment requires prepare or complete");
+  /** Stable logical key shared by preparation and completion. */
+  const operationKey = option(args, "--operation-key");
+
+  if (action === "prepare") {
+    /** Agent and Task selected by the external Task Master harness. */
+    const agentId = option(args, "--agent");
+    /** Exact eligible Task selected by the external Task Master harness. */
+    const taskId = option(args, "--task");
+    /** Canonical lease expiry supplied explicitly or bounded to two hours. */
+    const expiresAt =
+      optionalOption(args, "--expires-at") ??
+      new Date(Date.now() + 2 * 60 * 60 * 1_000).toISOString();
+    assertCanonicalFutureTimestamp(expiresAt, "--expires-at");
+    /** Assignment depth propagated by a parent harness, or zero at the root. */
+    const depth = Number(optionalOption(args, "--depth") ?? "0");
+    if (!Number.isSafeInteger(depth) || depth < 0)
+      throw new TypeError("--depth must be a non-negative integer");
+    /** Optional trusted input loaded before provider mutation. */
+    const inputPath = optionalOption(args, "--input");
+    /** Closed JSON input included in the immutable Agent context. */
+    const input =
+      inputPath === undefined
+        ? {}
+        : jsonObject(await readJson(inputPath), "assignment input");
+    /** Environment and ready provider loaded after all local input validation. */
+    const config = await loadConfig(configPath(args));
+    /** Validated Notion boundary that owns the assignment lifecycle. */
+    const provider = await readyNotionProvider(config);
+    /** Prepared assignment or terminal replay returned to the harness. */
+    const preparation = await prepareHarnessAssignment({
+      agentId,
+      assignmentDepth: depth,
+      environmentId: config.environmentId,
+      expiresAt,
+      input,
+      operationKey,
+      provider,
+      taskId,
+    });
+    writeCommandOutput(
+      preparation,
+      args.includes("--json"),
+      preparation.state === "prepared"
+        ? `Prepared ${agentId} assignment for Task ${taskId}.`
+        : `Assignment ${operationKey} is already complete.`,
+    );
+    return 0;
+  }
+
+  /** Completion envelope produced after the external harness runs the role. */
+  const completion = parseHarnessAssignmentCompletion(
+    await readJson(option(args, "--completion")),
+  );
+  /** Environment and ready provider loaded after completion validation. */
+  const config = await loadConfig(configPath(args));
+  /** Validated Notion boundary that owns the prepared assignment. */
+  const provider = await readyNotionProvider(config);
+  /** Terminal provider report after outcome routing and lease cleanup. */
+  const report = await completeHarnessAssignment({
+    completion,
+    environmentId: config.environmentId,
+    operationKey,
+    provider,
+  });
+  writeCommandOutput(
+    report,
+    args.includes("--json"),
+    `Completed ${report.agentId} outcome ${report.outcome} for Task ${report.taskId}.`,
+  );
+  return 0;
+}
+
+/** Validates the configured Notion workspace before an operational command. */
+async function readyNotionProvider(
+  config: EnvironmentConfig,
+): Promise<NotionProvider> {
+  /** Configured provider initialized without model or harness credentials. */
+  const provider = notionProvider(config);
+  /** Live provider identity and access validation result. */
+  const environment = await provider.validateEnvironment(config.provider);
+  if (!environment.valid)
+    throw new Error(
+      environment.issues
+        .map((issue) => `${issue.path}: ${issue.message}`)
+        .join("\n"),
+    );
+  /** Required managed-table schema validation result. */
+  const tables = await provider.validateTables();
+  if (tables.state !== "ready")
+    throw new Error(`Workspace is not ready: ${tables.state}`);
+  return provider;
+}
+
+/** Reads one JSON value from a file, or standard input when the path is `-`. */
+async function readJson(path: string): Promise<JsonValue> {
+  /** Complete serialized value collected from the selected local input. */
+  let raw: string;
+  if (path === "-") {
+    raw = "";
+    process.stdin.setEncoding("utf8");
+    for await (const chunk of process.stdin) raw += chunk;
+  } else {
+    raw = await readFile(path, "utf8");
+  }
+  return JSON.parse(raw) as JsonValue;
+}
+
+/** Writes canonical JSON or a concise human-readable command summary. */
+function writeCommandOutput(
+  value: unknown,
+  json: boolean,
+  summary: string,
+): void {
+  process.stdout.write(
+    `${json ? canonicalize(toJsonValue(value)) : summary}\n`,
+  );
+}
+
+/** Rejects noncanonical or expired timestamps before provider access. */
+function assertCanonicalFutureTimestamp(value: string, label: string): void {
+  /** Parsed timestamp used for canonical-form and future-bound checks. */
+  const milliseconds = Date.parse(value);
+  if (
+    !Number.isFinite(milliseconds) ||
+    new Date(milliseconds).toISOString() !== value ||
+    milliseconds <= Date.now()
+  )
+    throw new TypeError(`${label} must be a canonical future UTC timestamp`);
 }
 
 /** Atomically writes provider table IDs into an unchanged environment file. */

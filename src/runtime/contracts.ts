@@ -124,6 +124,16 @@ export interface AgentResult extends AgentResultCore {
   readonly digest: string;
 }
 
+/** Immutable context identity required to validate an Agent result. */
+export interface AgentResultContextBinding {
+  /** SHA-256 digest of the immutable context supplied to the Agent. */
+  readonly digest: string;
+  /** SHA-256 digest of the resolved Agent definition and Resource graph. */
+  readonly definitionDigest: string;
+  /** Stable run identity copied into the Agent result. */
+  readonly runId: string;
+}
+
 /** Finalizes run context with its canonical digest and fields. */
 export function finalizeRunContext(core: RunContextCore): RunContext {
   return { ...structuredClone(core), digest: digestJson(toJsonValue(core)) };
@@ -140,8 +150,8 @@ export function parseAgentResult(input: {
   readonly allowedIntents: readonly string[];
   /** Ordered outcomes allowed by the active definition. */
   readonly allowedOutcomes: readonly string[];
-  /** Context dependency consumed by parse agent result. */
-  readonly context: RunContext;
+  /** Immutable context identity consumed by Agent-result validation. */
+  readonly context: AgentResultContextBinding;
   /** Version tag for the parse agent result representation. */
   readonly outputSchema: JsonObject;
   /** Ordered raw accepted by parse agent result. */

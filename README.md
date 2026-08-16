@@ -1,8 +1,9 @@
 # Agent Task Manager
 
-Provider-neutral infrastructure for task-driven AI agents. Deterministic
-code owns provider access, leases, validation, side effects, and recovery;
-agents receive bounded context and return typed proposals.
+Provider-neutral infrastructure for task-driven AI agents. An external harness,
+such as a ChatGPT Scheduled Task, owns model interaction and child-agent
+creation. The CLI narrows its provider access to selection, leases, immutable
+context, validated completion, and recovery.
 
 Authoritative workflow data is restricted to four provider table types:
 Tasks, Agents, Errors, and Resources. Configuration describes only the
@@ -26,6 +27,7 @@ node dist/src/cli.js --help
 ## Documentation
 
 - [Getting started and CLI](docs/getting-started.md)
+- [External harness workflow](docs/external-harness.md)
 - [Notion provider](docs/notion-provider.md)
 - [Agent definitions](docs/agent-definitions.md)
 - [Runtime security](docs/runtime-security.md)

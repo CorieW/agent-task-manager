@@ -98,6 +98,8 @@ export interface AgentTaskProvider {
   getOptionalResource(key: string): Promise<ResourceRecord | null>;
   /** Persists resource. */
   putResource(record: ResourceMutation): Promise<WriteReceipt>;
+  /** Persists a manager-owned Resource whose key is reserved from callers. */
+  putSystemResource(record: ResourceMutation): Promise<WriteReceipt>;
 
   /** Acquires lease. */
   acquireLease(request: LeaseRequest): Promise<LeaseResult>;
