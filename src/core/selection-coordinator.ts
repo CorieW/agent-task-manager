@@ -456,6 +456,7 @@ export async function promoteExplicitAssignment(input: {
   /** Activated loaded during promote explicit assignment. */
   const activated = await activateDefinitions({
     ...input.activationRuntime,
+    definitionIds: [input.resolvedTarget.definition.id],
     provider: input.provider,
   });
   /** Active target used during promote explicit assignment. */

@@ -68,6 +68,7 @@ node dist/src/cli.js inspect --lease <lease-id> --json [--config <path>]
 node dist/src/cli.js reconcile activity --agent <definition-id> --json [--config <path>]
 node dist/src/cli.js reconcile human --task <task-id> --slot <sha256> --json [--config <path>]
 node dist/src/cli.js reconcile lease --lease <lease-id> --owner <owner-id> --expected-version <sha256> --json [--config <path>]
+node dist/src/cli.js run --agent <definition-id> --task <task-id> --operation-key <stable-key> --host <module-path> --json [--config <path>]
 ```
 
 `providers` is configuration-free and prints the built-in provider types
@@ -87,9 +88,11 @@ repair:
 - human reconciliation consumes one already-completed slot; and
 - lease reconciliation releases one exact lease/owner/version tuple.
 
-These commands do not discover work or dispatch an agent. Recovery CLI
-commands support Notion environments; other providers use the provider-neutral
-library APIs until CLI provider-registry wiring is added.
+`run` dispatches one explicit assignment through a separately installed trusted
+host module. See [Execution hosts](execution-hosts.md) for the module contract,
+durable operation-key rules, and adapter requirements. Recovery CLI commands
+support Notion environments; other providers use the provider-neutral library
+APIs until CLI provider-registry wiring is added.
 
 Inspect a lease before releasing it. A concurrent renewal changes its opaque
 version and makes the compare-and-set fail. Released snapshots remain

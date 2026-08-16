@@ -24,6 +24,8 @@ export interface ActivatedDefinition {
 
 /** Validates and activates definitions that the current runtime can execute. */
 export async function activateDefinitions(input: {
+  /** Optional exact definition IDs to activate after validating the complete set. */
+  readonly definitionIds?: readonly string[];
   /** Installed capabilities included in activate definitions input. */
   readonly installedCapabilities: readonly string[];
   /** Installed intents included in activate definitions input. */
@@ -49,8 +51,23 @@ export async function activateDefinitions(input: {
   const statuses = new Set(await input.provider.listTaskStatusOptions());
   /** Activated used during activate definitions. */
   const activated: ActivatedDefinition[] = [];
+  const requestedIds =
+    input.definitionIds === undefined ? null : new Set(input.definitionIds);
+  if (requestedIds !== null) {
+    if (requestedIds.size !== input.definitionIds?.length)
+      throw new Error("Definition activation IDs contain duplicates");
+    for (const id of requestedIds) {
+      const definition = definitions.find((candidate) => candidate.id === id);
+      if (definition === undefined)
+        throw new Error(`Agent definition is unavailable: ${id}`);
+      if (!definition.enabled)
+        throw new Error(`Agent definition is disabled: ${id}`);
+    }
+  }
   for (const definition of definitions.filter(
-    (candidate) => candidate.enabled,
+    (candidate) =>
+      candidate.enabled &&
+      (requestedIds === null || requestedIds.has(candidate.id)),
   )) {
     if (!input.installedRunnerProfiles.includes(definition.runnerProfile))
       throw new Error(

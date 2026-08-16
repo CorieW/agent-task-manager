@@ -15,6 +15,8 @@ import { sha256 } from "./core/digest.js";
 import { assertAuthorizedPlan } from "./core/migration-plan.js";
 import { toJsonValue, type JsonObject, type JsonValue } from "./domain/json.js";
 import type { TableKind } from "./domain/provider.js";
+import { runExplicitAgentTask } from "./host/execution-host.js";
+import { loadAgentExecutionHost } from "./host/host-module.js";
 import {
   inspectHumanRecovery,
   inspectLease,
@@ -40,11 +42,14 @@ Usage:
   agent-task-manager reconcile activity --agent <definition-id> [--json] [--config <path>]
   agent-task-manager reconcile human --task <task-id> --slot <sha256> [--json] [--config <path>]
   agent-task-manager reconcile lease --lease <lease-id> --owner <owner-id> --expected-version <sha256> [--json] [--config <path>]
+  agent-task-manager run --agent <definition-id> --task <task-id> --operation-key <stable-key> --host <module-path> [--expires-at <iso-timestamp>] [--json] [--config <path>]
   agent-task-manager providers
 
 Planning and validation are read-only. Schema apply is human-only and requires
 the exact digest of a freshly recomputed plan. Inspect is read-only; reconcile
 performs only the explicitly named recovery operation.
+Run loads only the explicitly named trusted local host module. The stable
+operation key is required so an interrupted invocation can be resumed safely.
 `;
 
 /** Returns the configured environment path or its conventional default. */
@@ -76,6 +81,15 @@ function option(args: readonly string[], name: string): string {
   if (value === undefined || value.startsWith("--"))
     throw new Error(`${name} requires a value`);
   return value;
+}
+
+/** Returns the value following an optional named command-line option. */
+function optionalOption(
+  args: readonly string[],
+  name: string,
+): string | undefined {
+  if (!args.includes(name)) return undefined;
+  return option(args, name);
 }
 
 /** Creates the configured Notion provider using its environment token. */
@@ -115,6 +129,58 @@ export async function main(
 
   if (command === "providers") {
     process.stdout.write("memory\nnotion\n");
+    return 0;
+  }
+
+  if (command === "run") {
+    /** Validated configuration for the execution host. */
+    const config = await loadConfig(configPath(args));
+    /** Notion provider used for the managed run. */
+    const provider = notionProvider(config);
+    /** Provider environment validation completed before host loading or mutation. */
+    const environment = await provider.validateEnvironment(config.provider);
+    if (!environment.valid)
+      throw new Error(
+        environment.issues
+          .map((issue) => `${issue.path}: ${issue.message}`)
+          .join("\n"),
+      );
+    /** Table validation completed before host loading or mutation. */
+    const tables = await provider.validateTables();
+    if (tables.state !== "ready")
+      throw new Error(`Workspace is not ready: ${tables.state}`);
+    /** Stable logical operation key required for replay. */
+    const operationKey = option(args, "--operation-key");
+    /** Explicitly authorized local host module path. */
+    const hostPath = option(args, "--host");
+    /** Assignment expiry supplied by the caller or bounded to two hours. */
+    const expiresAt =
+      optionalOption(args, "--expires-at") ??
+      new Date(Date.now() + 2 * 60 * 60 * 1_000).toISOString();
+    /** Validated trusted execution bindings loaded from the selected module. */
+    const bindings = await loadAgentExecutionHost(hostPath, {
+      config,
+      provider,
+    });
+    /** Terminal managed-run report. */
+    const report = await runExplicitAgentTask({
+      bindings,
+      request: {
+        agentId: option(args, "--agent"),
+        assignmentDepth: 0,
+        config,
+        expiresAt,
+        operationKey,
+        provider,
+        taskId: option(args, "--task"),
+      },
+    });
+    if (args.includes("--json"))
+      process.stdout.write(`${canonicalize(toJsonValue(report))}\n`);
+    else
+      process.stdout.write(
+        `Run ${report.runId} routed ${report.agentId} outcome ${report.outcome} for Task ${report.taskId}.\n`,
+      );
     return 0;
   }
 
