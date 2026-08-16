@@ -89,7 +89,7 @@ export function readTestCycleState(
   return testState(readCycleState(properties, sharedPolicy(policy)));
 }
 
-/** Records one distinct failed test result or rejects a looping test cycle. */
+/** Persists one distinct failed test result or rejects a looping test cycle. */
 export function advanceTestCycle(
   properties: JsonObject,
   failureKeys: readonly string[],

@@ -31,7 +31,7 @@ export const RESOURCE_KIND_OPTIONS: readonly string[] =
   Object.values(RESOURCE_KIND_LABELS);
 
 /** Maps Notion Resource-kind labels back to canonical values. */
-const RESOURCE_KINDS = reverse(RESOURCE_KIND_LABELS);
+const RESOURCE_KIND_BY_LABEL = invertLabelMap(RESOURCE_KIND_LABELS);
 
 /** Maps canonical Resource states to their Notion labels. */
 const RESOURCE_STATE_LABELS = {
@@ -46,7 +46,7 @@ export const RESOURCE_STATE_OPTIONS: readonly string[] = Object.values(
 );
 
 /** Maps Notion Resource-state labels back to canonical values. */
-const RESOURCE_STATES = reverse(RESOURCE_STATE_LABELS);
+const RESOURCE_STATE_BY_LABEL = invertLabelMap(RESOURCE_STATE_LABELS);
 
 /** Maps canonical Error severities to their Notion labels. */
 const ERROR_SEVERITY_LABELS = {
@@ -62,7 +62,7 @@ export const ERROR_SEVERITY_OPTIONS: readonly string[] = Object.values(
 );
 
 /** Maps Notion Error-severity labels back to canonical values. */
-const ERROR_SEVERITIES = reverse(ERROR_SEVERITY_LABELS);
+const ERROR_SEVERITY_BY_LABEL = invertLabelMap(ERROR_SEVERITY_LABELS);
 
 /** Encodes a canonical Resource kind for Notion. */
 export function encodeResourceKindOption(kind: string): string {
@@ -71,7 +71,7 @@ export function encodeResourceKindOption(kind: string): string {
 
 /** Decodes a Notion Resource-kind label. */
 export function decodeResourceKindOption(label: string): string {
-  return requiredMapping(RESOURCE_KINDS, label, "Resource Kind option");
+  return requiredMapping(RESOURCE_KIND_BY_LABEL, label, "Resource Kind option");
 }
 
 /** Encodes a canonical Resource state for Notion. */
@@ -86,7 +86,7 @@ export function decodeResourceStateOption(
   label: string,
 ): ResourceRecord["state"] {
   return requiredMapping(
-    RESOURCE_STATES,
+    RESOURCE_STATE_BY_LABEL,
     label,
     "Resource State option",
   ) as ResourceRecord["state"];
@@ -104,7 +104,7 @@ export function decodeErrorSeverityOption(
   label: string,
 ): ErrorMutation["severity"] {
   return requiredMapping(
-    ERROR_SEVERITIES,
+    ERROR_SEVERITY_BY_LABEL,
     label,
     "Error Severity option",
   ) as ErrorMutation["severity"];
@@ -128,8 +128,8 @@ export function encodeSelectFilter(
   return value;
 }
 
-/** Reverses a one-to-one string map. */
-function reverse(
+/** Inverts a one-to-one canonical-value-to-label map. */
+function invertLabelMap(
   values: Readonly<Record<string, string>>,
 ): Record<string, string> {
   return Object.fromEntries(
@@ -143,6 +143,7 @@ function requiredMapping(
   key: string,
   label: string,
 ): string {
+  /** Canonical value associated with the provider-facing option label. */
   const value = values[key];
   if (value === undefined) throw new TypeError(`${label} is invalid: ${key}`);
   return value;

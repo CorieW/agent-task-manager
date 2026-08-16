@@ -17,7 +17,7 @@ import {
   type WorkspaceSchemaDescriptor,
 } from "../src/index.js";
 
-/** Defines the shared environment fixture for this test module. */
+/** Supplies the provider environment shared by the scenarios. */
 const environment: ProviderEnvironment = {
   bootstrapParent: null,
   connection: {},
@@ -29,7 +29,8 @@ const environment: ProviderEnvironment = {
   },
   type: "memory",
 };
-/** Defines the shared target fixture for this test module. */
+
+/** Supplies the canonical workspace schema target. */
 const target: WorkspaceSchemaDescriptor = {
   digest: "target",
   providerType: "memory",
@@ -38,9 +39,9 @@ const target: WorkspaceSchemaDescriptor = {
 };
 
 test("requires and persists human recovery for an explicitly declared outcome", async () => {
-  /** Defines the provider fixture for “requires and persists human recovery for an explicitly declared outcome”. */
+  /** Provides isolated provider state for the scenario. */
   const provider = providerWithTask();
-  /** Defines the broker fixture for “requires and persists human recovery for an explicitly declared outcome”. */
+  /** Executes the durable effect workflow under test. */
   const broker = new OutcomeTransitionBroker(provider);
   await assert.rejects(
     broker.apply({
@@ -54,7 +55,7 @@ test("requires and persists human recovery for an explicitly declared outcome", 
   );
   assert.equal((await provider.getTaskSnapshot("task-1")).status, "Coding");
 
-  /** Defines the receipt fixture for “requires and persists human recovery for an explicitly declared outcome”. */
+  /** Captures the durable write or effect result used as the oracle. */
   const receipt = await broker.apply({
     resolution: {
       createdAt: "2026-08-15T10:00:00.000Z",
@@ -88,11 +89,11 @@ test("requires and persists human recovery for an explicitly declared outcome", 
 });
 
 test("routes ordinary outcomes without accepting human recovery payloads", async () => {
-  /** Defines the provider fixture for “routes ordinary outcomes without accepting human recovery payloads”. */
+  /** Provides isolated provider state for the scenario. */
   const provider = providerWithTask();
-  /** Defines the broker fixture for “routes ordinary outcomes without accepting human recovery payloads”. */
+  /** Executes the durable effect workflow under test. */
   const broker = new OutcomeTransitionBroker(provider);
-  /** Defines the receipt fixture for “routes ordinary outcomes without accepting human recovery payloads”. */
+  /** Captures the durable write or effect result used as the oracle. */
   const receipt = await broker.apply({
     definition: definition(),
     idempotencyKey: "success",
@@ -105,9 +106,9 @@ test("routes ordinary outcomes without accepting human recovery payloads", async
 });
 
 test("persists review-cycle state with a changes-requested transition", async () => {
-  /** Defines the provider fixture for the review-cycle transition. */
+  /** Starts with a Task eligible for a changes-requested review transition. */
   const provider = providerWithTask("Review");
-  /** Defines the broker fixture for the review-cycle transition. */
+  /** Applies review-cycle accounting with the default guard policy. */
   const broker = new OutcomeTransitionBroker(provider);
   await broker.apply({
     definition: reviewDefinition(),
@@ -138,10 +139,14 @@ test("persists review-cycle state with a changes-requested transition", async ()
 });
 
 test("replays a committed review transition after its response is lost", async () => {
+  /** Starts with a Task awaiting review. */
   const provider = providerWithTask("Review");
+  /** Retains the real mutation implementation beneath the fault injection. */
   const apply = provider.applyTaskMutation.bind(provider);
+  /** Limits the simulated response loss to the first committed write. */
   let loseResponse = true;
   provider.applyTaskMutation = async (mutation) => {
+    /** Commits the mutation before simulating transport failure. */
     const receipt = await apply(mutation);
     if (loseResponse) {
       loseResponse = false;
@@ -149,7 +154,9 @@ test("replays a committed review transition after its response is lost", async (
     }
     return receipt;
   };
+  /** Reconciles the logical transition across the lost response. */
   const broker = new OutcomeTransitionBroker(provider);
+  /** Pins the review transition payload reused by the retry. */
   const input = {
     definition: reviewDefinition(),
     idempotencyKey: "review-lost-response",
@@ -160,9 +167,11 @@ test("replays a committed review transition after its response is lost", async (
   };
 
   await assert.rejects(broker.apply(input), /simulated response loss/u);
+  /** Captures the retry result reconstructed from durable intent state. */
   const replay = await broker.apply(input);
 
   assert.equal(replay.targetStatus, "Coding");
+  /** Reads the Task to prove cycle counters advanced only once. */
   const task = await provider.getTaskSnapshot("task-1");
   assert.equal(task.properties[DEFAULT_REVIEW_CYCLE_POLICY.roundProperty], 1);
   assert.equal(
@@ -172,6 +181,7 @@ test("replays a committed review transition after its response is lost", async (
 });
 
 test("uses locale-independent ordering for remediation evidence", async () => {
+  /** Starts with an eligible Task and canonical status metadata. */
   const provider = providerWithTask("Review");
   await new OutcomeTransitionBroker(provider).apply({
     definition: reviewDefinition(),
@@ -182,6 +192,7 @@ test("uses locale-independent ordering for remediation evidence", async () => {
     taskId: "task-1",
   });
 
+  /** Reads the persisted evidence order for an ordinal comparison. */
   const task = await provider.getTaskSnapshot("task-1");
   assert.equal(
     task.properties[DEFAULT_REVIEW_CYCLE_POLICY.findingKeysProperty],
@@ -198,9 +209,9 @@ test("persists review-cycle state when the routed status is unchanged", async ()
       changes_requested: "Review",
     },
   };
-  /** Defines the provider fixture for an in-place review transition. */
+  /** Starts with a Task whose review outcome remains at the same status. */
   const provider = providerWithTask("Review");
-  /** Defines the broker fixture for an in-place review transition. */
+  /** Persists review evidence even when routing does not change status. */
   const broker = new OutcomeTransitionBroker(provider);
 
   await broker.apply({
@@ -223,9 +234,9 @@ test("blocks a repeated finding set before another coding round", async () => {
   const prior = advanceReviewCycle({ Status: "Review" }, [
     "branch:src/a.ts:race",
   ]).nextProperties;
-  /** Defines the provider fixture for repeated review findings. */
+  /** Starts with prior review evidence matching the next finding set. */
   const provider = providerWithTask("Review", prior);
-  /** Defines the broker fixture for repeated review findings. */
+  /** Applies the repeated-finding guard before another coding round. */
   const broker = new OutcomeTransitionBroker(provider);
 
   await assert.rejects(
@@ -274,9 +285,9 @@ test("blocks review cycles after three changes-requested rounds", async () => {
 });
 
 test("persists test-cycle state with a failed transition", async () => {
-  /** Defines the provider fixture for the failed test transition. */
+  /** Starts with a Task eligible to record a failed test round. */
   const provider = providerWithTask("In progress");
-  /** Defines the broker fixture for the failed test transition. */
+  /** Applies test-cycle accounting with the default guard policy. */
   const broker = new OutcomeTransitionBroker(provider);
 
   await broker.apply({
@@ -308,10 +319,14 @@ test("persists test-cycle state with a failed transition", async () => {
 });
 
 test("replays a committed test transition after its response is lost", async () => {
+  /** Starts with a Task whose test failure can route back to planning. */
   const provider = providerWithTask("In progress");
+  /** Retains the real mutation implementation beneath the fault injection. */
   const apply = provider.applyTaskMutation.bind(provider);
+  /** Limits the simulated response loss to the first committed write. */
   let loseResponse = true;
   provider.applyTaskMutation = async (mutation) => {
+    /** Commits the mutation before simulating transport failure. */
     const receipt = await apply(mutation);
     if (loseResponse) {
       loseResponse = false;
@@ -319,7 +334,9 @@ test("replays a committed test transition after its response is lost", async () 
     }
     return receipt;
   };
+  /** Reconciles the logical transition across the lost response. */
   const broker = new OutcomeTransitionBroker(provider);
+  /** Pins the test transition payload reused by the retry. */
   const input = {
     definition: testDefinition(),
     idempotencyKey: "test-lost-response",
@@ -330,9 +347,11 @@ test("replays a committed test transition after its response is lost", async () 
   };
 
   await assert.rejects(broker.apply(input), /simulated response loss/u);
+  /** Captures the retry result reconstructed from durable intent state. */
   const replay = await broker.apply(input);
 
   assert.equal(replay.targetStatus, "Planned");
+  /** Reads the Task to prove cycle counters advanced only once. */
   const task = await provider.getTaskSnapshot("task-1");
   assert.equal(task.properties[DEFAULT_TEST_CYCLE_POLICY.roundProperty], 1);
   assert.equal(
@@ -346,9 +365,9 @@ test("blocks a repeated test failure set before another coding round", async () 
   const prior = advanceTestCycle({ Status: "In progress" }, [
     "unit:src/a.test.ts:returns-wrong-value",
   ]).nextProperties;
-  /** Defines the provider fixture for repeated test failures. */
+  /** Starts with prior test evidence matching the next failure set. */
   const provider = providerWithTask("In progress", prior);
-  /** Defines the broker fixture for repeated test failures. */
+  /** Applies the repeated-failure guard before another coding round. */
   const broker = new OutcomeTransitionBroker(provider);
 
   await assert.rejects(
@@ -402,12 +421,12 @@ test("blocks test cycles after three failed rounds", async () => {
   );
 });
 
-/** Creates the provider with task test fixture. */
+/** Builds a provider containing one Task at the requested status. */
 function providerWithTask(
   status = "Coding",
   properties: JsonObject = {},
 ): InMemoryProvider {
-  /** Defines the provider fixture used by provider with task. */
+  /** Provides isolated provider state for the scenario. */
   const provider = new InMemoryProvider(environment, target);
   provider.seedTaskStatusOptions([
     "Coding",

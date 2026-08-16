@@ -65,6 +65,7 @@ export interface RuntimeEnvironmentConfig {
   /** Termination grace duration in milliseconds. */
   readonly terminationGraceMilliseconds: number;
 }
+
 /** Validated configuration for runtime ready environment. */
 export interface RuntimeReadyEnvironmentConfig extends EnvironmentConfig {
   /** Runtime adapter identifiers selected by the environment. */

@@ -1,4 +1,4 @@
-/** Defines the provider-owned minimum schema for a Notion workspace. */
+/** Provider-neutral the provider-owned minimum schema for a Notion workspace contract. */
 import { digestJson } from "../../core/digest.js";
 import { toJsonValue } from "../../domain/json.js";
 import type {
@@ -6,13 +6,14 @@ import type {
   WorkspaceSchemaDescriptor,
 } from "../../domain/schema.js";
 
-/** Defines the module-level `NOTION_TASK_MUTATION_PROPERTY` value. */
+/** Property storing the digest of the active Task body generation. */
 export const NOTION_TASK_MUTATION_PROPERTY = "Manager Mutation";
-/** Defines the module-level `NOTION_TASK_MUTATION_CAPTION_PREFIX` value. */
+
+/** Caption prefix marking manager-owned Task body generations. */
 export const NOTION_TASK_MUTATION_CAPTION_PREFIX =
   "agent-task-manager:task-mutation:";
 
-/** Defines the module-level `TABLES` value. */
+/** Provider table kinds stored in deterministic order. */
 const TABLES: readonly TableDescriptor[] = [
   {
     kind: "resources",
@@ -71,7 +72,7 @@ const TABLES: readonly TableDescriptor[] = [
 
 /** Creates Notion workspace schema. */
 export function createNotionWorkspaceSchema(): WorkspaceSchemaDescriptor {
-  /** Holds the `core` intermediate used by `createNotionWorkspaceSchema`. */
+  /** Core snapshot used consistently during `createNotionWorkspaceSchema`. */
   const core = {
     providerType: "notion",
     tables: TABLES,
@@ -80,7 +81,7 @@ export function createNotionWorkspaceSchema(): WorkspaceSchemaDescriptor {
   return { ...core, digest: digestJson(toJsonValue(core)) };
 }
 
-/** Defines one logical-to-physical Notion property mapping. */
+/** Provider-neutral one logical-to-physical Notion property mapping contract. */
 function property(
   logicalName: string,
   physicalName: string,

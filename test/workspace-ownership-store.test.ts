@@ -9,14 +9,15 @@ import {
   type WorkspaceSchemaDescriptor,
 } from "../src/index.js";
 
-/** Defines the shared environment fixture for this test module. */
+/** Supplies the provider environment shared by the scenarios. */
 const environment: ProviderEnvironment = {
   bootstrapParent: null,
   connection: {},
   tables: { errors: "e", resources: "r", agents: "a", tasks: "t" },
   type: "memory",
 };
-/** Defines the shared target fixture for this test module. */
+
+/** Supplies the canonical workspace schema target. */
 const target: WorkspaceSchemaDescriptor = {
   digest: "target",
   providerType: "memory",
@@ -25,13 +26,13 @@ const target: WorkspaceSchemaDescriptor = {
 };
 
 test("persists and verifies workspace ownership through provider Resources", async () => {
-  /** Defines the provider fixture for “persists and verifies workspace ownership through provider Resources”. */
+  /** Provides isolated provider state for the scenario. */
   const provider = new InMemoryProvider(environment, target);
-  /** Defines the store fixture for “persists and verifies workspace ownership through provider Resources”. */
+  /** Exercises provider-backed persistence for the scenario. */
   const store = new ProviderWorkspaceOwnershipStore(provider);
-  /** Defines the provision effect ID fixture for “persists and verifies workspace ownership through provider Resources”. */
+  /** Identifies the workspace-provisioning intent later released. */
   const provisionEffectId = "a".repeat(64);
-  /** Defines the claimed fixture for “persists and verifies workspace ownership through provider Resources”. */
+  /** Captures the ownership claim persisted by the store. */
   const claimed = await store.claim({
     mode: "worktree",
     provisionEffectId,
@@ -51,7 +52,7 @@ test("persists and verifies workspace ownership through provider Resources", asy
     }),
     /owned by another effect/,
   );
-  /** Defines the released fixture for “persists and verifies workspace ownership through provider Resources”. */
+  /** Captures ownership state after the release operation. */
   const released = await store.release({
     releaseEffectId: "c".repeat(64),
     repositoryId: "repo",

@@ -54,6 +54,7 @@ export interface DefinitionValidationIssue {
 export function parseAgentDefinitionManifest(
   value: JsonObject,
 ): AgentDefinition {
+  /** Validated manifest schema discriminator. */
   const schema = schemaValue(value.schema);
   assertKeys(
     value,
@@ -411,6 +412,7 @@ function issue(
 ): DefinitionValidationIssue {
   return { code, message, path };
 }
+
 /** Rejects objects with missing or unexpected fields. */
 function assertExactKeys(
   value: JsonObject,
@@ -420,6 +422,7 @@ function assertExactKeys(
   if (Object.keys(value).sort().join("\0") !== [...expected].sort().join("\0"))
     throw new TypeError(`${label} has unexpected or missing fields`);
 }
+
 /** Rejects objects with missing required fields or unexpected fields. */
 function assertKeys(
   value: JsonObject,
@@ -427,6 +430,7 @@ function assertKeys(
   optional: readonly string[],
   label: string,
 ): void {
+  /** Actual field names used to enforce required and optional key sets. */
   const actual = new Set(Object.keys(value));
   if (
     required.some((key) => !actual.has(key)) ||
@@ -436,6 +440,7 @@ function assertKeys(
   )
     throw new TypeError(`${label} has unexpected or missing fields`);
 }
+
 /** Requires an array of unique strings. */
 function uniqueStrings(
   value: JsonValue | undefined,
@@ -452,6 +457,7 @@ function uniqueStrings(
     throw new TypeError(`${label} contains duplicates`);
   return [...strings];
 }
+
 /** Requires an object whose values are strings. */
 function stringMap(
   value: JsonObject,
@@ -462,6 +468,7 @@ function stringMap(
       throw new TypeError(`${label} must map non-empty strings`);
   return { ...value } as Readonly<Record<string, string>>;
 }
+
 /** Requires an object whose values are non-empty arrays of unique strings. */
 function stringArrayMap(
   value: JsonObject,
@@ -479,6 +486,7 @@ function stringArrayMap(
   }
   return result;
 }
+
 /** Requires a field value to be a non-array JSON object. */
 function objectValue(value: JsonValue | undefined, label: string): JsonObject {
   if (
@@ -490,18 +498,21 @@ function objectValue(value: JsonValue | undefined, label: string): JsonObject {
     throw new TypeError(`${label} must be an object`);
   return value;
 }
+
 /** Requires a non-empty string field value. */
 function requiredString(value: JsonValue | undefined, label: string): string {
   if (typeof value !== "string" || value === "")
     throw new TypeError(`${label} must be a non-empty string`);
   return value;
 }
+
 /** Requires a safe integer field value. */
 function integer(value: JsonValue | undefined, label: string): number {
   if (typeof value !== "number" || !Number.isSafeInteger(value))
     throw new TypeError(`${label} must be an integer`);
   return value;
 }
+
 /** Requires a positive safe integer field value. */
 function positiveInteger(value: JsonValue | undefined, label: string): number {
   /** Result produced by positive integer. */
@@ -509,6 +520,7 @@ function positiveInteger(value: JsonValue | undefined, label: string): number {
   if (result < 1) throw new TypeError(`${label} must be positive`);
   return result;
 }
+
 /** Requires a non-negative safe integer field value. */
 function nonNegativeInteger(
   value: JsonValue | undefined,
@@ -519,12 +531,14 @@ function nonNegativeInteger(
   if (result < 0) throw new TypeError(`${label} must be non-negative`);
   return result;
 }
+
 /** Requires a boolean field value. */
 function booleanValue(value: JsonValue | undefined, label: string): boolean {
   if (typeof value !== "boolean")
     throw new TypeError(`${label} must be boolean`);
   return value;
 }
+
 /** Requires a supported schema discriminator. */
 function schemaValue(value: JsonValue | undefined): "agent-definition-v1" {
   if (value !== "agent-definition-v1")

@@ -32,13 +32,13 @@ import {
   type ProcessTelemetry,
 } from "./process-supervisor.js";
 
-/** Defines the data and behavior required by dispatch result. */
+/** Outcome returned by dispatch. */
 export interface DispatchResult {
-  /** Stores the SHA-256 digest of context. */
+  /** SHA-256 digest of canonical context. */
   readonly contextDigest: string;
-  /** Provides result to dispatch result. */
+  /** Result dependency consumed by dispatch result. */
   readonly result: AgentResult;
-  /** Provides telemetry to dispatch result. */
+  /** Telemetry dependency consumed by dispatch result. */
   readonly telemetry: ProcessTelemetry;
 }
 
@@ -46,33 +46,34 @@ export interface DispatchResult {
 export class RuntimeDispatchError extends Error {
   /** Creates runtime dispatch error with its required collaborators. */
   public constructor(
-    /** Provides code to runtime dispatch error. */ public readonly code: string,
+    /** Code dependency consumed by runtime dispatch error. */ public readonly code: string,
     message: string,
     options?: ErrorOptions,
   ) {
     super(message, options);
   }
 }
+
 /** Represents a retryable no verdict failure. */
 class RetryableNoVerdictError extends RuntimeDispatchError {}
 
 /** Verifies live authority and dispatches one activated assignment. */
 export async function dispatchActivatedAgent(input: {
-  /** Provides activated to dispatch activated agent. */
+  /** Activated dependency consumed by dispatch activated agent. */
   readonly activated: ActivatedDefinition;
-  /** Provides activation runtime to dispatch activated agent. */
+  /** Activation runtime dependency consumed by dispatch activated agent. */
   readonly activationRuntime: ActivationRuntime;
-  /** Provides additional input to dispatch activated agent. */
+  /** Additional input dependency consumed by dispatch activated agent. */
   readonly additionalInput: JsonObject;
-  /** Provides promotion to dispatch activated agent. */
+  /** Promotion dependency consumed by dispatch activated agent. */
   readonly promotion: AssignmentPromotion;
-  /** Provides provider to dispatch activated agent. */
+  /** Provider boundary used for durable state reads and writes. */
   readonly provider: AgentTaskProvider;
-  /** Provides runtime to dispatch activated agent. */
+  /** Runtime dependency consumed by dispatch activated agent. */
   readonly runtime: ResolvedRuntimeEnvironment;
 }): Promise<DispatchResult> {
   try {
-    /** Stores activated used by dispatch activated agent. */
+    /** Result of `verifyLiveAssignment`, retained for the dispatch activated agent operation. */
     const activated = await verifyLiveAssignment(input);
     return await dispatchVerified({ ...input, activated });
   } catch (error) {
@@ -91,26 +92,26 @@ export async function dispatchActivatedAgent(input: {
 
 /** Prepares trusted runtime sessions and supervises one verified agent run. */
 async function dispatchVerified(input: {
-  /** Provides activated to dispatch verified. */
+  /** Activated dependency consumed by dispatch verified. */
   readonly activated: ActivatedDefinition;
-  /** Provides activation runtime to dispatch verified. */
+  /** Activation runtime dependency consumed by dispatch verified. */
   readonly activationRuntime: ActivationRuntime;
-  /** Provides additional input to dispatch verified. */
+  /** Additional input dependency consumed by dispatch verified. */
   readonly additionalInput: JsonObject;
-  /** Provides promotion to dispatch verified. */
+  /** Promotion dependency consumed by dispatch verified. */
   readonly promotion: AssignmentPromotion;
-  /** Provides provider to dispatch verified. */
+  /** Provider boundary used for durable state reads and writes. */
   readonly provider: AgentTaskProvider;
-  /** Provides runtime to dispatch verified. */
+  /** Runtime dependency consumed by dispatch verified. */
   readonly runtime: ResolvedRuntimeEnvironment;
 }): Promise<DispatchResult> {
-  /** Stores definition used by dispatch verified. */
+  /** Result of `Date.now`, retained for the dispatch verified operation. */
   const definition = input.activated.resolved.definition;
-  /** Stores run id used by dispatch verified. */
+  /** Result of `Date.now`, retained for the dispatch verified operation. */
   const runId = input.promotion.ownerId;
-  /** Tracks the absolute deadline for dispatch verified. */
+  /** Absolute dispatch deadline verified before each boundary call. */
   const deadlineAt = Date.now() + definition.deadlineSeconds * 1000;
-  /** Stores policy used by dispatch verified. */
+  /** Result of `compileToolIsolationPolicy`, retained for the dispatch verified operation. */
   const policy = compileToolIsolationPolicy({
     grant: input.activated.grant,
     runId,
@@ -118,7 +119,7 @@ async function dispatchVerified(input: {
   });
   /** Binds dispatch verified to canonical policy content. */
   const policyDigest = digestJson(toJsonValue(policy));
-  /** Stores runner identity used by dispatch verified. */
+  /** Result of `withinDeadline`, retained for the dispatch verified operation. */
   const runnerIdentity = await withinDeadline(
     input.runtime.runner.identity(),
     deadlineAt,
@@ -129,9 +130,9 @@ async function dispatchVerified(input: {
     definition.runnerProfile,
     runnerIdentity,
   );
-  /** Holds the prepared model-transport session for guaranteed cleanup. */
+  /** Prepared model-transport session for guaranteed cleanup. */
   let controlPlane: ModelTransportSession | null = null;
-  /** Holds the prepared tool-isolation session. */
+  /** Prepared tool-isolation session. */
   let isolation: ToolIsolationSession | null = null;
   /** Retains the primary failure so cleanup errors can be combined. */
   let primaryError: unknown;
@@ -164,7 +165,7 @@ async function dispatchVerified(input: {
       (session) => session.close(),
     );
     validateIsolationReceipt(input.runtime, runId, policyDigest, isolation);
-    /** Captures the runtime receipt produced by dispatch verified. */
+    /** Runtime receipt produced by dispatch verified. */
     const runtimeReceipt: RuntimeCapabilityReceipt = {
       controlPlaneSeparated: controlPlane.receipt.separatedFromToolProcesses,
       credentialExposedToTools: controlPlane.receipt.credentialExposedToTools,
@@ -187,7 +188,7 @@ async function dispatchVerified(input: {
       toolProcessTreeEnforced: isolation.receipt.processTreeEnforced,
     };
     validateRuntimeCapabilityReceipt(runtimeReceipt);
-    /** Stores context used by dispatch verified. */
+    /** Result of `compileRunContext`, retained for the dispatch verified operation. */
     const context = await compileRunContext({
       activated: input.activated,
       additionalInput: input.additionalInput,
@@ -196,11 +197,11 @@ async function dispatchVerified(input: {
       runtimeReceipt,
       taskId: input.promotion.taskId,
     });
-    /** Stores control plane handle used by dispatch verified. */
+    /** Result of `input.activated.resolved.resources.find`, retained for the dispatch verified operation. */
     const controlPlaneHandle = controlPlane.opaqueHandle;
-    /** Stores tool isolation handle used by dispatch verified. */
+    /** Result of `input.activated.resolved.resources.find`, retained for the dispatch verified operation. */
     const toolIsolationHandle = isolation.opaqueHandle;
-    /** Stores output resource used by dispatch verified. */
+    /** Result of `input.activated.resolved.resources.find`, retained for the dispatch verified operation. */
     const outputResource = input.activated.resolved.resources.find(
       (resource) => resource.key === definition.outputSchema,
     );
@@ -209,20 +210,20 @@ async function dispatchVerified(input: {
         "output_schema_missing",
         "Output schema Resource is absent from the resolved definition",
       );
-    /** Stores output schema used by dispatch verified. */
+    /** Result of `jsonObject`, retained for the dispatch verified operation. */
     const outputSchema = jsonObject(
       JSON.parse(outputResource.body),
       "Output schema",
     );
     assertSupportedJsonSchema(outputSchema, "Output schema");
-    /** Stores last no verdict used by dispatch verified. */
+    /** Last no verdict snapshot used consistently during the dispatch verified operation. */
     let lastNoVerdict: RetryableNoVerdictError | null = null;
     for (
       let attempt = 1;
       attempt <= definition.retry.maxAttempts;
       attempt += 1
     ) {
-      /** Stores remaining used by dispatch verified. */
+      /** Remaining snapshot used consistently during the dispatch verified operation. */
       const remaining = deadlineAt - Date.now();
       if (remaining < 1)
         throw new RuntimeDispatchError(
@@ -230,7 +231,7 @@ async function dispatchVerified(input: {
           "Agent dispatch exceeded its total deadline",
         );
       try {
-        /** Stores process used by dispatch verified. */
+        /** Result of `cancellableWithinDeadline`, retained for the dispatch verified operation. */
         const process = await cancellableWithinDeadline(
           (signal) =>
             input.runtime.runner.start({
@@ -246,7 +247,7 @@ async function dispatchVerified(input: {
           "runner_start_timeout",
           disposeLateProcess,
         );
-        /** Stores supervised used by dispatch verified. */
+        /** Result of `superviseProcess`, retained for the dispatch verified operation. */
         const supervised = await superviseProcess({
           deadlineAt,
           graceMilliseconds: input.runtime.config.terminationGraceMilliseconds,
@@ -270,7 +271,7 @@ async function dispatchVerified(input: {
             "process_no_verdict",
             `Agent process exited without a verdict (${supervised.completion.exitCode ?? "unknown"})`,
           );
-        /** Holds the validated result returned by dispatch verified. */
+        /** Validated result returned by dispatch verified. */
         const result = parseAgentResult({
           allowedIntents: definition.allowedIntents,
           allowedOutcomes: Object.keys(definition.transitions),
@@ -320,28 +321,28 @@ async function dispatchVerified(input: {
 
 /** Verifies live assignment against authoritative state. */
 export async function verifyLiveAssignment(input: {
-  /** Provides activated to verify live assignment. */
+  /** Activated dependency consumed by verify live assignment. */
   readonly activated: ActivatedDefinition;
-  /** Provides activation runtime to verify live assignment. */
+  /** Activation runtime dependency consumed by verify live assignment. */
   readonly activationRuntime: ActivationRuntime;
-  /** Provides promotion to verify live assignment. */
+  /** Promotion dependency consumed by verify live assignment. */
   readonly promotion: AssignmentPromotion;
-  /** Provides provider to verify live assignment. */
+  /** Provider boundary used for durable state reads and writes. */
   readonly provider: AgentTaskProvider;
 }): Promise<ActivatedDefinition> {
-  /** Stores definition id used by verify live assignment. */
+  /** Definition id snapshot used consistently during the verify live assignment operation. */
   const definitionId = input.activated.resolved.definition.id;
   if (input.promotion.targetAgentId !== definitionId)
     throw new RuntimeDispatchError(
       "assignment_mismatch",
       "Assignment targets a different Agent",
     );
-  /** Stores fresh used by verify live assignment. */
+  /** Result of `activateDefinitions`, retained for the verify live assignment operation. */
   const fresh = await activateDefinitions({
     ...input.activationRuntime,
     provider: input.provider,
   });
-  /** Stores matches used by verify live assignment. */
+  /** Result of `fresh.filter`, retained for the verify live assignment operation. */
   const matches = fresh.filter(
     ({ resolved }) => resolved.definition.id === definitionId,
   );
@@ -363,7 +364,7 @@ export async function verifyLiveAssignment(input: {
       { cause: error },
     );
   }
-  /** Stores projection used by verify live assignment. */
+  /** Result of `input.provider.getLeaseProjection`, retained for the verify live assignment operation. */
   const projection = await input.provider.getLeaseProjection(definitionId);
   if (
     !projection.runLeaseIds.includes(input.promotion.runLeaseId) ||
@@ -374,7 +375,7 @@ export async function verifyLiveAssignment(input: {
       "assignment_inactive",
       "Assignment leases are not active",
     );
-  /** Stores activity used by verify live assignment. */
+  /** Result of `input.provider.getAgentActivity`, retained for the verify live assignment operation. */
   const activity = await input.provider.getAgentActivity(definitionId);
   if (
     activity.status !== "Online" ||
@@ -384,7 +385,7 @@ export async function verifyLiveAssignment(input: {
       "activity_mismatch",
       "Agent Status or Working On does not match active leases",
     );
-  /** Stores task used by verify live assignment. */
+  /** Result of `input.provider.getTaskSnapshot`, retained for the verify live assignment operation. */
   const task = await input.provider.getTaskSnapshot(input.promotion.taskId);
   if (task.archived)
     throw new RuntimeDispatchError(
@@ -400,7 +401,7 @@ export async function verifyLiveAssignment(input: {
       "Assigned Task changed after selection",
     );
   for (const dependencyId of task.dependencies) {
-    /** Stores dependency used by verify live assignment. */
+    /** Result of `input.provider.getTaskSnapshot`, retained for the verify live assignment operation. */
     const dependency = await input.provider.getTaskSnapshot(dependencyId);
     if (
       dependency.archived ||
@@ -441,6 +442,7 @@ function validateRunnerIdentity(
       "Runner executable version is required",
     );
 }
+
 /** Rejects invalid model receipt before it crosses the boundary. */
 function validateModelReceipt(
   runtime: ResolvedRuntimeEnvironment,
@@ -449,7 +451,7 @@ function validateModelReceipt(
   runId: string,
   session: ModelTransportSession,
 ): void {
-  /** Captures the receipt produced by validate model receipt. */
+  /** Receipt produced by validate model receipt. */
   const receipt = session.receipt;
   if (
     receipt.adapterId !== runtime.modelTransport.id ||
@@ -465,6 +467,7 @@ function validateModelReceipt(
     );
   requireDigest(receipt.digest, "Model transport digest");
 }
+
 /** Rejects invalid isolation receipt before it crosses the boundary. */
 function validateIsolationReceipt(
   runtime: ResolvedRuntimeEnvironment,
@@ -472,7 +475,7 @@ function validateIsolationReceipt(
   policyDigest: string,
   session: ToolIsolationSession,
 ): void {
-  /** Captures the receipt produced by validate isolation receipt. */
+  /** Receipt produced by validate isolation receipt. */
   const receipt = session.receipt;
   if (
     receipt.adapterId !== runtime.toolIsolation.id ||
@@ -498,7 +501,7 @@ async function closeSessions(
   primaryError: unknown,
   timeoutMilliseconds: number,
 ): Promise<void> {
-  /** Stores failures used by close sessions. */
+  /** Mutable failures collection accumulated during the close sessions operation. */
   const failures: unknown[] = [];
   for (const session of sessions)
     if (session !== null) {
@@ -525,23 +528,23 @@ async function closeSessions(
 /** Persists a bounded runtime failure linked to the Task and Agent. */
 async function recordRuntimeError(
   input: {
-    /** Provides activated to record runtime error. */
+    /** Activated dependency consumed by record runtime error. */
     readonly activated: ActivatedDefinition;
-    /** Provides promotion to record runtime error. */
+    /** Promotion dependency consumed by record runtime error. */
     readonly promotion: AssignmentPromotion;
-    /** Provides provider to record runtime error. */
+    /** Provider boundary used for durable state reads and writes. */
     readonly provider: AgentTaskProvider;
   },
   error: unknown,
 ): Promise<void> {
-  /** Stores code used by record runtime error. */
+  /** Code snapshot used consistently during the record runtime error operation. */
   const code =
     error instanceof RuntimeDispatchError
       ? error.code
       : "unexpected_runtime_failure";
-  /** Stores definition used by record runtime error. */
+  /** Definition snapshot used consistently during the record runtime error operation. */
   const definition = input.activated.resolved.definition;
-  /** Stores basis used by record runtime error. */
+  /** Basis snapshot used consistently during the record runtime error operation. */
   const basis = {
     code,
     definitionDigest: input.activated.resolved.digest,
@@ -567,12 +570,13 @@ async function recordRuntimeError(
 
 /** Validates and returns a non-array JSON object. */
 function jsonObject(value: unknown, label: string): JsonObject {
-  /** Stores json used by json object. */
+  /** Result of `toJsonValue`, retained for the json object operation. */
   const json = toJsonValue(value);
   if (json === null || typeof json !== "object" || Array.isArray(json))
     throw new TypeError(`${label} must be an object`);
   return json;
 }
+
 /** Returns digest or throws when invalid or absent. */
 function requireDigest(value: string, label: string): void {
   if (!/^[a-f0-9]{64}$/u.test(value))
@@ -581,6 +585,7 @@ function requireDigest(value: string, label: string): void {
       `${label} is invalid`,
     );
 }
+
 /** Compares values without making ordering observable. */
 function sameSet(left: readonly string[], right: readonly string[]): boolean {
   return (
@@ -588,20 +593,21 @@ function sameSet(left: readonly string[], right: readonly string[]): boolean {
     [...new Set(right)].sort().join("\0")
   );
 }
+
 /** Bounds an asynchronous operation by the remaining absolute deadline. */
 async function withinDeadline<T>(
   promise: Promise<T>,
   deadlineAt: number,
   code: string,
 ): Promise<T> {
-  /** Stores remaining used by within deadline. */
+  /** Remaining snapshot used consistently during the within deadline operation. */
   const remaining = deadlineAt - Date.now();
   if (remaining < 1)
     throw new RuntimeDispatchError(
       code,
       "Trusted runtime operation exceeded its deadline",
     );
-  /** Tracks the timeout handle so it can be cleared. */
+  /** Timeout handle cleared during cleanup. */
   let timer: NodeJS.Timeout | undefined;
   try {
     return await Promise.race([
@@ -623,6 +629,7 @@ async function withinDeadline<T>(
     if (timer !== undefined) clearTimeout(timer);
   }
 }
+
 /** Bounds an asynchronous operation by the remaining absolute deadline. */
 async function cancellableWithinDeadline<T>(
   start: (signal: AbortSignal) => Promise<T>,
@@ -631,9 +638,9 @@ async function cancellableWithinDeadline<T>(
   code: string,
   dispose: (value: T) => Promise<void>,
 ): Promise<T> {
-  /** Stores controller used by cancellable within deadline. */
+  /** Result of `AbortController`, retained for the cancellable within deadline operation. */
   const controller = new AbortController();
-  /** Stores operation used by cancellable within deadline. */
+  /** Result of `start`, retained for the cancellable within deadline operation. */
   const operation = start(controller.signal);
   try {
     return await withinDeadline(operation, deadlineAt, code);
@@ -641,9 +648,9 @@ async function cancellableWithinDeadline<T>(
     if (!(error instanceof RuntimeDispatchError) || error.code !== code)
       throw error;
     controller.abort(error);
-    /** Stores late cleanup used by cancellable within deadline. */
+    /** Result of `operation.then`, retained for the cancellable within deadline operation. */
     const lateCleanup = operation.then(dispose, () => undefined);
-    /** Stores acknowledged used by cancellable within deadline. */
+    /** Result of `settleBefore`, retained for the cancellable within deadline operation. */
     const acknowledged = await settleBefore(
       operation.then(
         () => true,
@@ -663,6 +670,7 @@ async function cancellableWithinDeadline<T>(
     throw error;
   }
 }
+
 /** Force-stops a process that becomes available after its caller timed out. */
 async function disposeLateProcess(
   process: Awaited<ReturnType<ResolvedRuntimeEnvironment["runner"]["start"]>>,
@@ -670,12 +678,13 @@ async function disposeLateProcess(
   await Promise.allSettled([process.terminateTree(), process.killTree()]);
   await process.cleanup();
 }
+
 /** Returns a promise result only when it settles before the timeout. */
 async function settleBefore<T>(
   promise: Promise<T>,
   milliseconds: number,
 ): Promise<T | null> {
-  /** Tracks the timeout handle so it can be cleared. */
+  /** Timeout handle cleared during cleanup. */
   let timer: NodeJS.Timeout | undefined;
   try {
     return await Promise.race([

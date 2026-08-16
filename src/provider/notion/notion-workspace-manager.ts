@@ -40,7 +40,7 @@ import {
   RESOURCE_STATE_OPTIONS,
 } from "./notion-option-codec.js";
 
-/** Defines the module-level `TABLE_ORDER` value. */
+/** Table kinds in dependency-safe bootstrap order. */
 const TABLE_ORDER: readonly TableKind[] = [
   "resources",
   "errors",
@@ -48,53 +48,53 @@ const TABLE_ORDER: readonly TableKind[] = [
   "agents",
 ];
 
-/** Defines workspace step record. */
+/** Canonical workspace step record. */
 interface WorkspaceStepRecord {
-  /** Contains receipt for workspace step record. */
+  /** Durable receipt proving the provider write. */
   readonly receipt: WriteReceipt | null;
-  /** Identifies the workspace step record wire schema. */
+  /** Wire-schema discriminator; always `agent-task-manager-workspace-step-v1`. */
   readonly schema: "agent-task-manager-workspace-step-v1";
-  /** Records the state for workspace step record. */
+  /** Lifecycle state used for workflow decisions. */
   readonly state: "applied" | "pending";
-  /** Contains step for workspace step record. */
+  /** Migration step represented by the journal record. */
   readonly step: WorkspaceMigrationStep;
   /** Binds workspace step record to canonical step content. */
   readonly stepDigest: string;
 }
 
-/** Defines bootstrap session record. */
+/** Canonical bootstrap session record. */
 export interface BootstrapSessionRecord {
-  /** Lists completed step IDs for bootstrap session record. */
+  /** Ordered completed step IDs for bootstrap session record. */
   readonly completedStepIds: readonly string[];
-  /** Identifies next step. */
+  /** Stable identifier for next step id. */
   readonly nextStepId: string | null;
-  /** Contains plan for bootstrap session record. */
+  /** Immutable migration plan resumed by the bootstrap session. */
   readonly plan: WorkspaceMigrationPlan;
-  /** Identifies the bootstrap session record wire schema. */
+  /** Wire-schema discriminator; always `agent-task-manager-bootstrap-session-v1`. */
   readonly schema: "agent-task-manager-bootstrap-session-v1";
-  /** Records the state for bootstrap session record. */
+  /** Lifecycle state used for workflow decisions. */
   readonly state: "applying" | "complete";
 }
 
 /** Implements Notion workspace manager. */
 export class NotionWorkspaceManager {
-  /** Contains resolved for Notion workspace manager. */
+  /** Stable identifier for environment id. */
   readonly #resolved = new Map<TableKind, string>();
 
   /** Initializes Notion workspace manager. */
   public constructor(
-    /** Identifies environment. */ private readonly environmentId: string,
-    /** Contains environment for Notion workspace manager. */ private readonly environment: ProviderEnvironment,
-    /** Contains target for Notion workspace manager. */ private readonly target: WorkspaceSchemaDescriptor,
-    /** Contains transport for Notion workspace manager. */ private readonly transport: NotionTransport,
-    /** Contains now for Notion workspace manager. */ private readonly now: () => Date = () =>
+    /** Stable identifier for environment id. */ private readonly environmentId: string,
+    /** Environment callback invoked by Notion workspace manager. */ private readonly environment: ProviderEnvironment,
+    /** Target callback invoked by Notion workspace manager. */ private readonly target: WorkspaceSchemaDescriptor,
+    /** Transport callback invoked by Notion workspace manager. */ private readonly transport: NotionTransport,
+    /** Now callback invoked by Notion workspace manager. */ private readonly now: () => Date = () =>
       new Date(),
   ) {}
 
   /** Inspects workspace schema without mutation. */
   public async inspectWorkspaceSchema(): Promise<WorkspaceSchemaSnapshot> {
     await this.resolveTables();
-    /** Holds the `reader` intermediate used by `inspectWorkspaceSchema`. */
+    /** Result of `NotionWorkspaceReader`, retained for `inspectWorkspaceSchema`. */
     const reader = new NotionWorkspaceReader(
       this.resolvedEnvironment(),
       this.target,
@@ -114,18 +114,18 @@ export class NotionWorkspaceManager {
       throw new Error(
         "Workspace request target does not match configured target",
       );
-    /** Holds the `report` intermediate used by `planWorkspaceChanges`. */
+    /** Result of `compareWorkspaceSchema`, retained for `planWorkspaceChanges`. */
     const report = compareWorkspaceSchema(request.observed, request.target);
     if (report.state === "blocked_incompatible")
       throw new Error("Cannot plan over an incompatible Notion workspace");
-    /** Holds the `drafts` intermediate used by `planWorkspaceChanges`. */
+    /** Result of `tableDescriptor`, retained for `planWorkspaceChanges`. */
     const drafts: Array<
       Pick<WorkspaceMigrationStep, "id" | "kind" | "payload">
     > = [];
     for (const kind of TABLE_ORDER) {
-      /** Defines `expected` for comparison in `planWorkspaceChanges`. */
+      /** Target table descriptor used to plan scalar properties. */
       const expected = tableDescriptor(this.target, kind);
-      /** Defines `observed` for comparison in `planWorkspaceChanges`. */
+      /** Expected observed used to validate `planWorkspaceChanges`. */
       const observed = request.observed.tables.find(
         (table) => table.kind === kind,
       );
@@ -154,9 +154,9 @@ export class NotionWorkspaceManager {
       }
     }
     for (const kind of TABLE_ORDER) {
-      /** Defines `expected` for comparison in `planWorkspaceChanges`. */
+      /** Target table descriptor used to plan relational properties. */
       const expected = tableDescriptor(this.target, kind);
-      /** Defines `observed` for comparison in `planWorkspaceChanges`. */
+      /** Expected observed used to validate `planWorkspaceChanges`. */
       const observed = request.observed.tables.find(
         (table) => table.kind === kind,
       );
@@ -189,12 +189,12 @@ export class NotionWorkspaceManager {
       });
     }
 
-    /** Holds the `simulated` intermediate used by `planWorkspaceChanges`. */
+    /** Result of `simulateWorkspaceStep`, retained for `planWorkspaceChanges`. */
     let simulated = request.observed;
-    /** Holds the `steps` intermediate used by `planWorkspaceChanges`. */
+    /** Result of `simulateWorkspaceStep`, retained for `planWorkspaceChanges`. */
     const steps: WorkspaceMigrationStep[] = [];
     for (const [index, draft] of drafts.entries()) {
-      /** Holds the `next` intermediate used by `planWorkspaceChanges`. */
+      /** Result of `simulateWorkspaceStep`, retained for `planWorkspaceChanges`. */
       const next = simulateWorkspaceStep(simulated, draft, this.target);
       steps.push({
         dependsOn: index === 0 ? [] : [requiredDraft(drafts[index - 1]).id],
@@ -225,7 +225,7 @@ export class NotionWorkspaceManager {
   ): Promise<WriteReceipt> {
     await this.resolveTables();
     if (this.#resolved.has("resources")) await this.ensureBootstrapRoot();
-    /** Holds the `prior` intermediate used by `applyWorkspaceStep`. */
+    /** Result of `this.readStepRecord`, retained for `applyWorkspaceStep`. */
     const prior = await this.readStepRecord(step.id);
     if (prior !== null) {
       if (prior.stepDigest !== stepDigest(step))
@@ -234,7 +234,7 @@ export class NotionWorkspaceManager {
         );
       if (prior.state === "applied" && prior.receipt !== null)
         return prior.receipt;
-      /** Holds the `recovered` intermediate used by `applyWorkspaceStep`. */
+      /** Result of `this.reconcileEffect`, retained for `applyWorkspaceStep`. */
       const recovered = await this.reconcileEffect(prior.step);
       if (recovered.state === "applied")
         return this.finalizeRecoveredStep(prior.step);
@@ -244,20 +244,20 @@ export class NotionWorkspaceManager {
       step.id === `notion:${this.target.version}:create:resources` &&
       this.#resolved.has("resources")
     ) {
-      /** Holds the `recovered` intermediate used by `applyWorkspaceStep`. */
+      /** Result of `this.reconcileEffect`, retained for `applyWorkspaceStep`. */
       const recovered = await this.reconcileEffect(step);
       if (recovered.state === "applied")
         return this.finalizeRecoveredStep(step);
     }
     for (const dependency of step.dependsOn) {
-      /** Holds the `record` intermediate used by `applyWorkspaceStep`. */
+      /** Result of `this.readStepRecord`, retained for `applyWorkspaceStep`. */
       const record = await this.readStepRecord(dependency);
       if (record?.state !== "applied")
         throw new Error(
           `Workspace step dependency is incomplete: ${dependency}`,
         );
     }
-    /** Holds the `current` intermediate used by `applyWorkspaceStep`. */
+    /** Result of `this.inspectWorkspaceSchema`, retained for `applyWorkspaceStep`. */
     const current = await this.inspectWorkspaceSchema();
     if (current.digest !== step.expectedPreSchemaDigest)
       throw new Error(`Workspace precondition changed: ${step.id}`);
@@ -277,25 +277,25 @@ export class NotionWorkspaceManager {
       await this.recordSchemaState();
     else throw new Error(`Unsupported Notion workspace step: ${step.kind}`);
 
-    /** Holds the `reconciliation` intermediate used by `applyWorkspaceStep`. */
+    /** Result of `this.reconcileEffect`, retained for `applyWorkspaceStep`. */
     const reconciliation = await this.reconcileEffect(step);
     if (reconciliation.state !== "applied")
       throw new Error(`Workspace step post-verification failed: ${step.id}`);
-    /** Holds the `verifiedSnapshot` intermediate used by `applyWorkspaceStep`. */
+    /** Result of `this.inspectWorkspaceSchema`, retained for `applyWorkspaceStep`. */
     const verifiedSnapshot = await this.inspectWorkspaceSchema();
     if (verifiedSnapshot.digest !== step.expectedPostSchemaDigest)
       throw new Error(`Workspace postcondition changed: ${step.id}`);
-    /** Holds the `table` intermediate used by `applyWorkspaceStep`. */
+    /** Result of `tableKind`, retained for `applyWorkspaceStep`. */
     const table = tableKind(step);
-    /** Holds the `tableId` intermediate used by `applyWorkspaceStep`. */
+    /** Result of `requiredResolved`, retained for `applyWorkspaceStep`. */
     const tableId = requiredResolved(this.#resolved, table);
-    /** Defines `observed` for comparison in `applyWorkspaceStep`. */
+    /** Expected observed used to validate `applyWorkspaceStep`. */
     const observed = verifiedSnapshot.tables.find(
       (candidate) => candidate.kind === table,
     );
     if (observed === undefined)
       throw new Error(`Workspace step did not produce ${table}`);
-    /** Captures `receipt` returned by `applyWorkspaceStep`. */
+    /** Result of `applyWorkspaceStep`, retained for validation and reuse. */
     const receipt: WriteReceipt = {
       idempotencyKey: step.id,
       observedVersion: observed.version,
@@ -318,7 +318,7 @@ export class NotionWorkspaceManager {
     supplied?: WorkspaceMigrationStep,
   ): Promise<ReconciliationResult> {
     await this.resolveTables();
-    /** Holds the `stored` intermediate used by `reconcileWorkspaceStep`. */
+    /** Result of `this.readStepRecord`, retained for `reconcileWorkspaceStep`. */
     const stored = await this.readStepRecord(stepId);
     if (stored?.state === "applied" && stored.receipt !== null) {
       return {
@@ -329,14 +329,14 @@ export class NotionWorkspaceManager {
         state: "applied",
       };
     }
-    /** Holds the `effective` intermediate used by `reconcileWorkspaceStep`. */
+    /** Result of `this.reconcileEffect`, retained for `reconcileWorkspaceStep`. */
     const effective =
       supplied ?? stored?.step ?? this.knownUnjournaledStep(stepId);
     if (effective === null) return { evidence: {}, state: "not_applied" };
-    /** Captures `result` returned by `reconcileWorkspaceStep`. */
+    /** Result of `reconcileWorkspaceStep`, retained for validation and reuse. */
     const result = await this.reconcileEffect(effective);
     if (stored?.state === "pending" && result.state === "applied") {
-      /** Captures `receipt` returned by `reconcileWorkspaceStep`. */
+      /** Result of `reconcileWorkspaceStep`, retained for validation and reuse. */
       const receipt = await this.finalizeRecoveredStep(effective);
       return {
         evidence: {
@@ -354,7 +354,7 @@ export class NotionWorkspaceManager {
     supplied: WorkspaceMigrationStep,
   ): Promise<ReconciliationResult> {
     await this.resolveTables();
-    /** Holds the `kind` intermediate used by `reconcileEffect`. */
+    /** Result of `tableKind`, retained for `reconcileEffect`. */
     const kind = tableKind(supplied);
     if (supplied.kind === "create_table") {
       return this.#resolved.has(kind)
@@ -365,24 +365,24 @@ export class NotionWorkspaceManager {
         : { evidence: {}, state: "not_applied" };
     }
     if (supplied.kind === "add_property" || supplied.kind === "add_relation") {
-      /** Holds the `physicalName` intermediate used by `reconcileEffect`. */
+      /** Result of `requiredString`, retained for `reconcileEffect`. */
       const physicalName = requiredString(
         supplied.payload.physicalName,
         "Workspace property name",
       );
-      /** Holds the `table` intermediate used by `reconcileEffect`. */
+      /** Result of `tableDescriptor`, retained for `reconcileEffect`. */
       const table = (await this.inspectWorkspaceSchema()).tables.find(
         (candidate) => candidate.kind === kind,
       );
-      /** Defines `expected` for comparison in `reconcileEffect`. */
+      /** Target property descriptor used to verify observed semantics. */
       const expected = tableDescriptor(this.target, kind).properties.find(
         (item) => item.physicalName === physicalName,
       );
-      /** Defines `observed` for comparison in `reconcileEffect`. */
+      /** Expected observed used to validate `reconcileEffect`. */
       const observed = table?.properties.find(
         (item) => item.name === physicalName,
       );
-      /** Holds the `applied` intermediate used by `reconcileEffect`. */
+      /** Applied snapshot used consistently during `reconcileEffect`. */
       const applied =
         expected !== undefined &&
         observed !== undefined &&
@@ -393,7 +393,7 @@ export class NotionWorkspaceManager {
         : { evidence: {}, state: "not_applied" };
     }
     if (supplied.kind === "record_schema_state") {
-      /** Holds the `state` intermediate used by `reconcileEffect`. */
+      /** Result of `this.readSchemaState`, retained for `reconcileEffect`. */
       const state = await this.readSchemaState();
       return state?.targetDigest === this.target.digest &&
         state.targetVersion === this.target.version
@@ -407,21 +407,21 @@ export class NotionWorkspaceManager {
   private async finalizeRecoveredStep(
     step: WorkspaceMigrationStep,
   ): Promise<WriteReceipt> {
-    /** Holds the `snapshot` intermediate used by `finalizeRecoveredStep`. */
+    /** Result of `this.inspectWorkspaceSchema`, retained for `finalizeRecoveredStep`. */
     const snapshot = await this.inspectWorkspaceSchema();
     if (snapshot.digest !== step.expectedPostSchemaDigest)
       throw new Error(
         `Recovered workspace postcondition does not match: ${step.id}`,
       );
-    /** Holds the `table` intermediate used by `finalizeRecoveredStep`. */
+    /** Result of `tableKind`, retained for `finalizeRecoveredStep`. */
     const table = tableKind(step);
-    /** Defines `observed` for comparison in `finalizeRecoveredStep`. */
+    /** Expected observed used to validate `finalizeRecoveredStep`. */
     const observed = snapshot.tables.find(
       (candidate) => candidate.kind === table,
     );
     if (observed === undefined)
       throw new Error(`Recovered workspace step did not produce ${table}`);
-    /** Captures `receipt` returned by `finalizeRecoveredStep`. */
+    /** Receipt reconstructed from the verified recovered schema state. */
     const receipt: WriteReceipt = {
       idempotencyKey: step.id,
       observedVersion: observed.version,
@@ -440,7 +440,7 @@ export class NotionWorkspaceManager {
 
   /** Recognizes unjournaled step. */
   private knownUnjournaledStep(stepId: string): WorkspaceMigrationStep | null {
-    /** Defines `expectedId` for comparison in `knownUnjournaledStep`. */
+    /** Sole bootstrap step allowed to predate the Resources journal. */
     const expectedId = `notion:${this.target.version}:create:resources`;
     if (stepId !== expectedId) return null;
     return {
@@ -469,17 +469,17 @@ export class NotionWorkspaceManager {
     >;
   }
 
-  /** Records environment patch. */
+  /** Persists the environment patch required to adopt resolved table IDs. */
   public async recordEnvironmentPatch(
     startingFileDigest: string,
     state: "applied" | "pending_human",
   ): Promise<void> {
     await this.resolveTables();
-    /** Holds the `tables` intermediate used by `recordEnvironmentPatch`. */
+    /** Result of `this.configuredTablePatch`, retained for `recordEnvironmentPatch`. */
     const tables = this.configuredTablePatch();
-    /** Holds the `key` intermediate used by `recordEnvironmentPatch`. */
+    /** Result of `canonicalize`, retained for `recordEnvironmentPatch`. */
     const key = `system/environment-patch/${sha256(this.environmentId)}`;
-    /** Holds the `body` intermediate used by `recordEnvironmentPatch`. */
+    /** Result of `canonicalize`, retained for `recordEnvironmentPatch`. */
     const body = canonicalize(
       toJsonValue({
         environmentId: this.environmentId,
@@ -508,7 +508,7 @@ export class NotionWorkspaceManager {
   ): Promise<BootstrapSessionRecord | null> {
     await this.resolveTables();
     if (!this.#resolved.has("resources")) return null;
-    /** Holds the `located` intermediate used by `readBootstrapSession`. */
+    /** Unique persisted bootstrap-session Resource, if one exists. */
     const located = await this.pageStore().findUniqueByTitle(
       "resources",
       "Resource",
@@ -524,21 +524,21 @@ export class NotionWorkspaceManager {
     );
   }
 
-  /** Records bootstrap session. */
+  /** Persists validated bootstrap progress for deterministic resumption. */
   public async recordBootstrapSession(
     plan: WorkspaceMigrationPlan,
     completedStepIds: readonly string[],
   ): Promise<void> {
     await this.resolveTables();
-    /** Tracks unique entries in `knownStepIds` for `recordBootstrapSession`. */
+    /** Planned step IDs used to reject unknown completion claims. */
     const knownStepIds = new Set(plan.steps.map((step) => step.id));
-    /** Tracks unique entries in `completed` for `recordBootstrapSession`. */
+    /** Deduplicated completed step IDs persisted in the session. */
     const completed = [...new Set(completedStepIds)];
     if (completed.some((stepId) => !knownStepIds.has(stepId)))
       throw new Error("Bootstrap session contains an unknown completed step");
-    /** Holds the `nextStep` intermediate used by `recordBootstrapSession`. */
+    /** First planned step not yet marked complete. */
     const nextStep = plan.steps.find((step) => !completed.includes(step.id));
-    /** Holds the `record` intermediate used by `recordBootstrapSession`. */
+    /** Canonical bootstrap-session state derived from the plan and progress. */
     const record: BootstrapSessionRecord = {
       completedStepIds: completed,
       nextStepId: nextStep?.id ?? null,
@@ -546,9 +546,9 @@ export class NotionWorkspaceManager {
       schema: "agent-task-manager-bootstrap-session-v1",
       state: nextStep === undefined ? "complete" : "applying",
     };
-    /** Holds the `body` intermediate used by `recordBootstrapSession`. */
+    /** Canonical JSON body whose digest identifies this session state. */
     const body = canonicalize(toJsonValue(record));
-    /** Holds the `key` intermediate used by `recordBootstrapSession`. */
+    /** Stable Resource key for this bootstrap mode. */
     const key = this.bootstrapSessionKey(plan.mode);
     await this.pageStore().createResource({
       body,
@@ -566,10 +566,10 @@ export class NotionWorkspaceManager {
   private async resolveTables(): Promise<void> {
     for (const kind of TABLE_ORDER) {
       if (this.#resolved.has(kind)) continue;
-      /** Holds the `configured` intermediate used by `resolveTables`. */
+      /** Environment-supplied table identifier, if configured. */
       const configured = this.environment.tables[kind];
       if (configured !== null) {
-        /** Holds the `reader` intermediate used by `resolveTables`. */
+        /** Reader that normalizes and validates the configured identifier. */
         const reader = new NotionWorkspaceReader(
           this.environment,
           this.target,
@@ -579,7 +579,7 @@ export class NotionWorkspaceManager {
         this.#resolved.set(kind, await reader.resolveDataSourceId(configured));
         continue;
       }
-      /** Holds the `discovered` intermediate used by `resolveTables`. */
+      /** Table identifier discovered beneath the bootstrap parent. */
       const discovered = await this.discoverTable(kind);
       if (discovered !== null) this.#resolved.set(kind, discovered);
     }
@@ -588,13 +588,13 @@ export class NotionWorkspaceManager {
   /** Discovers table. */
   private async discoverTable(kind: TableKind): Promise<string | null> {
     if (this.environment.bootstrapParent === null) return null;
-    /** Holds the `parentId` intermediate used by `discoverTable`. */
+    /** Normalized bootstrap-parent page identifier. */
     const parentId = normalizeNotionIdentifier(
       this.environment.bootstrapParent,
     );
-    /** Holds the `title` intermediate used by `discoverTable`. */
+    /** Canonical table title used for exact discovery. */
     const title = tableDescriptor(this.target, kind).title;
-    /** Holds the `results` intermediate used by `discoverTable`. */
+    /** Complete Notion search result set for the canonical title. */
     const results = await collectNotionPages((cursor) =>
       this.transport.request({
         body: {
@@ -607,25 +607,25 @@ export class NotionWorkspaceManager {
         path: "/v1/search",
       }),
     );
-    /** Tracks the `candidates` condition in `discoverTable`. */
+    /** Data sources whose object type and title match exactly. */
     const candidates = results.filter(
       (source) =>
         source.object === "data_source" && richText(source.title) === title,
     );
-    /** Holds the `matches` intermediate used by `discoverTable`. */
+    /** Candidates whose parent database belongs to the bootstrap parent. */
     const matches: JsonObject[] = [];
     for (const source of candidates) {
-      /** Holds the `sourceParent` intermediate used by `discoverTable`. */
+      /** Candidate data-source parent metadata. */
       const sourceParent = objectValue(
         source.parent,
         `${title} data source parent`,
       );
-      /** Holds the `databaseId` intermediate used by `discoverTable`. */
+      /** Parent database ID used to verify workspace ancestry. */
       const databaseId = requiredString(
         sourceParent.database_id,
         `${title} parent database id`,
       );
-      /** Holds the `database` intermediate used by `discoverTable`. */
+      /** Parent database whose page ancestry is being verified. */
       const database = await this.transport.request({
         method: "GET",
         path: `/v1/databases/${databaseId}`,
@@ -634,7 +634,7 @@ export class NotionWorkspaceManager {
     }
     if (matches.length > 1)
       throw new Error(`Bootstrap parent contains multiple ${title} databases`);
-    /** Holds the `source` intermediate used by `discoverTable`. */
+    /** Sole table match after title and parent validation. */
     const source = matches[0];
     return source === undefined
       ? null
@@ -646,9 +646,9 @@ export class NotionWorkspaceManager {
     if (this.#resolved.has(kind)) return;
     if (this.environment.bootstrapParent === null)
       throw new Error("Notion bootstrap requires provider.bootstrapParent");
-    /** Holds the `descriptor` intermediate used by `createTable`. */
+    /** Target schema descriptor for the table being created. */
     const descriptor = tableDescriptor(this.target, kind);
-    /** Holds the `properties` intermediate used by `createTable`. */
+    /** Non-relational properties valid before related tables exist. */
     const properties = Object.fromEntries(
       descriptor.properties
         .filter((property) => property.targetTable === null)
@@ -657,7 +657,7 @@ export class NotionWorkspaceManager {
           propertySchema(property, kind),
         ]),
     );
-    /** Captures `response` returned by `createTable`. */
+    /** Notion response exposing the created database's data source. */
     const response = await this.transport.request({
       body: {
         initial_data_source: { properties },
@@ -670,7 +670,7 @@ export class NotionWorkspaceManager {
       method: "POST",
       path: "/v1/databases",
     });
-    /** Holds the `sources` intermediate used by `createTable`. */
+    /** Data sources returned for the newly created database. */
     const sources = response.data_sources;
     if (!Array.isArray(sources) || sources.length !== 1)
       throw new Error(
@@ -688,14 +688,14 @@ export class NotionWorkspaceManager {
 
   /** Adds property. */
   private async addProperty(step: WorkspaceMigrationStep): Promise<void> {
-    /** Holds the `kind` intermediate used by `addProperty`. */
+    /** Target table kind encoded by the migration step. */
     const kind = tableKind(step);
-    /** Holds the `name` intermediate used by `addProperty`. */
+    /** Physical Notion property name encoded by the migration step. */
     const name = requiredString(
       step.payload.physicalName,
       "Workspace property name",
     );
-    /** Holds the `descriptor` intermediate used by `addProperty`. */
+    /** Target property descriptor matching the physical name. */
     const descriptor = tableDescriptor(this.target, kind).properties.find(
       (property) => property.physicalName === name,
     );
@@ -714,13 +714,13 @@ export class NotionWorkspaceManager {
 
   /** Ensures bootstrap root. */
   private async ensureBootstrapRoot(): Promise<void> {
-    /** Holds the `resources` intermediate used by `ensureBootstrapRoot`. */
+    /** Resolved Resources data-source identifier. */
     const resources = requiredResolved(this.#resolved, "resources");
-    /** Holds the `pages` intermediate used by `ensureBootstrapRoot`. */
+    /** Page-store boundary used to verify or create the bootstrap root. */
     const pages = this.pageStore();
-    /** Holds the `key` intermediate used by `ensureBootstrapRoot`. */
+    /** Stable key of the bootstrap-root Resource. */
     const key = "system/bootstrap-root-v1";
-    /** Holds the `body` intermediate used by `ensureBootstrapRoot`. */
+    /** Canonical bootstrap identity bound to the parent and Resources table. */
     const body = canonicalize(
       toJsonValue({
         parentIdentity: this.environment.bootstrapParent,
@@ -728,7 +728,7 @@ export class NotionWorkspaceManager {
         schema: "agent-task-manager-bootstrap-root-v1",
       }),
     );
-    /** Holds the `existing` intermediate used by `ensureBootstrapRoot`. */
+    /** Existing bootstrap-root Resource, if one is already present. */
     const existing = await pages.findUniqueByTitle(
       "resources",
       "Resource",
@@ -753,11 +753,11 @@ export class NotionWorkspaceManager {
     });
   }
 
-  /** Records schema state. */
+  /** Persists the target schema version and digest after migration. */
   private async recordSchemaState(): Promise<void> {
-    /** Holds the `key` intermediate used by `recordSchemaState`. */
+    /** Stable Resource key for the target schema version. */
     const key = `system/schema/${this.target.version}`;
-    /** Holds the `body` intermediate used by `recordSchemaState`. */
+    /** Canonical schema-state body bound to the target digest. */
     const body = canonicalize(
       toJsonValue({
         schema: "agent-task-manager-schema-state-v1",
@@ -779,9 +779,9 @@ export class NotionWorkspaceManager {
 
   /** Reads schema state. */
   private async readSchemaState(): Promise<JsonObject | null> {
-    /** Holds the `key` intermediate used by `readSchemaState`. */
+    /** Stable Resource key for the target schema version. */
     const key = `system/schema/${this.target.version}`;
-    /** Holds the `located` intermediate used by `readSchemaState`. */
+    /** Unique persisted schema-state Resource, if one exists. */
     const located = await this.pageStore().findUniqueByTitle(
       "resources",
       "Resource",
@@ -803,7 +803,7 @@ export class NotionWorkspaceManager {
     stepId: string,
   ): Promise<WorkspaceStepRecord | null> {
     if (!this.#resolved.has("resources")) return null;
-    /** Holds the `located` intermediate used by `readStepRecord`. */
+    /** Result of `this.pageStore`, retained for `readStepRecord`. */
     const located = await this.pageStore().findUniqueByTitle(
       "resources",
       "Resource",
@@ -821,9 +821,9 @@ export class NotionWorkspaceManager {
 
   /** Persists step record. */
   private async writeStepRecord(record: WorkspaceStepRecord): Promise<void> {
-    /** Holds the `key` intermediate used by `writeStepRecord`. */
+    /** Result of `stepReceiptKey`, retained for `writeStepRecord`. */
     const key = stepReceiptKey(record.step.id);
-    /** Holds the `body` intermediate used by `writeStepRecord`. */
+    /** Result of `canonicalize`, retained for `writeStepRecord`. */
     const body = canonicalize(toJsonValue(record));
     await this.pageStore().createResource({
       body,
@@ -839,7 +839,7 @@ export class NotionWorkspaceManager {
 
   /** Builds a page store from the resolved workspace table IDs. */
   private pageStore(): NotionPageStore {
-    /** Holds the `fallback` intermediate used by `pageStore`. */
+    /** Fallback snapshot used consistently during `pageStore`. */
     const fallback = "unresolved";
     return new NotionPageStore(
       {
@@ -921,7 +921,7 @@ function simulateWorkspaceStep(
   step: Pick<WorkspaceMigrationStep, "kind" | "payload">,
   target: WorkspaceSchemaDescriptor,
 ): WorkspaceSchemaSnapshot {
-  /** Holds the `kind` intermediate used by `simulateWorkspaceStep`. */
+  /** Result of `tableKind`, retained for `simulateWorkspaceStep`. */
   const kind = tableKind({
     ...step,
     dependsOn: [],
@@ -930,11 +930,11 @@ function simulateWorkspaceStep(
     id: "simulation",
     reversibility: "additive",
   });
-  /** Holds the `tables` intermediate used by `simulateWorkspaceStep`. */
+  /** Result of `tableDescriptor`, retained for `simulateWorkspaceStep`. */
   let tables = [...structuredClone(snapshot.tables)];
   if (step.kind === "create_table") {
     if (!tables.some((table) => table.kind === kind)) {
-      /** Holds the `descriptor` intermediate used by `simulateWorkspaceStep`. */
+      /** Result of `tableDescriptor`, retained for `simulateWorkspaceStep`. */
       const descriptor = tableDescriptor(target, kind);
       tables.push({
         id: `planned:${kind}`,
@@ -954,18 +954,18 @@ function simulateWorkspaceStep(
       });
     }
   } else if (step.kind === "add_property" || step.kind === "add_relation") {
-    /** Holds the `name` intermediate used by `simulateWorkspaceStep`. */
+    /** Result of `requiredString`, retained for `simulateWorkspaceStep`. */
     const name = requiredString(
       step.payload.physicalName,
       "Workspace property name",
     );
-    /** Holds the `descriptor` intermediate used by `simulateWorkspaceStep`. */
+    /** Result of `tableDescriptor`, retained for `simulateWorkspaceStep`. */
     const descriptor = tableDescriptor(target, kind).properties.find(
       (property) => property.physicalName === name,
     );
     if (descriptor === undefined)
       throw new Error(`Unknown target property ${kind}.${name}`);
-    /** Holds the `targetId` intermediate used by `simulateWorkspaceStep`. */
+    /** Resolved relation-target table ID, or null for scalar properties. */
     const targetId =
       descriptor.targetTable === null
         ? null
@@ -1012,7 +1012,7 @@ function selectOptions(table: TableKind, property: string): readonly string[] {
 
 /** Resolves descriptor. */
 function tableDescriptor(target: WorkspaceSchemaDescriptor, kind: TableKind) {
-  /** Holds the `table` intermediate used by `tableDescriptor`. */
+  /** Result of `target.tables.find`, retained for `tableDescriptor`. */
   const table = target.tables.find((candidate) => candidate.kind === kind);
   if (table === undefined) throw new Error(`Target schema omits ${kind}`);
   return table;
@@ -1020,7 +1020,7 @@ function tableDescriptor(target: WorkspaceSchemaDescriptor, kind: TableKind) {
 
 /** Resolves kind. */
 function tableKind(step: WorkspaceMigrationStep): TableKind {
-  /** Holds the `kind` intermediate used by `tableKind`. */
+  /** Result of `requiredString`, retained for `tableKind`. */
   const kind = requiredString(step.payload.kind, "Workspace step table kind");
   if (!TABLE_KINDS.includes(kind as TableKind))
     throw new TypeError(`Invalid workspace table kind: ${kind}`);
@@ -1031,6 +1031,7 @@ function tableKind(step: WorkspaceMigrationStep): TableKind {
 function stepDigest(step: WorkspaceMigrationStep): string {
   return sha256(canonicalize(toJsonValue(step)));
 }
+
 /** Builds receipt key. */
 function stepReceiptKey(stepId: string): string {
   return `system/workspace-step/${sha256(stepId)}`;
@@ -1038,9 +1039,9 @@ function stepReceiptKey(stepId: string): string {
 
 /** Parses and validates workspace step record. */
 function parseWorkspaceStepRecord(value: JsonValue): WorkspaceStepRecord {
-  /** Holds the `object` intermediate used by `parseWorkspaceStepRecord`. */
+  /** Result of `objectValue`, retained for `parseWorkspaceStepRecord`. */
   const object = objectValue(value, "Workspace step record");
-  /** Defines `expectedKeys` for comparison in `parseWorkspaceStepRecord`. */
+  /** Exact field set required by the workspace-step record schema. */
   const expectedKeys = ["receipt", "schema", "state", "step", "stepDigest"];
   if (Object.keys(object).sort().join("\0") !== expectedKeys.sort().join("\0"))
     throw new TypeError(
@@ -1051,14 +1052,14 @@ function parseWorkspaceStepRecord(value: JsonValue): WorkspaceStepRecord {
     (object.state !== "pending" && object.state !== "applied")
   )
     throw new TypeError("Workspace step record schema or state is invalid");
-  /** Captures `receipt` returned by `parseWorkspaceStepRecord`. */
+  /** Applied-step receipt; null while the journal entry is pending. */
   const receipt =
     object.receipt === null ? null : parseWriteReceipt(object.receipt ?? null);
   if ((object.state === "applied") !== (receipt !== null))
     throw new TypeError("Workspace step record state and receipt disagree");
-  /** Holds the `step` intermediate used by `parseWorkspaceStepRecord`. */
+  /** Result of `parseWorkspaceStep`, retained for `parseWorkspaceStepRecord`. */
   const step = parseWorkspaceStep(objectValue(object.step, "Workspace step"));
-  /** Holds the `digest` intermediate used by `parseWorkspaceStepRecord`. */
+  /** Result of `requiredString`, retained for `parseWorkspaceStepRecord`. */
   const digest = requiredString(object.stepDigest, "Workspace step digest");
   if (digest !== stepDigest(step))
     throw new TypeError("Workspace step record digest is invalid");
@@ -1073,7 +1074,7 @@ function parseWorkspaceStepRecord(value: JsonValue): WorkspaceStepRecord {
 
 /** Parses and validates workspace step. */
 function parseWorkspaceStep(value: JsonObject): WorkspaceMigrationStep {
-  /** Defines `expectedKeys` for comparison in `parseWorkspaceStep`. */
+  /** Exact field set required by the workspace-step schema. */
   const expectedKeys = [
     "dependsOn",
     "expectedPostSchemaDigest",
@@ -1085,9 +1086,9 @@ function parseWorkspaceStep(value: JsonObject): WorkspaceMigrationStep {
   ];
   if (Object.keys(value).sort().join("\0") !== expectedKeys.sort().join("\0"))
     throw new TypeError("Workspace step has unexpected or missing fields");
-  /** Holds the `kind` intermediate used by `parseWorkspaceStep`. */
+  /** Result of `requiredString`, retained for `parseWorkspaceStep`. */
   const kind = requiredString(value.kind, "Workspace step kind");
-  /** Holds the `allowedKinds` intermediate used by `parseWorkspaceStep`. */
+  /** Allowed kinds snapshot used consistently during `parseWorkspaceStep`. */
   const allowedKinds: WorkspaceMigrationStep["kind"][] = [
     "add_managed_range",
     "add_option",
@@ -1098,7 +1099,7 @@ function parseWorkspaceStep(value: JsonObject): WorkspaceMigrationStep {
   ];
   if (!allowedKinds.includes(kind as WorkspaceMigrationStep["kind"]))
     throw new TypeError("Workspace step kind is invalid");
-  /** Holds the `dependencies` intermediate used by `parseWorkspaceStep`. */
+  /** Dependency IDs awaiting element validation. */
   const dependencies = value.dependsOn;
   if (
     !Array.isArray(dependencies) ||
@@ -1128,9 +1129,9 @@ function parseWorkspaceStep(value: JsonObject): WorkspaceMigrationStep {
 
 /** Parses and validates bootstrap session. */
 function parseBootstrapSession(value: JsonValue): BootstrapSessionRecord {
-  /** Holds the `object` intermediate used by `parseBootstrapSession`. */
+  /** Result of `objectValue`, retained for `parseBootstrapSession`. */
   const object = objectValue(value, "Bootstrap session");
-  /** Defines `expectedKeys` for comparison in `parseBootstrapSession`. */
+  /** Exact field set required by the bootstrap-session schema. */
   const expectedKeys = [
     "completedStepIds",
     "nextStepId",
@@ -1146,14 +1147,14 @@ function parseBootstrapSession(value: JsonValue): BootstrapSessionRecord {
   ) {
     throw new TypeError("Bootstrap session schema or state is invalid");
   }
-  /** Holds the `completed` intermediate used by `parseBootstrapSession`. */
+  /** Result of `stringArray`, retained for `parseBootstrapSession`. */
   const completed = stringArray(
     object.completedStepIds,
     "Bootstrap completed steps",
   );
-  /** Holds the `plan` intermediate used by `parseBootstrapSession`. */
+  /** Result of `parseWorkspacePlan`, retained for `parseBootstrapSession`. */
   const plan = parseWorkspacePlan(objectValue(object.plan, "Bootstrap plan"));
-  /** Tracks unique entries in `known` for `parseBootstrapSession`. */
+  /** Planned step IDs used to reject unknown completion claims. */
   const known = new Set(plan.steps.map((step) => step.id));
   if (
     completed.some((stepId) => !known.has(stepId)) ||
@@ -1161,9 +1162,9 @@ function parseBootstrapSession(value: JsonValue): BootstrapSessionRecord {
   ) {
     throw new TypeError("Bootstrap completed steps are invalid");
   }
-  /** Holds the `nextStep` intermediate used by `parseBootstrapSession`. */
+  /** Result of `plan.steps.find`, retained for `parseBootstrapSession`. */
   const nextStep = plan.steps.find((step) => !completed.includes(step.id));
-  /** Holds the `nextStepId` intermediate used by `parseBootstrapSession`. */
+  /** Next step id snapshot used consistently during `parseBootstrapSession`. */
   const nextStepId =
     object.nextStepId === null
       ? null
@@ -1185,7 +1186,7 @@ function parseBootstrapSession(value: JsonValue): BootstrapSessionRecord {
 
 /** Parses and validates workspace plan. */
 function parseWorkspacePlan(value: JsonObject): WorkspaceMigrationPlan {
-  /** Defines `expectedKeys` for comparison in `parseWorkspacePlan`. */
+  /** Exact field set required by the workspace-plan schema. */
   const expectedKeys = [
     "digest",
     "environmentId",
@@ -1205,7 +1206,7 @@ function parseWorkspacePlan(value: JsonObject): WorkspaceMigrationPlan {
     throw new TypeError("Workspace plan parent identity is invalid");
   if (!Array.isArray(value.steps))
     throw new TypeError("Workspace plan steps must be an array");
-  /** Holds the `plan` intermediate used by `parseWorkspacePlan`. */
+  /** Result of `finalizeMigrationPlan`, retained for `parseWorkspacePlan`. */
   const plan = finalizeMigrationPlan({
     environmentId: requiredString(
       value.environmentId,
@@ -1252,12 +1253,13 @@ function stringArray(value: JsonValue | undefined, label: string): string[] {
 function richTextPayload(text: string): JsonValue[] {
   return [{ text: { content: text }, type: "text" }];
 }
+
 /** Converts text. */
 function richText(value: JsonValue | undefined): string {
   if (!Array.isArray(value)) return "";
   return value
     .map((item) => {
-      /** Holds the `object` intermediate used by `richText`. */
+      /** Result of `objectValue`, retained for `richText`. */
       const object = objectValue(item, "Rich text item");
       return typeof object.plain_text === "string" ? object.plain_text : "";
     })
@@ -1267,9 +1269,9 @@ function richText(value: JsonValue | undefined): string {
 /** Resolves identity. */
 function parentIdentity(value: JsonValue | undefined): string | null {
   if (value === undefined || value === null) return null;
-  /** Holds the `parent` intermediate used by `parentIdentity`. */
+  /** Result of `objectValue`, retained for `parentIdentity`. */
   const parent = objectValue(value, "Database parent");
-  /** Holds the `id` intermediate used by `parentIdentity`. */
+  /** Id snapshot used consistently during `parentIdentity`. */
   const id = parent.page_id ?? parent.database_id;
   return typeof id === "string" ? normalizeNotionIdentifier(id) : null;
 }
@@ -1279,7 +1281,7 @@ function requiredResolved(
   values: ReadonlyMap<TableKind, string>,
   kind: TableKind,
 ): string {
-  /** Holds the `value` intermediate used by `requiredResolved`. */
+  /** Result of `values.get`, retained for `requiredResolved`. */
   const value = values.get(kind);
   if (value === undefined)
     throw new Error(`Notion ${kind} table is unresolved`);
@@ -1291,11 +1293,13 @@ function requiredDraft<T>(value: T | undefined): T {
   if (value === undefined) throw new Error("Migration draft is missing");
   return value;
 }
+
 /** Returns a JSON value or throws when it is missing. */
 function requiredValue(value: JsonValue | undefined): JsonValue {
   if (value === undefined) throw new TypeError("Expected value is missing");
   return value;
 }
+
 /** Returns a validated JSON object. */
 function objectValue(value: JsonValue | undefined, label: string): JsonObject {
   if (
@@ -1307,6 +1311,7 @@ function objectValue(value: JsonValue | undefined, label: string): JsonObject {
     throw new TypeError(`${label} must be an object`);
   return value;
 }
+
 /** Returns a required non-empty string or throws. */
 function requiredString(value: JsonValue | undefined, label: string): string {
   if (typeof value !== "string" || value === "")

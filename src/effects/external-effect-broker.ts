@@ -24,13 +24,14 @@ import { withSingleHostEffectLock } from "./single-host-effect-lock.js";
 export class IndeterminateExternalEffectError extends Error {
   /** Creates an indeterminate result for the identified effect. */
   public constructor(
-    /** Identifies the effect whose outcome remains unknown. */ public readonly effectId: string,
+    /** Stable identifier for effect id. */ public readonly effectId: string,
     /** Keeps the provider claim until expiry when execution may continue. */ public readonly retainClaimUntilExpiry = false,
     options?: ErrorOptions,
   ) {
     super(`External effect is indeterminate: ${effectId}`, options);
   }
 }
+
 /** Marks a handler that did not prove terminal cancellation within its grace period. */
 class UnacknowledgedEffectCancellationError extends Error {}
 
@@ -41,8 +42,8 @@ export class ExternalEffectBroker {
     /** Resolves the handler registered for each proposed effect kind. */ private readonly environment: ResolvedExternalEffectEnvironment,
     /** Persists intent, observation, claim, quarantine, and receipt state. */ private readonly journal: ProviderEffectJournal,
     /** Revalidates authority before an effect crosses the broker boundary. */ private readonly authority: ExternalEffectAuthorityVerifier,
-    /** Sets cancellation grace in milliseconds. */ private readonly cancellationGraceMilliseconds = 5_000,
-    /** Sets unacknowledged cancellation quarantine in milliseconds. */ private readonly unacknowledgedCancellationQuarantineMilliseconds = 86_400_000,
+    /** Cancellation grace in milliseconds. */ private readonly cancellationGraceMilliseconds = 5_000,
+    /** Unacknowledged cancellation quarantine in milliseconds. */ private readonly unacknowledgedCancellationQuarantineMilliseconds = 86_400_000,
   ) {}
 
   /** Preflights every proposed intent before executing effects in proposal order. */
@@ -118,7 +119,7 @@ export class ExternalEffectBroker {
     const handler = this.environment.handlers.get(request.kind);
     handler.validate(request.payload);
 
-    /** Tracks durable state across reconciliation and application. */
+    /** Mutable state recording durable state across reconciliation and application. */
     let record = await this.journal.read(request.effectId);
     if (record === null) {
       record = {
@@ -142,7 +143,7 @@ export class ExternalEffectBroker {
         };
     }
 
-    /** Captures the handler's observation of any prior external application. */
+    /** The handler's observation of any prior external application. */
     let observed: ExternalEffectObservation;
     try {
       observed = await invokeHandler(
@@ -151,7 +152,7 @@ export class ExternalEffectBroker {
         this.cancellationGraceMilliseconds,
       );
     } catch (error) {
-      /** Records whether cancellation may have left reconciliation running. */
+      /** Whether cancellation may have left reconciliation running. */
       const mayContinue = executionMayContinue(error);
       await this.pauseForUnknown(
         record,
@@ -184,7 +185,7 @@ export class ExternalEffectBroker {
     };
     await this.journal.write(record);
 
-    /** Captures the observation returned by the permitted apply attempt. */
+    /** The observation returned by the permitted apply attempt. */
     let applied: ExternalEffectObservation;
     try {
       applied = await invokeHandler(
@@ -193,7 +194,7 @@ export class ExternalEffectBroker {
         this.cancellationGraceMilliseconds,
       );
     } catch (error) {
-      /** Records whether cancellation may have left application running. */
+      /** Whether cancellation may have left application running. */
       const mayContinue = executionMayContinue(error);
       await this.pauseForUnknown(
         record,
@@ -361,9 +362,9 @@ function validateDeadline(deadlineAt: number): void {
 /** Runs a handler under one absolute deadline and bounded cancellation grace. */
 async function invokeHandler(
   operation: (control: {
-    /** Records the canonical timestamp for deadline. */
+    /** Canonical timestamp for deadline. */
     readonly deadlineAt: number;
-    /** Provides signal to invoke handler. */
+    /** Cancellation signal for the operation. */
     readonly signal: AbortSignal;
   }) => Promise<ExternalEffectObservation>,
   deadlineAt: number,
@@ -377,17 +378,17 @@ async function invokeHandler(
 
   /** Starts the handler exactly once before racing its deadline. */
   const running = operation({ deadlineAt, signal: controller.signal });
-  /** Holds the timer for the primary deadline race. */
+  /** Timer for the primary deadline race. */
   let timer: NodeJS.Timeout | undefined;
 
-  /** Captures the handler-versus-deadline race result. */
+  /** The handler-versus-deadline race result. */
   const deadlineResult = await Promise.race([
     running.then(
       (value) => ({ kind: "settled" as const, value }),
       (error: unknown) => ({ error, kind: "rejected" as const }),
     ),
     new Promise<{
-      /** Identifies expiration as the race outcome. */ readonly kind: "timeout";
+      /** Kind callback invoked by expiration as the race outcome. */ readonly kind: "timeout";
     }>((resolve) => {
       timer = setTimeout(() => resolve({ kind: "timeout" }), remaining);
     }),
@@ -398,17 +399,17 @@ async function invokeHandler(
   if (deadlineResult.kind === "rejected") throw deadlineResult.error;
 
   controller.abort();
-  /** Holds the timer for the post-abort grace period. */
+  /** Timer for the post-abort grace period. */
   let graceTimer: NodeJS.Timeout | undefined;
 
-  /** Captures the handler-versus-cancellation-grace race result. */
+  /** The handler-versus-cancellation-grace race result. */
   const cancellationResult = await Promise.race([
     running.then(
       (value) => ({ kind: "fulfilled" as const, value }),
       (error: unknown) => ({ error, kind: "rejected" as const }),
     ),
     new Promise<{
-      /** Identifies grace-period expiration as the race outcome. */ readonly kind: "timeout";
+      /** Kind callback invoked by grace-period expiration as the race outcome. */ readonly kind: "timeout";
     }>((resolve) => {
       graceTimer = setTimeout(
         () => resolve({ kind: "timeout" }),

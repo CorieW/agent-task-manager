@@ -10,7 +10,7 @@ import type {
   NotionTransport,
 } from "../src/provider/notion/notion-transport.js";
 
-/** Defines the shared tables fixture for this test module. */
+/** Maps logical tables to stable fake provider identifiers. */
 const TABLES = {
   errors: "errors",
   resources: "resources",
@@ -73,16 +73,16 @@ class RecordsTransport implements NotionTransport {
 }
 
 test("decodes task summaries and exhausts relation property pagination", async () => {
-  /** Defines the reader fixture for “decodes task summaries and exhausts relation property pagination”. */
+  /** Reads provider records through the fake Notion transport. */
   const reader = new NotionRecordReader(TABLES, new RecordsTransport());
-  /** Defines the summaries fixture for “decodes task summaries and exhausts relation property pagination”. */
+  /** Collects decoded Task summaries returned by the provider. */
   const summaries = await reader.listTaskSummaries({
     cursor: null,
     limit: 10,
     predicate: { status: "Todo" },
   });
   assert.equal(summaries.length, 1);
-  /** Defines the task fixture for “decodes task summaries and exhausts relation property pagination”. */
+  /** Represents the Task state exercised by the scenario. */
   const task = await reader.getTaskSnapshot("task-1");
   assert.deepEqual(task.dependencies, ["dep-1", "dep-2"]);
   assert.equal(task.body, "Task details");
@@ -98,6 +98,7 @@ test("translates a multi-status Task query into a bounded Notion filter", async 
   /** Reads Task summaries through the capturing transport. */
   const reader = new NotionRecordReader(TABLES, transport);
 
+  /** Collects decoded summaries for the translated multi-status query. */
   const summaries = await reader.listTaskSummaries({
     cursor: null,
     limit: 10,
@@ -116,9 +117,9 @@ test("translates a multi-status Task query into a bounded Notion filter", async 
 });
 
 test("loads strict Agent definitions from their managed range", async () => {
-  /** Defines the reader fixture for “loads strict Agent definitions from their managed range”. */
+  /** Reads provider records through the fake Notion transport. */
   const reader = new NotionRecordReader(TABLES, new RecordsTransport());
-  /** Defines the agent fixture for “loads strict Agent definitions from their managed range”. */
+  /** Captures the decoded Agent record used as the oracle. */
   const [agent] = await reader.listAgentDefinitions();
   assert.equal(agent?.name, "Coordinator");
   assert.equal(agent?.selection.mode, "coordinator");
@@ -131,9 +132,9 @@ test("loads strict Agent definitions from their managed range", async () => {
 });
 
 test("verifies Resources against their content digest", async () => {
-  /** Defines the reader fixture for “verifies Resources against their content digest”. */
+  /** Reads provider records through the fake Notion transport. */
   const reader = new NotionRecordReader(TABLES, new RecordsTransport());
-  /** Defines the resource fixture for “verifies Resources against their content digest”. */
+  /** Captures the Resource read model used as the oracle. */
   const [resource] = await reader.getResources([
     {
       digest: sha256("resource text\nSecond paragraph"),
@@ -170,7 +171,7 @@ function taskPage(): JsonObject {
   };
 }
 
-/** Creates the agent page test fixture. */
+/** Builds a fake Notion page containing a managed Agent definition. */
 function agentPage(): JsonObject {
   return {
     id: "agent-1",
@@ -261,7 +262,7 @@ function definition(): JsonObject {
   };
 }
 
-/** Creates the blocks test fixture. */
+/** Wraps managed blocks in a Notion list response. */
 function blocks(results: JsonObject[]): JsonObject {
   return { has_more: false, next_cursor: null, results };
 }

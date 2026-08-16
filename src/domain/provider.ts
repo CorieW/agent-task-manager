@@ -1,4 +1,4 @@
-/** Defines provider capabilities, environments, validation, write receipts, and reconciliation results. */
+/** Provider-neutral provider capabilities, environments, validation, write receipts, and reconciliation results contract. */
 import type { JsonObject, JsonValue } from "./json.js";
 
 /** Provider table kinds managed by the application. */

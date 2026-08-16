@@ -1,4 +1,4 @@
-/** Provides a test-only JSON round-trip wrapper that checks provider serialization without adding durability. */
+/** A test-only JSON round-trip wrapper that checks provider serialization without adding durability. */
 import type {
   ActivityMutation,
   ConditionalTaskMutation,
@@ -36,7 +36,7 @@ import type {
 } from "../domain/schema.js";
 import type { AgentTaskProvider } from "./agent-task-provider.js";
 
-/** Defines seedable agent task provider. */
+/** Seedable agent task provider boundary. */
 export interface SeedableAgentTaskProvider extends AgentTaskProvider {
   /** Seeds definition. */
   seedDefinition(definition: AgentDefinition): void;
@@ -55,7 +55,7 @@ function crossBoundary<T>(value: T): T {
 export class SerializedProviderEmulator implements SeedableAgentTaskProvider {
   /** Initializes serialized provider emulator. */
   public constructor(
-    /** Contains backing for serialized provider emulator. */ private readonly backing: SeedableAgentTaskProvider,
+    /** Seedable provider wrapped by the serialization emulator. */ private readonly backing: SeedableAgentTaskProvider,
   ) {}
 
   /** Seeds definition. */
@@ -124,7 +124,7 @@ export class SerializedProviderEmulator implements SeedableAgentTaskProvider {
     );
   }
 
-  /** Lists Agent definitions. */
+  /** Returns agent definitions in deterministic order. */
   public async listAgentDefinitions(): Promise<readonly AgentDefinition[]> {
     return crossBoundary(await this.backing.listAgentDefinitions());
   }
@@ -172,7 +172,7 @@ export class SerializedProviderEmulator implements SeedableAgentTaskProvider {
     );
   }
 
-  /** Lists task status options. */
+  /** Returns task status options in deterministic order. */
   public async listTaskStatusOptions(): Promise<readonly string[]> {
     return crossBoundary(await this.backing.listTaskStatusOptions());
   }
@@ -186,7 +186,7 @@ export class SerializedProviderEmulator implements SeedableAgentTaskProvider {
     );
   }
 
-  /** Lists task summaries. */
+  /** Returns task summaries in deterministic order. */
   public async listTaskSummaries(
     query: TaskQuery,
   ): Promise<readonly TaskSummary[]> {

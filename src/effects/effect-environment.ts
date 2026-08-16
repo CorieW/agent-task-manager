@@ -5,13 +5,13 @@ import { toJsonValue, type JsonObject } from "../domain/json.js";
 import type { ExternalEffectHandler } from "./contracts.js";
 import { ExternalEffectHandlerRegistry } from "./registry.js";
 
-/** Defines the data and behavior required by resolved external effect environment. */
+/** Trusted dependencies available to resolved external effect. */
 export interface ResolvedExternalEffectEnvironment {
-  /** Provides digest to resolved external effect environment. */
+  /** SHA-256 digest binding the canonical content. */
   readonly digest: string;
-  /** Provides handlers to resolved external effect environment. */
+  /** Handler registry keyed by effect kind. */
   readonly handlers: ExternalEffectHandlerRegistry;
-  /** Provides settings to resolved external effect environment. */
+  /** Validated settings for the selected effect kind. */
   readonly settings: Readonly<Record<string, JsonObject>>;
 }
 
@@ -28,12 +28,12 @@ export function resolveExternalEffectEnvironment(
     throw new Error(
       "Installed external-effect handlers must have unique kind and adapter identities",
     );
-  /** Stores handlers used by resolve external effect environment. */
+  /** Result of `ExternalEffectHandlerRegistry`, retained for the resolve external effect environment operation. */
   const handlers = new ExternalEffectHandlerRegistry();
   for (const [kind, adapterId] of Object.entries(config.effects.handlers).sort(
     ([left], [right]) => left.localeCompare(right),
   )) {
-    /** Stores handler used by resolve external effect environment. */
+    /** Result of `byIdentity.get`, retained for the resolve external effect environment operation. */
     const handler = byIdentity.get(`${kind}\0${adapterId}`);
     if (handler === undefined)
       throw new Error(
@@ -41,13 +41,13 @@ export function resolveExternalEffectEnvironment(
       );
     handlers.register(handler);
   }
-  /** Stores identities used by resolve external effect environment. */
+  /** Result of `handlers.kinds`, retained for the resolve external effect environment operation. */
   const identities = handlers.kinds().map((kind) => {
-    /** Stores handler used by resolve external effect environment. */
+    /** Result of `handlers.get`, retained for the resolve external effect environment operation. */
     const handler = handlers.get(kind);
     return { id: handler.id, kind, version: handler.version };
   });
-  /** Stores settings used by resolve external effect environment. */
+  /** Result of `structuredClone`, retained for the resolve external effect environment operation. */
   const settings = structuredClone(config.effects.settings);
   return {
     digest: digestJson(

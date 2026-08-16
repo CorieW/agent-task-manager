@@ -1,4 +1,4 @@
-/** Provides SHA-256 helpers for raw bytes and canonical provider-neutral JSON. */
+/** SHA-256 helpers for raw bytes and canonical provider-neutral JSON. */
 import { createHash } from "node:crypto";
 
 import type { JsonValue } from "../domain/json.js";

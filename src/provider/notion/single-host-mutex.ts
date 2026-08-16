@@ -5,9 +5,9 @@ import { join } from "node:path";
 
 /** Implements single-host mutex. */
 export class SingleHostMutex {
-  /** Contains path for single-host mutex. */
+  /** Provider-relative request path. */
   readonly #path: string;
-  /** Contains tail for single-host mutex. */
+  /** Per-key promise tail that serializes mutex callers. */
   #tail: Promise<void> = Promise.resolve();
 
   /** Initializes single-host mutex. */
@@ -17,15 +17,15 @@ export class SingleHostMutex {
 
   /** Runs one callback under in-process ordering and the same-host lock file. */
   public async run<T>(operation: () => Promise<T>): Promise<T> {
-    /** Holds the `previous` intermediate used by `run`. */
+    /** Result of `Promise`, retained for `run`. */
     const previous = this.#tail;
-    /** Holds the `releaseQueue` intermediate used by `run`. */
+    /** Result of `Promise`, retained for `run`. */
     let releaseQueue!: () => void;
     this.#tail = new Promise<void>((resolve) => {
       releaseQueue = resolve;
     });
     await previous;
-    /** Holds the `handle` intermediate used by `run`. */
+    /** Result of `this.acquire`, retained for `run`. */
     let handle: Awaited<ReturnType<typeof open>> | undefined;
     try {
       handle = await this.acquire();
@@ -42,7 +42,7 @@ export class SingleHostMutex {
   /** Acquires acquire. */
   private async acquire() {
     try {
-      /** Holds the `handle` intermediate used by `acquire`. */
+      /** Result of `open`, retained for `acquire`. */
       const handle = await open(this.#path, "wx", 0o600);
       await handle.writeFile(
         JSON.stringify({
@@ -55,7 +55,7 @@ export class SingleHostMutex {
     } catch (error) {
       if (!isAlreadyExists(error) || !(await this.clearStaleOwner()))
         throw error;
-      /** Holds the `handle` intermediate used by `acquire`. */
+      /** Result of `open`, retained for `acquire`. */
       const handle = await open(this.#path, "wx", 0o600);
       await handle.writeFile(
         JSON.stringify({
@@ -70,10 +70,10 @@ export class SingleHostMutex {
 
   /** Clears stale owner. */
   private async clearStaleOwner(): Promise<boolean> {
-    /** Holds the `pid` intermediate used by `clearStaleOwner`. */
+    /** Result of `JSON.parse`, retained for `clearStaleOwner`. */
     let pid: number;
     try {
-      /** Holds the `parsed` intermediate used by `clearStaleOwner`. */
+      /** Result of `JSON.parse`, retained for `clearStaleOwner`. */
       const parsed: unknown = JSON.parse(await readFile(this.#path, "utf8"));
       if (
         parsed === null ||

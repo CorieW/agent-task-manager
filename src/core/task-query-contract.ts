@@ -1,4 +1,4 @@
-/** Defines bounded provider-neutral task candidate queries loaded from Resources. */
+/** Provider-neutral bounded provider-neutral task candidate queries loaded from Resources contract. */
 import { digestJson } from "./digest.js";
 import {
   toJsonValue,
@@ -24,25 +24,25 @@ const TASK_QUERY_FIELDS = new Set([
 /** Maximum number of workflow statuses accepted by one Task query. */
 const MAX_STATUS_PREDICATE_VALUES = 20;
 
-/** Canonical fields for task query contract. */
+/** Bounded Task-selection query loaded from an immutable Resource. */
 export interface TaskQueryContract {
-  /** Dependency satisfied statuses included in task query contract. */
+  /** Statuses that count as complete when evaluating Task dependencies. */
   readonly dependencySatisfiedStatuses: readonly string[];
-  /** Limit for task query contract. */
+  /** Maximum provider summaries to return, inclusive from 1 through 100. */
   readonly limit: number;
-  /** Predicate for task query contract. */
+  /** Exact provider-neutral field matches used to select candidate Tasks. */
   readonly predicate: JsonObject;
   /** Schema discriminator for the serialized representation. */
   readonly schema: "task-query-v1";
 }
 
-/** Canonical fields for candidate set. */
+/** Deterministically ordered Task summaries bound to their source query. */
 export interface CandidateSet {
   /** SHA-256 digest of the candidate-set query and summaries. */
   readonly digest: string;
   /** SHA-256 digest of canonical query content. */
   readonly queryDigest: string;
-  /** Summaries included in candidate set. */
+  /** Detached summaries ordered by Task ID. */
   readonly summaries: readonly TaskSummary[];
 }
 
@@ -57,20 +57,24 @@ export function parseTaskQueryContract(body: string): TaskQueryContract {
     ["dependencySatisfiedStatuses", "limit", "predicate", "schema"],
     "Task query",
   );
+
   if (value.schema !== "task-query-v1")
     throw new TypeError("Task query schema is invalid");
+
   if (
     !Number.isSafeInteger(value.limit) ||
     (value.limit as number) < 1 ||
     (value.limit as number) > 100
   )
     throw new TypeError("Task query limit must be from 1 to 100");
-  /** Statuses used during parse task query contract. */
-  const statuses = stringArray(
+
+  /** Dependency statuses validated independently of the selection predicate. */
+  const dependencySatisfiedStatuses = stringArray(
     value.dependencySatisfiedStatuses,
     "dependencySatisfiedStatuses",
   );
-  /** Predicate used during parse task query contract. */
+
+  /** Closed predicate whose entries are validated before provider use. */
   const predicate = objectValue(value.predicate, "Task query predicate");
   for (const [key, expected] of Object.entries(predicate)) {
     if (!TASK_QUERY_FIELDS.has(key))
@@ -103,8 +107,9 @@ export function parseTaskQueryContract(body: string): TaskQueryContract {
       throw new TypeError(`Task query predicate ${key} must be a scalar`);
     }
   }
+
   return {
-    dependencySatisfiedStatuses: statuses,
+    dependencySatisfiedStatuses,
     limit: value.limit as number,
     predicate,
     schema: value.schema,
@@ -117,15 +122,16 @@ export function taskSummaryMatchesPredicate(
   predicate: JsonObject,
 ): boolean {
   return Object.entries(predicate).every(([key, expected]) => {
-    const actual = summary[key as keyof TaskSummary];
-    if (!Array.isArray(expected)) return Object.is(actual, expected);
+    /** Summary field compared with the predicate's expected value. */
+    const actualValue = summary[key as keyof TaskSummary];
+    if (!Array.isArray(expected)) return Object.is(actualValue, expected);
     /** Classifies the same bounded status-array constraints at this direct boundary. */
     const issue = statusPredicateIssue(expected);
     if (key !== "status" || issue !== null) {
       throw new TypeError(`Unsupported task predicate: ${key}`);
     }
     return (expected as readonly string[]).some((candidate) =>
-      Object.is(actual, candidate),
+      Object.is(actualValue, candidate),
     );
   });
 }
@@ -147,16 +153,18 @@ export function finalizeCandidateSet(
   contract: TaskQueryContract,
   summaries: readonly TaskSummary[],
 ): CandidateSet {
-  /** Ordered arranged in deterministic order. */
-  const ordered = [...summaries].sort((left, right) =>
+  /** Detached summaries ordered deterministically before digest construction. */
+  const orderedSummaries = [...summaries].sort((left, right) =>
     left.id.localeCompare(right.id),
   );
-  /** Canonical digest of query. */
+  /** Digest binding the complete canonical Task-query contract. */
   const queryDigest = digestJson(toJsonValue(contract));
   return {
-    digest: digestJson(toJsonValue({ queryDigest, summaries: ordered })),
+    digest: digestJson(
+      toJsonValue({ queryDigest, summaries: orderedSummaries }),
+    ),
     queryDigest,
-    summaries: ordered.map((summary) => structuredClone(summary)),
+    summaries: orderedSummaries.map((summary) => structuredClone(summary)),
   };
 }
 
@@ -169,6 +177,7 @@ function assertExactKeys(
   if (Object.keys(value).sort().join("\0") !== [...expected].sort().join("\0"))
     throw new TypeError(`${label} has unexpected or missing fields`);
 }
+
 /** Requires a field value to be a non-array JSON object. */
 function objectValue(value: JsonValue | undefined, label: string): JsonObject {
   if (
@@ -180,6 +189,7 @@ function objectValue(value: JsonValue | undefined, label: string): JsonObject {
     throw new TypeError(`${label} must be an object`);
   return value;
 }
+
 /** Requires an array containing only strings. */
 function stringArray(
   value: JsonValue | undefined,

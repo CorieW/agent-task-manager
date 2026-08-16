@@ -7,15 +7,15 @@ export async function withSingleHostEffectLock<T>(
   effectId: string,
   operation: () => Promise<T>,
 ): Promise<T> {
-  /** Stores prior used by with single host effect lock. */
+  /** Result of `tails.get`, retained for the with single host effect lock operation. */
   const prior = tails.get(effectId) ?? Promise.resolve();
-  /** Stores release used by with single host effect lock. */
+  /** Result of `Promise`, retained for the with single host effect lock operation. */
   let release!: () => void;
-  /** Stores current used by with single host effect lock. */
+  /** Result of `Promise`, retained for the with single host effect lock operation. */
   const current = new Promise<void>((resolve) => {
     release = resolve;
   });
-  /** Stores tail used by with single host effect lock. */
+  /** Result of `prior.catch`, retained for the with single host effect lock operation. */
   const tail = prior.catch(() => undefined).then(() => current);
   tails.set(effectId, tail);
   await prior.catch(() => undefined);

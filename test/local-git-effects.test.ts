@@ -14,15 +14,15 @@ import {
 } from "../src/index.js";
 
 test("binds every Git call to empty hooks, closed config, and configured roots", async () => {
-  /** Defines the root fixture for “binds every Git call to empty hooks, closed config, and configured roots”. */
+  /** Provides the isolated filesystem root used by the scenario. */
   const root = await mkdtemp(join(tmpdir(), "agent-task-manager-git-"));
-  /** Defines the hooks fixture for “binds every Git call to empty hooks, closed config, and configured roots”. */
+  /** Records process-tree termination callbacks. */
   const hooks = join(root, "hooks");
-  /** Defines the repository fixture for “binds every Git call to empty hooks, closed config, and configured roots”. */
+  /** Provides the temporary Git repository exercised by the test. */
   const repository = join(root, "repo");
-  /** Defines the runtime fixture for “binds every Git call to empty hooks, closed config, and configured roots”. */
+  /** Provides the effect or dispatch runtime exercised by the scenario. */
   const runtime = join(root, "runtime");
-  /** Defines the executable fixture for “binds every Git call to empty hooks, closed config, and configured roots”. */
+  /** Selects the platform command used by the process test. */
   const executable = join(root, "git.exe");
   await Promise.all([
     mkdir(hooks),
@@ -30,18 +30,18 @@ test("binds every Git call to empty hooks, closed config, and configured roots",
     mkdir(runtime),
     writeFile(executable, "pinned"),
   ]);
-  /** Defines the calls fixture for “binds every Git call to empty hooks, closed config, and configured roots”. */
+  /** Records commands submitted to the fake executor. */
   const calls: {
-    /** Contains args for module. */
+    /** Records the exact Git arguments submitted by the adapter. */
     args: readonly string[];
-    /** Contains cwd for module. */
+    /** Records the repository root bound to the Git invocation. */
     cwd: string;
-    /** Contains environment for module. */
+    /** Records the closed environment supplied to the Git process. */
     environment: Readonly<Record<string, string>>;
   }[] = [];
-  /** Defines the executor fixture for “binds every Git call to empty hooks, closed config, and configured roots”. */
+  /** Simulates command execution and records each invocation. */
   const executor: GitCommandExecutor = {
-    /** Creates the run test fixture. */
+    /** Records each Git command and returns a successful result. */
     async run(input) {
       calls.push(input);
       if (input.args.includes("--version"))
@@ -49,13 +49,13 @@ test("binds every Git call to empty hooks, closed config, and configured roots",
       return { exitCode: 1, stderr: "absent", stdout: "" };
     },
   };
-  /** Defines the owners fixture for “binds every Git call to empty hooks, closed config, and configured roots”. */
+  /** Collects active workspace owners after reconciliation. */
   const owners = new Map<string, WorkspaceOwnershipRecord>();
-  /** Defines the ownership fixture for “binds every Git call to empty hooks, closed config, and configured roots”. */
+  /** Captures the persisted workspace ownership record. */
   const ownership: WorkspaceOwnershipStore = {
-    /** Creates the claim test fixture. */
+    /** Returns the fixed workspace ownership claim. */
     async claim(input) {
-      /** Defines the value fixture for “binds every Git call to empty hooks, closed config, and configured roots”. */
+      /** Captures the scalar value returned by the fake adapter. */
       const value: WorkspaceOwnershipRecord = {
         ...input,
         releaseEffectId: null,
@@ -71,10 +71,10 @@ test("binds every Git call to empty hooks, closed config, and configured roots",
     },
     /** Releases the simulated workspace ownership. */
     async release(input) {
-      /** Defines the current fixture for “binds every Git call to empty hooks, closed config, and configured roots”. */
+      /** Tracks the mutable simulated clock or current record state. */
       const current = owners.get(input.workspaceKey);
       if (current === undefined) throw new Error("Missing test owner");
-      /** Defines the value fixture for “binds every Git call to empty hooks, closed config, and configured roots”. */
+      /** Captures the scalar value returned by the fake adapter. */
       const value: WorkspaceOwnershipRecord = {
         ...current,
         releaseEffectId: input.releaseEffectId,
@@ -84,7 +84,7 @@ test("binds every Git call to empty hooks, closed config, and configured roots",
       return value;
     },
   };
-  /** Defines the effects fixture for “binds every Git call to empty hooks, closed config, and configured roots”. */
+  /** Runs the child-agent wave through the effect broker. */
   const effects = await LocalGitEffects.create(
     {
       executable: {
@@ -99,7 +99,7 @@ test("binds every Git call to empty hooks, closed config, and configured roots",
     },
     { executor, ownership },
   );
-  /** Defines the observed fixture for “binds every Git call to empty hooks, closed config, and configured roots”. */
+  /** Captures observed state used as the assertion oracle. */
   const observed = await effects.workspaceProvisionAdapter().reconcile({
     control: {
       deadlineAt: Date.now() + 1000,

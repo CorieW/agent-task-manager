@@ -16,14 +16,15 @@ import type {
 } from "../src/provider/notion/notion-transport.js";
 import { SingleHostMutex } from "../src/provider/notion/single-host-mutex.js";
 
-/** Defines the shared tables fixture for this test module. */
+/** Maps logical tables to stable fake provider identifiers. */
 const TABLES = {
   errors: "errors",
   resources: "resources",
   agents: "agents",
   tasks: "tasks",
 };
-/** Defines the shared Notion tables fixture for this test module. */
+
+/** Maps logical tables to stable fake Notion identifiers. */
 const NOTION_TABLES = {
   errors: "11111111-1111-1111-1111-111111111111",
   resources: "22222222-2222-2222-2222-222222222222",
@@ -32,19 +33,19 @@ const NOTION_TABLES = {
 };
 
 test("persists replayable leases and restart-visible intent outcomes", async () => {
-  /** Defines the transport fixture for “persists replayable leases and restart-visible intent outcomes”. */
+  /** Captures and simulates Notion requests for the scenario. */
   const transport = new ResourceTransport();
-  /** Defines the now fixture for “persists replayable leases and restart-visible intent outcomes”. */
+  /** Controls the simulated provider clock deterministically. */
   const now = () => new Date("2026-01-01T00:00:00.000Z");
-  /** Defines the pages fixture for “persists replayable leases and restart-visible intent outcomes”. */
+  /** Stores the in-memory Notion rows returned by the transport. */
   const pages = new NotionPageStore(TABLES, transport, now);
-  /** Defines the first fixture for “persists replayable leases and restart-visible intent outcomes”. */
+  /** Captures the first operation result for replay comparison. */
   const first = new NotionStateStore(
     pages,
     new SingleHostMutex(`state-${randomUUID()}`),
     now,
   );
-  /** Defines the request fixture for “persists replayable leases and restart-visible intent outcomes”. */
+  /** Supplies the operation input under test. */
   const request = {
     expiresAt: "2026-01-01T01:00:00.000Z",
     idempotencyKey: "acquire-one",
@@ -53,11 +54,11 @@ test("persists replayable leases and restart-visible intent outcomes", async () 
     agentId: "agent-1",
     taskId: null,
   };
-  /** Defines the acquired fixture for “persists replayable leases and restart-visible intent outcomes”. */
+  /** Captures the lease granted by the provider. */
   const acquired = await first.acquireLease(request);
   assert.equal(acquired.acquired, true);
 
-  /** Defines the restarted fixture for “persists replayable leases and restart-visible intent outcomes”. */
+  /** Reopens persisted state through a new provider instance. */
   const restarted = new NotionStateStore(
     pages,
     new SingleHostMutex(`state-${randomUUID()}`),
@@ -72,7 +73,7 @@ test("persists replayable leases and restart-visible intent outcomes", async () 
     "applied",
   );
 
-  /** Defines the concurrent fixture for “persists replayable leases and restart-visible intent outcomes”. */
+  /** Captures the lease acquired by the concurrent contender. */
   const concurrent = await restarted.acquireLease({
     ...request,
     idempotencyKey: "acquire-two",
@@ -90,22 +91,28 @@ test("persists replayable leases and restart-visible intent outcomes", async () 
 });
 
 test("persists restart-visible logical operation plans and results", async () => {
+  /** Retains Resource rows across simulated provider restarts. */
   const transport = new ResourceTransport();
+  /** Freezes timestamps so persisted records compare deterministically. */
   const now = () => new Date("2026-01-01T00:00:00.000Z");
+  /** Creates the provider instance that starts and completes the operation. */
   const first = new NotionProvider({
     environment: notionEnvironment(),
     environmentId: `operation-${randomUUID()}`,
     now,
     transport,
   });
+  /** Represents the immutable logical transition plan. */
   const payload = { mutation: { taskId: "task-1" }, schema: "plan-v1" };
 
+  /** Captures the durable intent before its result exists. */
   const pending = await first.beginOperationIntent(
     "logical-operation",
     "transition",
     payload,
   );
   assert.equal(pending.state, "pending");
+  /** Captures the completed durable operation record. */
   const completed = await first.completeOperationIntent(
     "logical-operation",
     "transition",
@@ -114,6 +121,7 @@ test("persists restart-visible logical operation plans and results", async () =>
   );
   assert.equal(completed.state, "applied");
 
+  /** Reopens the same persisted state through a new provider instance. */
   const restarted = new NotionProvider({
     environment: notionEnvironment(),
     environmentId: `operation-${randomUUID()}`,
@@ -127,12 +135,15 @@ test("persists restart-visible logical operation plans and results", async () =>
 });
 
 test("rejects an invalid Resource before persisting its intent", async () => {
+  /** Captures provider writes made during Resource validation. */
   const transport = new ResourceTransport();
+  /** Performs the Resource preflight under test. */
   const provider = new NotionProvider({
     environment: notionEnvironment(),
     environmentId: `resource-preflight-${randomUUID()}`,
     transport,
   });
+  /** Carries a digest computed from noncanonical body text. */
   const record: ResourceMutation = {
     body: "Line one\r\nLine two",
     dependencies: [],
@@ -155,21 +166,21 @@ test("rejects an invalid Resource before persisting its intent", async () => {
 });
 
 test("does not strand stale lease release preconditions in a pending intent", async () => {
-  /** Defines the current fixture for “does not strand stale lease release preconditions in a pending intent”. */
+  /** Tracks the mutable simulated clock or current record state. */
   let current = Date.parse("2026-01-01T00:00:00.000Z");
-  /** Defines the transport fixture for “does not strand stale lease release preconditions in a pending intent”. */
+  /** Captures and simulates Notion requests for the scenario. */
   const transport = new ResourceTransport();
-  /** Defines the now fixture for “does not strand stale lease release preconditions in a pending intent”. */
+  /** Controls the simulated provider clock deterministically. */
   const now = () => new Date(current);
-  /** Defines the pages fixture for “does not strand stale lease release preconditions in a pending intent”. */
+  /** Stores the in-memory Notion rows returned by the transport. */
   const pages = new NotionPageStore(TABLES, transport, now);
-  /** Defines the state fixture for “does not strand stale lease release preconditions in a pending intent”. */
+  /** Tracks mutable simulated state across the operation. */
   const state = new NotionStateStore(
     pages,
     new SingleHostMutex(`state-${randomUUID()}`),
     now,
   );
-  /** Defines the acquired fixture for “does not strand stale lease release preconditions in a pending intent”. */
+  /** Captures the lease granted by the provider. */
   const acquired = await state.acquireLease({
     expiresAt: "2026-01-01T00:10:00.000Z",
     idempotencyKey: "release-acquire",
@@ -178,7 +189,7 @@ test("does not strand stale lease release preconditions in a pending intent", as
     agentId: "agent-1",
     taskId: null,
   });
-  /** Defines the before fixture for “does not strand stale lease release preconditions in a pending intent”. */
+  /** Snapshots provider state before the operation. */
   const before = await state.leaseSnapshot(acquired.leaseId!);
   assert.notEqual(before, null);
   current += 1_000;
@@ -197,7 +208,7 @@ test("does not strand stale lease release preconditions in a pending intent", as
     }),
     /release conflict/u,
   );
-  /** Defines the after fixture for “does not strand stale lease release preconditions in a pending intent”. */
+  /** Snapshots provider state after the operation. */
   const after = await state.leaseSnapshot(acquired.leaseId!);
   assert.notEqual(after, null);
   await state.releaseLease({
@@ -209,13 +220,13 @@ test("does not strand stale lease release preconditions in a pending intent", as
 });
 
 test("does not persist an intent when its known precondition fails", async () => {
-  /** Defines the transport fixture for “does not persist an intent when its known precondition fails”. */
+  /** Captures and simulates Notion requests for the scenario. */
   const transport = new ResourceTransport();
-  /** Defines the now fixture for “does not persist an intent when its known precondition fails”. */
+  /** Controls the simulated provider clock deterministically. */
   const now = () => new Date("2026-01-01T00:00:00.000Z");
-  /** Defines the pages fixture for “does not persist an intent when its known precondition fails”. */
+  /** Stores the in-memory Notion rows returned by the transport. */
   const pages = new NotionPageStore(TABLES, transport, now);
-  /** Defines the state fixture for “does not persist an intent when its known precondition fails”. */
+  /** Tracks mutable simulated state across the operation. */
   const state = new NotionStateStore(
     pages,
     new SingleHostMutex(`state-${randomUUID()}`),
@@ -239,30 +250,30 @@ test("does not persist an intent when its known precondition fails", async () =>
 });
 
 test("repairs only the exact marked pending Notion Task mutation", async () => {
-  /** Defines the transport fixture for “repairs only the exact marked pending Notion Task mutation”. */
+  /** Captures and simulates Notion requests for the scenario. */
   const transport = new ResourceTransport();
   transport.seedTask(NOTION_TABLES.tasks);
-  /** Defines the now fixture for “repairs only the exact marked pending Notion Task mutation”. */
+  /** Controls the simulated provider clock deterministically. */
   const now = () => new Date("2026-01-01T00:00:00.000Z");
-  /** Defines the pages fixture for “repairs only the exact marked pending Notion Task mutation”. */
+  /** Stores the in-memory Notion rows returned by the transport. */
   const pages = new NotionPageStore(NOTION_TABLES, transport, now);
-  /** Defines the state fixture for “repairs only the exact marked pending Notion Task mutation”. */
+  /** Tracks mutable simulated state across the operation. */
   const state = new NotionStateStore(
     pages,
     new SingleHostMutex(`state-${randomUUID()}`),
     now,
   );
-  /** Defines the provider fixture for “repairs only the exact marked pending Notion Task mutation”. */
+  /** Provides isolated provider state for the scenario. */
   const provider = new NotionProvider({
     environment: notionEnvironment(),
     environmentId: `recovery-${randomUUID()}`,
     now,
     transport,
   });
-  /** Defines the task fixture for “repairs only the exact marked pending Notion Task mutation”. */
+  /** Represents the Task state exercised by the scenario. */
   const task = await provider.getTaskSnapshot("task-1");
   assert.equal(Object.hasOwn(task.properties, "Manager Mutation"), false);
-  /** Defines the mutation fixture for “repairs only the exact marked pending Notion Task mutation”. */
+  /** Describes the provider mutation exercised by the scenario. */
   const mutation = {
     expectedVersion: task.version,
     idempotencyKey: "task-interrupted",
@@ -282,27 +293,27 @@ test("repairs only the exact marked pending Notion Task mutation", async () => {
     "applied",
   );
 
-  /** Defines the another fixture for “repairs only the exact marked pending Notion Task mutation”. */
+  /** Provides an independent transport state for contention testing. */
   const another = new ResourceTransport();
   another.seedTask(NOTION_TABLES.tasks);
-  /** Defines the another pages fixture for “repairs only the exact marked pending Notion Task mutation”. */
+  /** Stores rows owned by the competing transport instance. */
   const anotherPages = new NotionPageStore(NOTION_TABLES, another, now);
-  /** Defines the another state fixture for “repairs only the exact marked pending Notion Task mutation”. */
+  /** Stores intents owned by the competing provider instance. */
   const anotherState = new NotionStateStore(
     anotherPages,
     new SingleHostMutex(`state-${randomUUID()}`),
     now,
   );
-  /** Defines the another provider fixture for “repairs only the exact marked pending Notion Task mutation”. */
+  /** Creates a competing provider over independent local state. */
   const anotherProvider = new NotionProvider({
     environment: notionEnvironment(),
     environmentId: `recovery-${randomUUID()}`,
     now,
     transport: another,
   });
-  /** Defines the original fixture for “repairs only the exact marked pending Notion Task mutation”. */
+  /** Preserves the pre-update record for comparison. */
   const original = await anotherProvider.getTaskSnapshot("task-1");
-  /** Defines the pending fixture for “repairs only the exact marked pending Notion Task mutation”. */
+  /** Captures durable state before the operation completes. */
   const pending = {
     expectedVersion: original.version,
     idempotencyKey: "task-pending",
@@ -321,20 +332,20 @@ test("repairs only the exact marked pending Notion Task mutation", async () => {
     /conflicts with newer state/u,
   );
 
-  /** Defines the body transport fixture for “repairs only the exact marked pending Notion Task mutation”. */
+  /** Injects and records Task body transport behavior. */
   const bodyTransport = new ResourceTransport();
   bodyTransport.seedTask(NOTION_TABLES.tasks);
   bodyTransport.failNextTaskPropertyPatch = true;
-  /** Defines the body provider fixture for “repairs only the exact marked pending Notion Task mutation”. */
+  /** Exercises the provider during Task body reconciliation. */
   const bodyProvider = new NotionProvider({
     environment: notionEnvironment(),
     environmentId: `recovery-${randomUUID()}`,
     now,
     transport: bodyTransport,
   });
-  /** Defines the body task fixture for “repairs only the exact marked pending Notion Task mutation”. */
+  /** Represents the Task whose body is reconciled. */
   const bodyTask = await bodyProvider.getTaskSnapshot("task-1");
-  /** Defines the body mutation fixture for “repairs only the exact marked pending Notion Task mutation”. */
+  /** Describes the Task body change under reconciliation. */
   const bodyMutation = {
     expectedVersion: bodyTask.version,
     idempotencyKey: "task-body-pending",
@@ -358,21 +369,21 @@ test("repairs only the exact marked pending Notion Task mutation", async () => {
 });
 
 test("repairs a pending Notion Resource intent from its exact target state", async () => {
-  /** Defines the transport fixture for “repairs a pending Notion Resource intent from its exact target state”. */
+  /** Captures and simulates Notion requests for the scenario. */
   const transport = new ResourceTransport();
-  /** Defines the now fixture for “repairs a pending Notion Resource intent from its exact target state”. */
+  /** Controls the simulated provider clock deterministically. */
   const now = () => new Date("2026-01-01T00:00:00.000Z");
-  /** Defines the pages fixture for “repairs a pending Notion Resource intent from its exact target state”. */
+  /** Stores the in-memory Notion rows returned by the transport. */
   const pages = new NotionPageStore(TABLES, transport, now);
-  /** Defines the state fixture for “repairs a pending Notion Resource intent from its exact target state”. */
+  /** Tracks mutable simulated state across the operation. */
   const state = new NotionStateStore(
     pages,
     new SingleHostMutex(`state-${randomUUID()}`),
     now,
   );
-  /** Defines the body fixture for “repairs a pending Notion Resource intent from its exact target state”. */
+  /** Decodes the request body consumed by the fake transport. */
   const body = '{"schema":"test-resource-v1"}';
-  /** Defines the record fixture for “repairs a pending Notion Resource intent from its exact target state”. */
+  /** Represents the provider record inspected by the scenario. */
   const record: ResourceMutation = {
     body,
     dependencies: [],
@@ -384,7 +395,7 @@ test("repairs a pending Notion Resource intent from its exact target state", asy
     version: "v1",
   };
   await state.beginIntent(record.idempotencyKey, "resource", record);
-  /** Defines the provider fixture for “repairs a pending Notion Resource intent from its exact target state”. */
+  /** Provides isolated provider state for the scenario. */
   const provider = new NotionProvider({
     environment: notionEnvironment(),
     environmentId: `recovery-${randomUUID()}`,
@@ -408,12 +419,15 @@ test("repairs a pending Notion Resource intent from its exact target state", asy
 });
 
 test("repairs an exact Resource target after its body rebuild is interrupted", async () => {
+  /** Injects one failure while appending replacement Resource blocks. */
   const transport = new ResourceTransport();
+  /** Reconciles the interrupted Notion Resource operation. */
   const provider = new NotionProvider({
     environment: notionEnvironment(),
     environmentId: `resource-rebuild-${randomUUID()}`,
     transport,
   });
+  /** Seeds the original canonical machine-readable body. */
   const firstBody = '{"type":"string"}';
   await provider.putResource({
     body: firstBody,
@@ -425,7 +439,9 @@ test("repairs an exact Resource target after its body rebuild is interrupted", a
     state: "active",
     version: "v1",
   });
+  /** Supplies the replacement canonical body. */
   const nextBody = '{"type":"number"}';
+  /** Describes the exact Resource target retried after interruption. */
   const update: ResourceMutation = {
     body: nextBody,
     dependencies: [],
@@ -456,23 +472,23 @@ test("repairs an exact Resource target after its body rebuild is interrupted", a
 });
 
 test("does not repair an old pending Resource intent over newer state", async () => {
-  /** Defines the transport fixture for “does not repair an old pending Resource intent over newer state”. */
+  /** Captures and simulates Notion requests for the scenario. */
   const transport = new ResourceTransport();
-  /** Defines the now fixture for “does not repair an old pending Resource intent over newer state”. */
+  /** Controls the simulated provider clock deterministically. */
   const now = () => new Date("2026-01-01T00:00:00.000Z");
-  /** Defines the pages fixture for “does not repair an old pending Resource intent over newer state”. */
+  /** Stores the in-memory Notion rows returned by the transport. */
   const pages = new NotionPageStore(TABLES, transport, now);
-  /** Defines the state fixture for “does not repair an old pending Resource intent over newer state”. */
+  /** Tracks mutable simulated state across the operation. */
   const state = new NotionStateStore(
     pages,
     new SingleHostMutex(`state-${randomUUID()}`),
     now,
   );
-  /** Defines the old body fixture for “does not repair an old pending Resource intent over newer state”. */
+  /** Supplies the body associated with the stale Resource version. */
   const oldBody = '{"revision":1}';
-  /** Defines the newer body fixture for “does not repair an old pending Resource intent over newer state”. */
+  /** Supplies the body associated with the newer Resource version. */
   const newerBody = '{"revision":2}';
-  /** Defines the old fixture for “does not repair an old pending Resource intent over newer state”. */
+  /** Represents stale state that reconciliation must not restore. */
   const old: ResourceMutation = {
     body: oldBody,
     dependencies: [],
@@ -483,7 +499,7 @@ test("does not repair an old pending Resource intent over newer state", async ()
     state: "active",
     version: "v1",
   };
-  /** Defines the newer fixture for “does not repair an old pending Resource intent over newer state”. */
+  /** Represents the newer competing state retained after reconciliation. */
   const newer: ResourceMutation = {
     ...old,
     body: newerBody,
@@ -493,7 +509,7 @@ test("does not repair an old pending Resource intent over newer state", async ()
   };
   await state.beginIntent(old.idempotencyKey, "resource", old);
   await pages.createResource(newer);
-  /** Defines the provider fixture for “does not repair an old pending Resource intent over newer state”. */
+  /** Provides isolated provider state for the scenario. */
   const provider = new NotionProvider({
     environment: notionEnvironment(),
     environmentId: `recovery-${randomUUID()}`,
@@ -508,19 +524,19 @@ test("does not repair an old pending Resource intent over newer state", async ()
 });
 
 test("repairs a pending Notion Error intent from its exact target state", async () => {
-  /** Defines the transport fixture for “repairs a pending Notion Error intent from its exact target state”. */
+  /** Captures and simulates Notion requests for the scenario. */
   const transport = new ResourceTransport();
-  /** Defines the now fixture for “repairs a pending Notion Error intent from its exact target state”. */
+  /** Controls the simulated provider clock deterministically. */
   const now = () => new Date("2026-01-01T00:00:00.000Z");
-  /** Defines the pages fixture for “repairs a pending Notion Error intent from its exact target state”. */
+  /** Stores the in-memory Notion rows returned by the transport. */
   const pages = new NotionPageStore(TABLES, transport, now);
-  /** Defines the state fixture for “repairs a pending Notion Error intent from its exact target state”. */
+  /** Tracks mutable simulated state across the operation. */
   const state = new NotionStateStore(
     pages,
     new SingleHostMutex(`state-${randomUUID()}`),
     now,
   );
-  /** Defines the error fixture for “repairs a pending Notion Error intent from its exact target state”. */
+  /** Describes the Error mutation used to test reconciliation. */
   const error = {
     description: "Publication is unavailable.",
     errorKey: "publication/missing",
@@ -535,7 +551,7 @@ test("repairs a pending Notion Error intent from its exact target state", async 
   };
   await state.beginIntent(error.idempotencyKey, "error", error);
   await pages.createOrUpdateError(error);
-  /** Defines the provider fixture for “repairs a pending Notion Error intent from its exact target state”. */
+  /** Provides isolated provider state for the scenario. */
   const provider = new NotionProvider({
     environment: notionEnvironment(),
     environmentId: `recovery-${randomUUID()}`,
@@ -554,13 +570,13 @@ test("repairs a pending Notion Error intent from its exact target state", async 
 
 /** Implements resource transport. */
 class ResourceTransport implements NotionTransport {
-  /** Contains blocks for resource transport. */
+  /** Stores managed child blocks by their parent Notion page. */
   readonly #blocks = new Map<string, JsonObject[]>();
-  /** Contains pages for resource transport. */
+  /** Stores fake Notion pages by identifier across provider restarts. */
   readonly #pages = new Map<string, JsonObject>();
-  /** Contains clock for resource transport. */
+  /** Advances edited timestamps for each simulated Notion mutation. */
   #clock = 0;
-  /** Contains fail next task property patch for resource transport. */
+  /** Injects one interruption after a Task property update is committed. */
   public failNextTaskPropertyPatch = false;
   /** Simulates an interrupted machine Resource body append. */
   public failNextResourceBlockAppend = false;
@@ -599,33 +615,33 @@ class ResourceTransport implements NotionTransport {
 
   /** Executes one provider request. */
   public async request(request: NotionRequest): Promise<JsonObject> {
-    /** Defines the data source fixture used by request. */
+    /** Captures the Notion data-source definition under inspection. */
     const dataSource = /^\/v1\/data_sources\/([^/]+)$/u.exec(request.path);
     if (request.method === "GET" && dataSource?.[1] !== undefined)
       return { id: dataSource[1], object: "data_source" };
     if (/^\/v1\/data_sources\/[^/]+\/query$/u.test(request.path)) {
-      /** Defines the filter fixture used by request. */
+      /** Decodes the Notion query filter under simulation. */
       const filter = objectValue(objectValue(request.body).filter);
-      /** Defines the property fixture used by request. */
+      /** Identifies the Notion property constrained by the query. */
       const property = String(filter.property);
-      /** Defines the expected fixture used by request. */
+      /** Builds the canonical schema expected after provisioning. */
       const expected = String(
         objectValue(filter.title).equals ??
           objectValue(filter.rich_text).equals ??
           objectValue(filter.select).equals,
       );
-      /** Defines the results fixture used by request. */
+      /** Collects operation outcomes used by assertions. */
       const results = [...this.#pages.values()].filter(
         (page) => propertyValue(page, property) === expected,
       );
       return { has_more: false, next_cursor: null, results };
     }
     if (request.method === "POST" && request.path === "/v1/pages") {
-      /** Defines the body fixture used by request. */
+      /** Decodes the request body consumed by the fake transport. */
       const body = objectValue(request.body);
-      /** Defines the ID fixture used by request. */
+      /** Extracts the Notion page identifier targeted by the request. */
       const id = `resource-${this.#pages.size + 1}`;
-      /** Defines the page fixture used by request. */
+      /** Reads the persisted Notion row used as the assertion oracle. */
       const page = this.page(
         id,
         objectValue(body.properties),
@@ -641,19 +657,19 @@ class ResourceTransport implements NotionTransport {
       );
       return page;
     }
-    /** Defines the page match fixture used by request. */
+    /** Parses a page endpoint in the fake Notion transport. */
     const pageMatch = /^\/v1\/pages\/(.+)$/u.exec(request.path);
     if (pageMatch?.[1] !== undefined) {
-      /** Defines the current fixture used by request. */
+      /** Tracks the mutable simulated clock or current record state. */
       const current = required(this.#pages.get(pageMatch[1]));
       if (request.method === "GET") return current;
       if (pageMatch[1] === "task-1" && this.failNextTaskPropertyPatch) {
         this.failNextTaskPropertyPatch = false;
         throw new Error("simulated Task property interruption");
       }
-      /** Defines the body fixture used by request. */
+      /** Decodes the request body consumed by the fake transport. */
       const body = objectValue(request.body);
-      /** Defines the next fixture used by request. */
+      /** Builds the provider state expected after applying the update. */
       const next = this.page(
         pageMatch[1],
         mergeProperties(
@@ -665,7 +681,7 @@ class ResourceTransport implements NotionTransport {
       this.#pages.set(pageMatch[1], next);
       return next;
     }
-    /** Defines the children fixture used by request. */
+    /** Collects child blocks returned or appended by the fake transport. */
     const children = /^\/v1\/blocks\/(.+)\/children$/u.exec(request.path);
     if (children?.[1] !== undefined && request.method === "GET") {
       return {
@@ -679,9 +695,9 @@ class ResourceTransport implements NotionTransport {
         this.failNextResourceBlockAppend = false;
         throw new Error("simulated Resource body interruption");
       }
-      /** Defines the existing fixture used by request. */
+      /** Reads the managed blocks present before replacement. */
       const existing = this.#blocks.get(children[1]) ?? [];
-      /** Defines the added fixture used by request. */
+      /** Collects blocks appended by the simulated Notion request. */
       const added = (objectValue(request.body).children as JsonObject[]).map(
         (item, index) => ({
           ...item,
@@ -689,7 +705,7 @@ class ResourceTransport implements NotionTransport {
         }),
       );
       this.#blocks.set(children[1], [...existing, ...added]);
-      /** Defines the current fixture used by request. */
+      /** Tracks the mutable simulated clock or current record state. */
       const current = required(this.#pages.get(children[1]));
       this.#pages.set(
         children[1],
@@ -701,11 +717,11 @@ class ResourceTransport implements NotionTransport {
       );
       return { results: added };
     }
-    /** Defines the block fixture used by request. */
+    /** Identifies the managed block targeted by the fake request. */
     const block = /^\/v1\/blocks\/(.+)$/u.exec(request.path);
     if (block?.[1] !== undefined && request.method === "PATCH") {
       for (const [pageId, blocks] of this.#blocks) {
-        /** Defines the index fixture used by request. */
+        /** Locates the managed block updated by the fake transport. */
         const index = blocks.findIndex(
           (candidate) => candidate.id === block[1],
         );
@@ -718,7 +734,7 @@ class ResourceTransport implements NotionTransport {
             ...required(blocks[index]),
             ...objectValue(request.body),
           };
-          /** Defines the current fixture used by request. */
+          /** Tracks the mutable simulated clock or current record state. */
           const current = required(this.#pages.get(pageId));
           this.#pages.set(
             pageId,
@@ -742,10 +758,10 @@ class ResourceTransport implements NotionTransport {
     parent = "resources",
   ): JsonObject {
     this.#clock += 1;
-    /** Defines the normalized fixture used by page. */
+    /** Normalizes page properties before storing the fake row. */
     const normalized = Object.fromEntries(
       Object.entries(properties).map(([name, value]) => {
-        /** Defines the property fixture used by page. */
+        /** Identifies the Notion property constrained by the query. */
         const property = objectValue(value);
         return [
           name,
@@ -765,15 +781,15 @@ class ResourceTransport implements NotionTransport {
   }
 }
 
-/** Creates the merge properties test fixture. */
+/** Applies Notion-style property updates to an existing property map. */
 function mergeProperties(prior: JsonObject, updates: JsonObject): JsonObject {
   return {
     ...prior,
     ...Object.fromEntries(
       Object.entries(updates).map(([name, value]) => {
-        /** Defines the before fixture used by merge properties. */
+        /** Snapshots provider state before the operation. */
         const before = objectValue(prior[name]);
-        /** Defines the after fixture used by merge properties. */
+        /** Snapshots provider state after the operation. */
         const after = objectValue(value);
         return [
           name,
@@ -790,9 +806,9 @@ function mergeProperties(prior: JsonObject, updates: JsonObject): JsonObject {
 
 /** Extracts a textual property value from a simulated Notion page. */
 function propertyValue(page: JsonObject, name: string): string {
-  /** Defines the property fixture used by property value. */
+  /** Identifies the Notion property constrained by the query. */
   const property = objectValue(objectValue(page.properties)[name]);
-  /** Defines the values fixture used by property value. */
+  /** Collects plain text extracted from a Notion property. */
   const values = property.title ?? property.rich_text;
   if (Array.isArray(values))
     return values
@@ -814,7 +830,7 @@ function required<T>(value: T | undefined): T {
   return value;
 }
 
-/** Creates the Notion environment test fixture. */
+/** Builds the canonical Notion provider environment. */
 function notionEnvironment(): ProviderEnvironment {
   return {
     bootstrapParent: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",

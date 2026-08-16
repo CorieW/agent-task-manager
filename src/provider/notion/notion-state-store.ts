@@ -24,43 +24,43 @@ import type { NotionPageStore } from "./notion-page-store.js";
 import type { SingleHostMutex } from "./single-host-mutex.js";
 import { parseWriteReceipt } from "../write-receipt-codec.js";
 
-/** Defines intent record. */
+/** Canonical intent record. */
 interface IntentRecord {
-  /** Identifies one exact operation for payload-bound replay. */
+  /** Idempotency key dependency consumed by one exact operation for payload-bound replay. */
   readonly idempotencyKey: string;
-  /** Contains operation for intent record. */
+  /** Logical operation represented by this record. */
   readonly operation: string;
   /** Binds intent record to canonical payload content. */
   readonly payloadDigest: string;
   /** Retains the canonical payload needed to resume a prepared operation. */
   readonly payload: JsonValue;
-  /** Contains reconciliation state for intent record. */
+  /** Lifecycle state for reconciliation. */
   readonly reconciliationState: "applied" | "not_applied" | null;
-  /** Contains result for intent record. */
+  /** Validated operation result. */
   readonly result: JsonValue;
-  /** Identifies the intent record wire schema. */
+  /** Wire-schema discriminator; always `agent-task-manager-intent-v1`. */
   readonly schema: "agent-task-manager-intent-v1";
-  /** Records the state for intent record. */
+  /** Lifecycle state used for workflow decisions. */
   readonly state: "applied" | "pending";
 }
 
-/** Defines lease record. */
+/** Canonical lease record. */
 interface LeaseRecord {
-  /** Defines when the lease expires. */
+  /** Provider-neutral when the lease expires contract. */
   readonly expiresAt: string;
-  /** Identifies lease. */
+  /** Stable identifier for lease id. */
   readonly leaseId: string;
-  /** Identifies owner. */
+  /** Stable identifier for owner id. */
   readonly ownerId: string;
-  /** Records when the lease was released, if applicable. */
+  /** When the lease was released, if applicable. */
   readonly releasedAt: string | null;
-  /** Identifies the lease record wire schema. */
+  /** Wire-schema discriminator; always `agent-task-manager-lease-v1`. */
   readonly schema: "agent-task-manager-lease-v1";
-  /** Contains scope for lease record. */
+  /** Lease scope controlling conflict semantics. */
   readonly scope: LeaseRequest["scope"];
-  /** Identifies Agent. */
+  /** Stable identifier for agent id. */
   readonly agentId: string;
-  /** Identifies task. */
+  /** Stable identifier for task id. */
   readonly taskId: string | null;
 }
 
@@ -71,9 +71,9 @@ export class IndeterminateProviderIntentError extends Error {}
 export class NotionStateStore {
   /** Initializes Notion state store. */
   public constructor(
-    /** Contains pages for Notion state store. */ private readonly pages: NotionPageStore,
-    /** Contains mutex for Notion state store. */ private readonly mutex: SingleHostMutex,
-    /** Contains now for Notion state store. */ private readonly now: () => Date = () =>
+    /** Pages callback invoked by Notion state store. */ private readonly pages: NotionPageStore,
+    /** Mutex callback invoked by Notion state store. */ private readonly mutex: SingleHostMutex,
+    /** Now callback invoked by Notion state store. */ private readonly now: () => Date = () =>
       new Date(),
   ) {}
 
@@ -84,14 +84,14 @@ export class NotionStateStore {
     payload: unknown,
     beforeCreate?: () => Promise<void>,
   ): Promise<JsonValue | undefined> {
-    /** Holds the `payloadDigest` intermediate used by `beginIntent`. */
+    /** Result of `digestJson`, retained for `beginIntent`. */
     const payloadDigest = digestJson(toJsonValue(payload));
-    /** Holds the `key` intermediate used by `beginIntent`. */
+    /** Result of `intentKey`, retained for `beginIntent`. */
     const key = intentKey(idempotencyKey);
-    /** Holds the `existing` intermediate used by `beginIntent`. */
+    /** Result of `this.readRecord`, retained for `beginIntent`. */
     const existing = await this.readRecord(key);
     if (existing !== null) {
-      /** Holds the `intent` intermediate used by `beginIntent`. */
+      /** Result of `parseIntent`, retained for `beginIntent`. */
       const intent = parseIntent(existing);
       if (
         intent.idempotencyKey !== idempotencyKey ||
@@ -133,15 +133,15 @@ export class NotionStateStore {
     result: unknown,
     reconciliationState: "applied" | "not_applied" = "applied",
   ): Promise<void> {
-    /** Holds the `payloadDigest` intermediate used by `completeIntent`. */
+    /** Result of `digestJson`, retained for `completeIntent`. */
     const payloadDigest = digestJson(toJsonValue(payload));
-    /** Holds the `key` intermediate used by `completeIntent`. */
+    /** Result of `intentKey`, retained for `completeIntent`. */
     const key = intentKey(idempotencyKey);
-    /** Holds the `existing` intermediate used by `completeIntent`. */
+    /** Result of `this.readRecord`, retained for `completeIntent`. */
     const existing = await this.readRecord(key);
     if (existing === null)
       throw new Error(`Intent ${idempotencyKey} was not begun`);
-    /** Holds the `intent` intermediate used by `completeIntent`. */
+    /** Result of `parseIntent`, retained for `completeIntent`. */
     const intent = parseIntent(existing);
     if (
       intent.operation !== operation ||
@@ -164,10 +164,10 @@ export class NotionStateStore {
   public async reconcileIntent(
     idempotencyKey: string,
   ): Promise<ReconciliationResult> {
-    /** Holds the `value` intermediate used by `reconcileIntent`. */
+    /** Result of `this.readRecord`, retained for `reconcileIntent`. */
     const value = await this.readRecord(intentKey(idempotencyKey));
     if (value === null) return { evidence: {}, state: "not_applied" };
-    /** Holds the `intent` intermediate used by `reconcileIntent`. */
+    /** Result of `parseIntent`, retained for `reconcileIntent`. */
     const intent = parseIntent(value);
     return {
       evidence: {
@@ -186,8 +186,10 @@ export class NotionStateStore {
   public async operationIntent(
     idempotencyKey: string,
   ): Promise<ProviderOperationIntent | null> {
+    /** Persisted intent payload, or null when the key is unknown. */
     const value = await this.readRecord(intentKey(idempotencyKey));
     if (value === null) return null;
+    /** Validated internal intent projected into the provider-neutral shape. */
     const intent = parseIntent(value);
     return {
       idempotencyKey: intent.idempotencyKey,
@@ -201,7 +203,7 @@ export class NotionStateStore {
   /** Acquires lease. */
   public async acquireLease(request: LeaseRequest): Promise<LeaseResult> {
     return this.mutex.run(async () => {
-      /** Holds the `prior` intermediate used by `acquireLease`. */
+      /** Result of `this.beginIntent`, retained for `acquireLease`. */
       const prior = await this.beginIntent(
         request.idempotencyKey,
         "lease_acquire",
@@ -209,18 +211,18 @@ export class NotionStateStore {
       );
       if (prior !== undefined) return parseLeaseResult(prior);
       validateLeaseRequest(request, this.now());
-      /** Holds the `key` intermediate used by `acquireLease`. */
+      /** Result of `leaseKey`, retained for `acquireLease`. */
       const key = leaseKey(
         request.scope,
         request.scope === "agent_run"
           ? `${request.agentId}\0${request.ownerId}`
           : requiredTaskId(request),
       );
-      /** Holds the `currentValue` intermediate used by `acquireLease`. */
+      /** Result of `this.readRecord`, retained for `acquireLease`. */
       const currentValue = await this.readRecord(key);
-      /** Holds the `current` intermediate used by `acquireLease`. */
+      /** Current snapshot used consistently during `acquireLease`. */
       const current = currentValue === null ? null : parseLease(currentValue);
-      /** Captures `result` returned by `acquireLease`. */
+      /** Result of `acquireLease`, retained for validation and reuse. */
       let result: LeaseResult;
       if (
         current !== null &&
@@ -233,7 +235,7 @@ export class NotionStateStore {
           leaseId: null,
         };
       } else {
-        /** Holds the `lease` intermediate used by `acquireLease`. */
+        /** Lease snapshot used consistently during `acquireLease`. */
         const lease: LeaseRecord = {
           expiresAt: request.expiresAt,
           leaseId: randomUUID(),
@@ -269,16 +271,16 @@ export class NotionStateStore {
   /** Renews lease. */
   public async renewLease(request: LeaseRenewal): Promise<LeaseResult> {
     return this.mutex.run(async () => {
-      /** Holds the `prior` intermediate used by `renewLease`. */
+      /** Result of `this.beginIntent`, retained for `renewLease`. */
       const prior = await this.beginIntent(
         request.idempotencyKey,
         "lease_renew",
         request,
       );
       if (prior !== undefined) return parseLeaseResult(prior);
-      /** Holds the `located` intermediate used by `renewLease`. */
+      /** Result of `this.findLeaseById`, retained for `renewLease`. */
       const located = await this.findLeaseById(request.leaseId);
-      /** Captures `result` returned by `renewLease`. */
+      /** Result of `renewLease`, retained for validation and reuse. */
       let result: LeaseResult;
       if (
         located === null ||
@@ -320,15 +322,15 @@ export class NotionStateStore {
   /** Releases lease. */
   public async releaseLease(request: LeaseRelease): Promise<WriteReceipt> {
     return this.mutex.run(async () => {
-      /** Holds the `idempotencyKey` intermediate used by `releaseLease`. */
+      /** Result of `this.beginIntent`, retained for `releaseLease`. */
       const idempotencyKey = `lease-release:${request.leaseId}:${request.ownerId}:${request.expectedVersion ?? "unversioned"}`;
-      /** Holds the `prior` intermediate used by `releaseLease`. */
+      /** Result of `this.beginIntent`, retained for `releaseLease`. */
       const prior = await this.beginIntent(
         idempotencyKey,
         "lease_release",
         request,
         async () => {
-          /** Holds the `located` intermediate used by `releaseLease`. */
+          /** Result of `this.findLeaseById`, retained for `releaseLease`. */
           const located = await this.findLeaseById(request.leaseId);
           if (
             located === null ||
@@ -343,7 +345,7 @@ export class NotionStateStore {
         },
       );
       if (prior !== undefined) return parseReleaseResult(prior);
-      /** Holds the `located` intermediate used by `releaseLease`. */
+      /** Result of `this.findLeaseById`, retained for `releaseLease`. */
       const located = await this.findLeaseById(request.leaseId);
       if (
         located === null ||
@@ -355,7 +357,7 @@ export class NotionStateStore {
         throw new IndeterminateProviderIntentError(
           "Lease changed after its release intent was stored",
         );
-      /** Captures `receipt` returned by `releaseLease`. */
+      /** Result of `releaseLease`, retained for validation and reuse. */
       const receipt = await this.writeRecord(
         located.key,
         { ...located.record, releasedAt: this.now().toISOString() },
@@ -373,10 +375,10 @@ export class NotionStateStore {
 
   /** Builds snapshot. */
   public async leaseSnapshot(leaseId: string): Promise<LeaseSnapshot | null> {
-    /** Holds the `located` intermediate used by `leaseSnapshot`. */
+    /** Result of `this.findLeaseById`, retained for `leaseSnapshot`. */
     const located = await this.findLeaseById(leaseId);
     if (located === null) return null;
-    /** Holds the `record` intermediate used by `leaseSnapshot`. */
+    /** Record snapshot used consistently during `leaseSnapshot`. */
     const record = located.record;
     return {
       expiresAt: record.expiresAt,
@@ -395,7 +397,7 @@ export class NotionStateStore {
     scope: LeaseRequest["scope"],
     agentId: string,
   ): Promise<readonly string[]> {
-    /** Holds the `projection` intermediate used by `activeLeaseIds`. */
+    /** Result of `this.activeProjection`, retained for `activeLeaseIds`. */
     const projection = await this.activeProjection(agentId);
     return scope === "agent_run"
       ? projection.runLeaseIds
@@ -409,18 +411,18 @@ export class NotionStateStore {
 
   /** Builds the active run and Task lease projection for one Agent. */
   public async activeProjection(agentId: string): Promise<{
-    /** Lists run lease IDs for active projection. */
+    /** Ordered run lease IDs for active projection. */
     readonly runLeaseIds: readonly string[];
-    /** Lists task IDs for active projection. */
+    /** Ordered task IDs for active projection. */
     readonly taskIds: readonly string[];
-    /** Lists task lease IDs for active projection. */
+    /** Ordered task lease IDs for active projection. */
     readonly taskLeaseIds: readonly string[];
   }> {
-    /** Holds the `leases` intermediate used by `activeProjection`. */
+    /** Result of `this.loadLeases`, retained for `activeProjection`. */
     const leases = await this.loadLeases();
-    /** Holds the `now` intermediate used by `activeProjection`. */
+    /** Result of `this.now`, retained for `activeProjection`. */
     const now = this.now().getTime();
-    /** Holds the `active` intermediate used by `activeProjection`. */
+    /** Result of `leases.filter`, retained for `activeProjection`. */
     const active = leases.filter(
       (record) =>
         record.agentId === agentId &&
@@ -448,13 +450,13 @@ export class NotionStateStore {
 
   /** Loads and validates every persisted lease record. */
   private async loadLeases(): Promise<readonly LeaseRecord[]> {
-    /** Holds the `pages` intermediate used by `loadLeases`. */
+    /** Result of `this.pages.listBySelect`, retained for `loadLeases`. */
     const pages = await this.pages.listBySelect(
       "resources",
       "Kind",
       "system/lease",
     );
-    /** Holds the `leases` intermediate used by `loadLeases`. */
+    /** Mutable leases collection accumulated during `loadLeases`. */
     const leases: LeaseRecord[] = [];
     for (const page of pages) {
       leases.push(
@@ -475,15 +477,15 @@ export class NotionStateStore {
 
   /** Finds lease by ID. */
   private async findLeaseById(leaseId: string): Promise<{
-    /** Contains key for find lease by ID. */ readonly key: string;
-    /** Contains record for find lease by ID. */ readonly record: LeaseRecord;
+    /** Stable key used by find lease by ID. */ readonly key: string;
+    /** Record dependency consumed by find lease by ID. */ readonly record: LeaseRecord;
   } | null> {
-    /** Holds the `leases` intermediate used by `findLeaseById`. */
+    /** Result of `this.loadLeases`, retained for `findLeaseById`. */
     const leases = await this.loadLeases();
-    /** Holds the `matches` intermediate used by `findLeaseById`. */
+    /** Mutable matches collection accumulated during `findLeaseById`. */
     const matches: Array<{
-      /** Contains key for find lease by ID. */ key: string;
-      /** Contains record for find lease by ID. */ record: LeaseRecord;
+      /** Ordered record used by find lease by ID. */ key: string;
+      /** Ordered record used by find lease by ID. */ record: LeaseRecord;
     }> = [];
     for (const record of leases) {
       if (record.leaseId === leaseId)
@@ -503,7 +505,7 @@ export class NotionStateStore {
 
   /** Reads record. */
   private async readRecord(key: string): Promise<JsonValue | null> {
-    /** Holds the `located` intermediate used by `readRecord`. */
+    /** Result of `this.pages.findUniqueByTitle`, retained for `readRecord`. */
     const located = await this.pages.findUniqueByTitle(
       "resources",
       "Resource",
@@ -521,7 +523,7 @@ export class NotionStateStore {
     value: unknown,
     idempotencyKey: string,
   ) {
-    /** Holds the `body` intermediate used by `writeRecord`. */
+    /** Result of `canonicalize`, retained for `writeRecord`. */
     const body = canonicalize(toJsonValue(value));
     return this.pages.createResource({
       body,
@@ -540,6 +542,7 @@ export class NotionStateStore {
 function intentKey(idempotencyKey: string): string {
   return `system/intent/${sha256(idempotencyKey)}`;
 }
+
 /** Builds key. */
 function leaseKey(scope: LeaseRequest["scope"], owner: string): string {
   return `system/lease/${scope}/${sha256(owner)}`;
@@ -547,7 +550,7 @@ function leaseKey(scope: LeaseRequest["scope"], owner: string): string {
 
 /** Parses and validates intent. */
 function parseIntent(value: JsonValue): IntentRecord {
-  /** Holds the `object` intermediate used by `parseIntent`. */
+  /** Result of `exactObject`, retained for `parseIntent`. */
   const object = exactObject(
     value,
     [
@@ -587,7 +590,7 @@ function parseIntent(value: JsonValue): IntentRecord {
 
 /** Parses and validates lease. */
 function parseLease(value: JsonValue): LeaseRecord {
-  /** Holds the `object` intermediate used by `parseLease`. */
+  /** Result of `exactObject`, retained for `parseLease`. */
   const object = exactObject(
     value,
     [
@@ -607,14 +610,14 @@ function parseLease(value: JsonValue): LeaseRecord {
     (object.scope !== "agent_run" && object.scope !== "task_assignment")
   )
     throw new TypeError("Lease schema or scope is invalid");
-  /** Holds the `expiresAt` intermediate used by `parseLease`. */
+  /** Result of `canonicalTimestamp`, retained for `parseLease`. */
   const expiresAt = canonicalTimestamp(object.expiresAt, "Lease expiresAt");
-  /** Holds the `releasedAt` intermediate used by `parseLease`. */
+  /** Result of `nullableString`, retained for `parseLease`. */
   const releasedAt =
     object.releasedAt === null
       ? null
       : canonicalTimestamp(object.releasedAt, "Lease releasedAt");
-  /** Holds the `taskId` intermediate used by `parseLease`. */
+  /** Result of `nullableString`, retained for `parseLease`. */
   const taskId = nullableString(object.taskId, "Lease taskId");
   if ((object.scope === "agent_run") !== (taskId === null))
     throw new TypeError("Lease scope and taskId are inconsistent");
@@ -632,7 +635,7 @@ function parseLease(value: JsonValue): LeaseRecord {
 
 /** Parses and validates lease result. */
 function parseLeaseResult(value: JsonValue): LeaseResult {
-  /** Holds the `object` intermediate used by `parseLeaseResult`. */
+  /** Result of `exactObject`, retained for `parseLeaseResult`. */
   const object = exactObject(
     value,
     ["acquired", "conflictingLeaseId", "leaseId"],
@@ -652,7 +655,7 @@ function parseLeaseResult(value: JsonValue): LeaseResult {
 
 /** Parses and validates release result. */
 function parseReleaseResult(value: JsonValue): WriteReceipt {
-  /** Captures `receipt` returned by `parseReleaseResult`. */
+  /** Result of `parseReleaseResult`, retained for validation and reuse. */
   const receipt = parseWriteReceipt(value);
   if (receipt.providerRecord.table !== "resources")
     throw new TypeError("Lease release receipt must reference Resources");
@@ -672,7 +675,7 @@ function validateLeaseRequest(request: LeaseRequest, now: Date): void {
 
 /** Returns a lease's Task ID or rejects a non-Task lease. */
 function requiredTaskId(value: {
-  /** Identifies task. */ readonly taskId: string | null;
+  /** Stable identifier for task id. */ readonly taskId: string | null;
 }): string {
   if (value.taskId === null)
     throw new TypeError("Task-assignment lease requires taskId");
@@ -719,9 +722,9 @@ function canonicalTimestamp(
   value: JsonValue | undefined,
   label: string,
 ): string {
-  /** Holds the `timestamp` intermediate used by `canonicalTimestamp`. */
+  /** Result of `stringValue`, retained for `canonicalTimestamp`. */
   const timestamp = stringValue(value, label);
-  /** Holds the `milliseconds` intermediate used by `canonicalTimestamp`. */
+  /** Result of `Date.parse`, retained for `canonicalTimestamp`. */
   const milliseconds = Date.parse(timestamp);
   if (
     !Number.isFinite(milliseconds) ||

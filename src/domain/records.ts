@@ -1,4 +1,4 @@
-/** Defines provider-neutral Task, Agent, Resource, Error, activity, and lease records. */
+/** Provider-neutral provider-neutral Task, Agent, Resource, Error, activity, and lease records contract. */
 import type { JsonObject } from "./json.js";
 
 /** Compact projection used while selecting task. */
@@ -197,7 +197,7 @@ export interface ResourceRecord {
   readonly body: string;
   /** Dependencies included in resource record. */
   readonly dependencies: readonly ResourceRef[];
-  /** SHA-256 digest of the Resource body and metadata. */
+  /** SHA-256 digest of the canonical Resource body only. */
   readonly digest: string;
   /** Key for resource record. */
   readonly key: string;
@@ -217,6 +217,7 @@ export interface ResourceMutation extends ResourceRecord {
 
 /** Human-visible workflow states for recorded Errors. */
 export const ERROR_STATUSES = ["Not Fixed", "Fixing", "Fixed"] as const;
+
 /** Allowed error status literals. */
 export type ErrorStatus = (typeof ERROR_STATUSES)[number];
 

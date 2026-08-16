@@ -1,91 +1,91 @@
-/** Defines provider-neutral human interaction slots and consumed authority. */
+/** Provider-neutral provider-neutral human interaction slots and consumed authority contract. */
 import type { JsonObject } from "../domain/json.js";
 
 /** Enumerates the supported human slot kind variants. */
 export type HumanSlotKind = "answer" | "resolution" | "review" | "testing";
 
-/** Defines the data and behavior required by human slot response. */
+/** Provider-neutral human slot response contract. */
 export interface HumanSlotResponse {
-  /** Provides action to human slot response. */
+  /** Human-selected response action. */
   readonly action: string;
-  /** Provides text to human slot response. */
+  /** Human-supplied response text. */
   readonly text: string;
 }
 
-/** Defines the data and behavior required by human interaction slot. */
+/** Provider-neutral human interaction slot contract. */
 export interface HumanInteractionSlot {
-  /** Records the canonical timestamp for created. */
+  /** Canonical timestamp for created. */
   readonly createdAt: string;
-  /** Provides generation to human interaction slot. */
+  /** Monotonic slot generation used to reject stale responses. */
   readonly generation: number;
   /** Discriminates the kind variant. */
   readonly kind: HumanSlotKind;
-  /** Provides prompt to human interaction slot. */
+  /** Prompt displayed to the human. */
   readonly prompt: string;
-  /** Identifies the actor that requested human interaction. */
+  /** Actor that requested the human decision. */
   readonly requestedBy: string;
-  /** Provides response to human interaction slot. */
+  /** Optional human response attached to the slot. */
   readonly response: HumanSlotResponse | null;
-  /** Provides routes to human interaction slot. */
+  /** Action-to-status transitions allowed for the slot. */
   readonly routes: Readonly<Record<string, string>>;
   /** Version tag for the human interaction slot representation. */
   readonly schema: "human-interaction-slot-v1";
-  /** Identifies slot. */
+  /** Stable identifier for slot id. */
   readonly slotId: string;
-  /** Identifies source error. */
+  /** Source error key dependency consumed by source error. */
   readonly sourceErrorKey: string | null;
-  /** Identifies task. */
+  /** Stable identifier for task id. */
   readonly taskId: string;
 }
 
-/** Defines the data and behavior required by human authority. */
+/** Provider-neutral human authority contract. */
 export interface HumanAuthority {
-  /** Provides action to human authority. */
+  /** Human-selected response action. */
   readonly action: string;
-  /** Stores the SHA-256 digest of response. */
+  /** SHA-256 digest of canonical response. */
   readonly responseDigest: string;
   /** Version tag for the human authority representation. */
   readonly schema: "human-authority-v1";
-  /** Identifies slot. */
+  /** Stable identifier for slot id. */
   readonly slotId: string;
-  /** Records the current target status for workflow decisions. */
+  /** Workflow status for target. */
   readonly targetStatus: string;
-  /** Provides text to human authority. */
+  /** Human-supplied response text. */
   readonly text: string;
 }
 
-/** Defines the data and behavior required by human consumption record. */
+/** Persisted state for human consumption. */
 export interface HumanConsumptionRecord {
-  /** Records the applied task version used for compatibility checks. */
+  /** Opaque version token for applied task. */
   readonly appliedTaskVersion: string | null;
-  /** Provides authority to human consumption record. */
+  /** Consumed human authority proving approval. */
   readonly authority: HumanAuthority;
   /** Version tag for the human consumption record representation. */
   readonly schema: "human-consumption-v1";
-  /** Records the current source status for workflow decisions. */
+  /** Workflow status for source. */
   readonly sourceStatus: string;
-  /** Records the source task version used for compatibility checks. */
+  /** Opaque version token for source task. */
   readonly sourceTaskVersion: string;
-  /** Records the current state for workflow decisions. */
+  /** Lifecycle state used for workflow decisions. */
   readonly state: "applied" | "pending";
-  /** Identifies task. */
+  /** Stable identifier for task id. */
   readonly taskId: string;
 }
 
-/** Defines the data and behavior required by human slot baseline record. */
+/** Persisted state for human slot baseline. */
 export interface HumanSlotBaselineRecord {
   /** Version tag for the human slot baseline record representation. */
   readonly schema: "human-slot-baseline-v2";
-  /** Provides slot to human slot baseline record. */
+  /** Immutable interaction slot presented to the human. */
   readonly slot: HumanInteractionSlot;
   /** Indicates whether task archived. */
   readonly taskArchived: boolean;
-  /** Stores the SHA-256 digest of task body. */
+  /** SHA-256 digest of canonical task body. */
   readonly taskBodyDigest: string;
-  /** Provides task properties to human slot baseline record. */
+  /** Task properties captured with the human baseline. */
   readonly taskProperties: JsonObject;
-  /** Stores the SHA-256 digest of task properties. */
+  /** SHA-256 digest of canonical task properties. */
   readonly taskPropertiesDigest: string;
-  /** Records the current waiting status for workflow decisions. */
+  /** Workflow status for waiting. */
   readonly waitingStatus: string;
 }

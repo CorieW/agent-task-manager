@@ -14,6 +14,7 @@ import { parseHumanInteractionSlot } from "./slot-codec.js";
 export function humanSlotResourceKey(slotId: string): string {
   return `human-slot/${slotId}`;
 }
+
 /** Builds the deterministic provider key for this durable record. */
 export function humanConsumptionResourceKey(slotId: string): string {
   return `human-consumption/${slotId}`;
@@ -37,7 +38,7 @@ export function parseHumanSlotBaselineResource(
     "system/human-interaction-slot",
     "v2",
   );
-  /** Stores baseline used by parse human slot baseline resource. */
+  /** Result of `parseHumanSlotBaseline`, retained for the parse human slot baseline resource operation. */
   const baseline = parseHumanSlotBaseline(JSON.parse(resource.body) as unknown);
   if (baseline.slot.slotId !== slotId)
     throw new TypeError("Human slot baseline identity is invalid");
@@ -55,7 +56,7 @@ export function parseHumanConsumptionResource(
     "system/human-consumption",
     "v1",
   );
-  /** Stores consumption used by parse human consumption resource. */
+  /** Result of `parseHumanConsumption`, retained for the parse human consumption resource operation. */
   const consumption = parseHumanConsumption(
     JSON.parse(resource.body) as unknown,
   );
@@ -66,7 +67,7 @@ export function parseHumanConsumptionResource(
 
 /** Parses and validates human consumption. */
 export function parseHumanConsumption(value: unknown): HumanConsumptionRecord {
-  /** Holds the parsed value being validated by parse human consumption. */
+  /** Parsed candidate awaiting parse human consumption validation. */
   const found = record(value, "Human consumption");
   closed(found, [
     "appliedTaskVersion",
@@ -87,7 +88,7 @@ export function parseHumanConsumption(value: unknown): HumanConsumptionRecord {
       !isNonEmptyString(found.appliedTaskVersion))
   )
     throw new TypeError("Human consumption fields are invalid");
-  /** Stores authority used by parse human consumption. */
+  /** Result of `parseHumanAuthority`, retained for the parse human consumption operation. */
   const authority = parseHumanAuthority(found.authority);
   if (
     (found.state === "pending" && found.appliedTaskVersion !== null) ||
@@ -107,7 +108,7 @@ export function parseHumanConsumption(value: unknown): HumanConsumptionRecord {
 
 /** Parses and validates human slot baseline. */
 function parseHumanSlotBaseline(value: unknown): HumanSlotBaselineRecord {
-  /** Holds the parsed value being validated by parse human slot baseline. */
+  /** Parsed candidate awaiting parse human slot baseline validation. */
   const found = record(value, "Human slot baseline");
   closed(found, [
     "schema",
@@ -118,7 +119,7 @@ function parseHumanSlotBaseline(value: unknown): HumanSlotBaselineRecord {
     "taskPropertiesDigest",
     "waitingStatus",
   ]);
-  /** Stores task properties used by parse human slot baseline. */
+  /** Result of `jsonObject`, retained for the parse human slot baseline operation. */
   const taskProperties = jsonObject(
     found.taskProperties,
     "Human slot Task properties",
@@ -132,7 +133,7 @@ function parseHumanSlotBaseline(value: unknown): HumanSlotBaselineRecord {
     !isNonEmptyString(found.waitingStatus)
   )
     throw new TypeError("Human slot baseline fields are invalid");
-  /** Stores slot used by parse human slot baseline. */
+  /** Result of `parseHumanInteractionSlot`, retained for the parse human slot baseline operation. */
   const slot = parseHumanInteractionSlot(found.slot);
   if (slot.response !== null)
     throw new TypeError("Human slot baseline response must be blank");
@@ -149,7 +150,7 @@ function parseHumanSlotBaseline(value: unknown): HumanSlotBaselineRecord {
 
 /** Parses and validates human authority. */
 function parseHumanAuthority(value: unknown): HumanAuthority {
-  /** Holds the parsed value being validated by parse human authority. */
+  /** Parsed candidate awaiting parse human authority validation. */
   const found = record(value, "Human authority");
   closed(found, [
     "action",
@@ -194,16 +195,19 @@ function assertResource(
   )
     throw new TypeError(`Human recovery Resource is invalid: ${key}`);
 }
+
 /** Validates and returns the required object representation. */
 function record(value: unknown, label: string): Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value))
     throw new TypeError(`${label} must be an object`);
   return value as Record<string, unknown>;
 }
+
 /** Validates and returns a non-array JSON object. */
 function jsonObject(value: unknown, label: string): JsonObject {
   return record(toJsonValue(value), label) as JsonObject;
 }
+
 /** Rejects objects whose keys differ from the expected closed shape. */
 function closed(
   value: Record<string, unknown>,
@@ -214,10 +218,12 @@ function closed(
       "Human recovery object has unexpected or missing fields",
     );
 }
+
 /** Returns whether a value is a lowercase SHA-256 digest. */
 function isSha256Digest(value: unknown): value is string {
   return typeof value === "string" && /^[a-f0-9]{64}$/u.test(value);
 }
+
 /** Returns whether a value is a non-empty string. */
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value !== "";

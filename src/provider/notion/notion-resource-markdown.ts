@@ -1,4 +1,4 @@
-/** Defines the safe canonical enhanced-Markdown boundary for readable Notion Resources. */
+/** Provider-neutral the safe canonical enhanced-Markdown boundary for readable Notion Resources contract. */
 import { sha256 } from "../../core/digest.js";
 import type { JsonObject, JsonValue } from "../../domain/json.js";
 
@@ -37,7 +37,7 @@ export function canonicalResourceMarkdown(body: string): string {
     );
   }
 
-  /** Tracks whether validation is currently inside a fenced code block. */
+  /** Mutable state recording whether validation is currently inside a fenced code block. */
   let codeFenceOpen = false;
   for (const line of normalized.split("\n")) {
     if (/^```[A-Za-z0-9+.#_-]*(?: [A-Za-z0-9+.#_-]+)*$/u.test(line)) {

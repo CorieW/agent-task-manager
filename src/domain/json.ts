@@ -1,4 +1,4 @@
-/** Defines the JSON-only value boundary and rejects values that cannot cross provider or runtime serialization. */
+/** Provider-neutral the JSON-only value boundary and rejects values that cannot cross provider or runtime serialization contract. */
 /** Represents scalar values accepted by the strict JSON boundary. */
 export type JsonPrimitive = boolean | null | number | string;
 
@@ -14,7 +14,7 @@ export class JsonValueError extends TypeError {}
 
 /** Copies unknown input into strict JSON or rejects unsupported structure. */
 export function toJsonValue(value: unknown): JsonValue {
-  /** Tracks object identities already visited by recursive conversion. */
+  /** Mutable state recording object identities already visited by recursive conversion. */
   const seen = new WeakSet<object>();
 
   /** Recursively validates and copies a value at its diagnostic path. */
@@ -49,7 +49,7 @@ export function toJsonValue(value: unknown): JsonValue {
           return convert(input[index], `${path}[${index}]`);
         });
       }
-      /** Captures the input prototype for the plain-object boundary check. */
+      /** The input prototype for the plain-object boundary check. */
       const prototype = Object.getPrototypeOf(input) as object | null;
       if (prototype !== Object.prototype && prototype !== null) {
         throw new JsonValueError(`${path} must contain only plain objects`);

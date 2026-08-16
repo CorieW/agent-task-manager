@@ -717,6 +717,7 @@ async function acquireAndProject(input: {
 /** Allowed assignment intent state literals. */
 type AssignmentIntentState =
   "compensated" | "complete" | "prepared" | "run_acquired" | "task_acquired";
+
 /** Canonical fields for assignment intent progress. */
 interface AssignmentIntentProgress {
   /** Stable identifier for run lease. */
@@ -981,6 +982,7 @@ function verifyActivity(
   if (!activityMatches(activity, projection))
     throw new Error("Agent activity does not match active leases");
 }
+
 /** Checks whether activity contains exactly the expected Tasks and online state. */
 function activityMatches(
   activity: AgentActivity,
@@ -994,6 +996,7 @@ function activityMatches(
     sameSet(activity.taskIds, projection.taskIds)
   );
 }
+
 /** Checks whether two string collections contain the same values. */
 function sameSet(left: readonly string[], right: readonly string[]): boolean {
   return (
@@ -1001,12 +1004,14 @@ function sameSet(left: readonly string[], right: readonly string[]): boolean {
     [...new Set(right)].sort().join("\0")
   );
 }
+
 /** Requires a non-empty string field value. */
 function requiredString(value: string | null, label: string): string {
   if (value === null || value === "")
     throw new TypeError(`${label} is missing`);
   return value;
 }
+
 /** Requires a field value to be a non-array JSON object. */
 function objectValue(value: JsonValue | undefined, label: string): JsonObject {
   if (

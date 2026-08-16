@@ -20,7 +20,7 @@ class NoNetworkTransport implements NotionTransport {
 }
 
 test("implements the provider contract and validates Notion environment fields locally", async () => {
-  /** Defines the provider fixture for “implements the provider contract and validates Notion environment fields locally”. */
+  /** Provides isolated provider state for the scenario. */
   const provider: AgentTaskProvider = new NotionProvider({
     environment: environment(),
     environmentId: "demo",

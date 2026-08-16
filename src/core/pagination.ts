@@ -1,4 +1,4 @@
-/** Provides deterministic cursor pagination without exposing provider-specific cursors. */
+/** Deterministic cursor pagination without exposing provider-specific cursors. */
 /** Inputs required to perform page. */
 export interface PageRequest {
   /** Opaque cursor after which the next page begins. */

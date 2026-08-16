@@ -18,14 +18,15 @@ import {
   type WorkspaceSchemaDescriptor,
 } from "../src/index.js";
 
-/** Defines the shared environment fixture for this test module. */
+/** Supplies the provider environment shared by the scenarios. */
 const environment: ProviderEnvironment = {
   bootstrapParent: null,
   connection: {},
   tables: { errors: "e", resources: "r", agents: "a", tasks: "t" },
   type: "memory",
 };
-/** Defines the shared target fixture for this test module. */
+
+/** Supplies the canonical workspace schema target. */
 const target: WorkspaceSchemaDescriptor = {
   digest: "target",
   providerType: "memory",
@@ -34,11 +35,11 @@ const target: WorkspaceSchemaDescriptor = {
 };
 
 test("persists the complete intent before applying and replays its receipt", async () => {
-  /** Defines the provider fixture for “persists the complete intent before applying and replays its receipt”. */
+  /** Provides isolated provider state for the scenario. */
   const provider = new InMemoryProvider(environment, target);
-  /** Defines the applications fixture for “persists the complete intent before applying and replays its receipt”. */
+  /** Counts external applications to detect duplicate effects. */
   let applications = 0;
-  /** Defines the handler fixture for “persists the complete intent before applying and replays its receipt”. */
+  /** Simulates the external effect adapter under test. */
   const handler = testHandler({
     /** Simulates effect application. */
     async apply() {
@@ -46,18 +47,18 @@ test("persists the complete intent before applying and replays its receipt", asy
       return applied("commit-1");
     },
   });
-  /** Defines the broker fixture for “persists the complete intent before applying and replays its receipt”. */
+  /** Executes the durable effect workflow under test. */
   const broker = brokerFor(provider, handler);
-  /** Defines the request fixture for “persists the complete intent before applying and replays its receipt”. */
+  /** Supplies the operation input under test. */
   const request = requestFor("git.commit", { message: "feat: add broker" });
-  /** Defines the first fixture for “persists the complete intent before applying and replays its receipt”. */
+  /** Captures the first operation result for replay comparison. */
   const first = await broker.execute(request, deadline());
-  /** Defines the second fixture for “persists the complete intent before applying and replays its receipt”. */
+  /** Captures the replayed result for idempotency comparison. */
   const second = await broker.execute(request, deadline());
   assert.equal(first.state, "applied");
   assert.deepEqual(second.receipt, first.receipt);
   assert.equal(applications, 1);
-  /** Defines the stored fixture for “persists the complete intent before applying and replays its receipt”. */
+  /** Reads persisted state used as the assertion oracle. */
   const stored = await provider.getOptionalResource(
     `external-effect-intent/${request.effectId}`,
   );
@@ -66,13 +67,13 @@ test("persists the complete intent before applying and replays its receipt", asy
 });
 
 test("recovers a side effect accepted before its receipt was persisted", async () => {
-  /** Defines the provider fixture for “recovers a side effect accepted before its receipt was persisted”. */
+  /** Provides isolated provider state for the scenario. */
   const provider = new InMemoryProvider(environment, target);
-  /** Defines the external applied fixture for “recovers a side effect accepted before its receipt was persisted”. */
+  /** Tracks whether the external system accepted the effect. */
   let externalApplied = false;
-  /** Defines the applications fixture for “recovers a side effect accepted before its receipt was persisted”. */
+  /** Counts external applications to detect duplicate effects. */
   let applications = 0;
-  /** Defines the handler fixture for “recovers a side effect accepted before its receipt was persisted”. */
+  /** Simulates the external effect adapter under test. */
   const handler = testHandler({
     /** Simulates effect application. */
     async apply() {
@@ -85,26 +86,26 @@ test("recovers a side effect accepted before its receipt was persisted", async (
       return externalApplied ? applied("branch-1") : notApplied();
     },
   });
-  /** Defines the broker fixture for “recovers a side effect accepted before its receipt was persisted”. */
+  /** Executes the durable effect workflow under test. */
   const broker = brokerFor(provider, handler);
-  /** Defines the request fixture for “recovers a side effect accepted before its receipt was persisted”. */
+  /** Supplies the operation input under test. */
   const request = requestFor("git.commit", { message: "fix: recover" });
   await assert.rejects(
     broker.execute(request, deadline()),
     IndeterminateExternalEffectError,
   );
-  /** Defines the recovered fixture for “recovers a side effect accepted before its receipt was persisted”. */
+  /** Captures the effect reconstructed after response loss. */
   const recovered = await broker.execute(request, deadline());
   assert.equal(recovered.state, "applied");
   assert.equal(applications, 1);
 });
 
 test("does not execute unauthorized or conflicting intents", async () => {
-  /** Defines the provider fixture for “does not execute unauthorized or conflicting intents”. */
+  /** Provides isolated provider state for the scenario. */
   const provider = new InMemoryProvider(environment, target);
-  /** Defines the broker fixture for “does not execute unauthorized or conflicting intents”. */
+  /** Executes the durable effect workflow under test. */
   const broker = brokerFor(provider, testHandler(), false);
-  /** Defines the result fixture for “does not execute unauthorized or conflicting intents”. */
+  /** Captures the operation outcome used by assertions. */
   const result = finalizeAgentResult({
     contextDigest: "a".repeat(64),
     definitionDigest: "b".repeat(64),
@@ -118,9 +119,9 @@ test("does not execute unauthorized or conflicting intents", async () => {
     broker.executeResult(result, deadline()),
     /not authorized/,
   );
-  /** Defines the authorized fixture for “does not execute unauthorized or conflicting intents”. */
+  /** Controls whether the test verifier accepts the effect. */
   const authorized = brokerFor(provider, testHandler());
-  /** Defines the request fixture for “does not execute unauthorized or conflicting intents”. */
+  /** Supplies the operation input under test. */
   const request = requestFor("git.commit", { message: "one" });
   await authorized.execute(request, deadline());
   await assert.rejects(
@@ -130,11 +131,11 @@ test("does not execute unauthorized or conflicting intents", async () => {
 });
 
 test("serializes concurrent execution of one effect identity", async () => {
-  /** Defines the provider fixture for “serializes concurrent execution of one effect identity”. */
+  /** Provides isolated provider state for the scenario. */
   const provider = new InMemoryProvider(environment, target);
-  /** Defines the applications fixture for “serializes concurrent execution of one effect identity”. */
+  /** Counts external applications to detect duplicate effects. */
   let applications = 0;
-  /** Defines the broker fixture for “serializes concurrent execution of one effect identity”. */
+  /** Executes the durable effect workflow under test. */
   const broker = brokerFor(
     provider,
     testHandler({
@@ -146,9 +147,9 @@ test("serializes concurrent execution of one effect identity", async () => {
       },
     }),
   );
-  /** Defines the request fixture for “serializes concurrent execution of one effect identity”. */
+  /** Supplies the operation input under test. */
   const request = requestFor("git.commit", { message: "feat: once" });
-  /** Defines the left and right fixture for “serializes concurrent execution of one effect identity”. */
+  /** Creates two handlers competing for one effect identity. */
   const [left, right] = await Promise.all([
     broker.execute(request, deadline()),
     broker.execute(request, deadline()),
@@ -158,11 +159,11 @@ test("serializes concurrent execution of one effect identity", async () => {
 });
 
 test("preflights a complete result before applying its first effect", async () => {
-  /** Defines the provider fixture for “preflights a complete result before applying its first effect”. */
+  /** Provides isolated provider state for the scenario. */
   const provider = new InMemoryProvider(environment, target);
-  /** Defines the applications fixture for “preflights a complete result before applying its first effect”. */
+  /** Counts external applications to detect duplicate effects. */
   let applications = 0;
-  /** Defines the first fixture for “preflights a complete result before applying its first effect”. */
+  /** Captures the first operation result for replay comparison. */
   const first = testHandler({
     /** Simulates effect application. */
     async apply() {
@@ -170,7 +171,7 @@ test("preflights a complete result before applying its first effect", async () =
       return applied("first");
     },
   });
-  /** Defines the second fixture for “preflights a complete result before applying its first effect”. */
+  /** Captures the replayed result for idempotency comparison. */
   const second: ExternalEffectHandler = {
     ...testHandler(),
     id: "bad-handler",
@@ -180,7 +181,7 @@ test("preflights a complete result before applying its first effect", async () =
       throw new TypeError("bad second payload");
     },
   };
-  /** Defines the config fixture for “preflights a complete result before applying its first effect”. */
+  /** Binds the runtime adapters and policies used by the scenario. */
   const config = {
     adapters: null,
     effects: {
@@ -193,7 +194,7 @@ test("preflights a complete result before applying its first effect", async () =
     runtime: null,
     schema: "agent-task-manager-environment-v1" as const,
   };
-  /** Defines the broker fixture for “preflights a complete result before applying its first effect”. */
+  /** Executes the durable effect workflow under test. */
   const broker = new ExternalEffectBroker(
     resolveExternalEffectEnvironment(config, [first, second]),
     new ProviderEffectJournal(provider),
@@ -202,7 +203,7 @@ test("preflights a complete result before applying its first effect", async () =
       async verify() {},
     },
   );
-  /** Defines the result fixture for “preflights a complete result before applying its first effect”. */
+  /** Captures the operation outcome used by assertions. */
   const result = finalizeAgentResult({
     contextDigest: "a".repeat(64),
     definitionDigest: "c".repeat(64),
@@ -223,11 +224,15 @@ test("preflights a complete result before applying its first effect", async () =
 });
 
 test("stops an ordered effect sequence after a failed predecessor", async () => {
+  /** Persists effect intents and receipts for the sequence under test. */
   const provider = new InMemoryProvider(environment, target);
+  /** Counts whether the dependent publication effect is attempted. */
   let publicationApplications = 0;
+  /** Returns the failed predecessor observation. */
   const command = testHandler({
     id: "command-handler",
     kind: "command.run",
+    /** Simulates a command failure without throwing. */
     async apply() {
       return {
         evidence: { exitCode: 1 },
@@ -236,14 +241,17 @@ test("stops an ordered effect sequence after a failed predecessor", async () => 
       };
     },
   });
+  /** Records any attempt to publish after the failed command. */
   const publication = testHandler({
     id: "publication-handler",
     kind: "publication.draft_pr",
+    /** Counts and accepts a publication attempt. */
     async apply() {
       publicationApplications += 1;
       return applied("pr-1");
     },
   });
+  /** Binds both effect kinds to their test handlers. */
   const config = {
     adapters: null,
     effects: {
@@ -259,11 +267,16 @@ test("stops an ordered effect sequence after a failed predecessor", async () => 
     runtime: null,
     schema: "agent-task-manager-environment-v1" as const,
   };
+  /** Executes the ordered effects through a provider-backed journal. */
   const broker = new ExternalEffectBroker(
     resolveExternalEffectEnvironment(config, [command, publication]),
     new ProviderEffectJournal(provider),
-    { async verify() {} },
+    {
+      /** Allows the sequence to reach effect execution. */
+      async verify() {},
+    },
   );
+  /** Supplies the failed command before the dependent publication. */
   const result = finalizeAgentResult({
     contextDigest: "a".repeat(64),
     definitionDigest: "c".repeat(64),
@@ -277,6 +290,7 @@ test("stops an ordered effect sequence after a failed predecessor", async () => 
     schema: "agent-result-v1",
   });
 
+  /** Captures the prefix executed before failure stopped the sequence. */
   const executions = await broker.executeResult(result, deadline());
 
   assert.deepEqual(
@@ -287,13 +301,13 @@ test("stops an ordered effect sequence after a failed predecessor", async () => 
 });
 
 test("persists replay quarantine before invoking an external apply", async () => {
-  /** Defines the provider fixture for “persists replay quarantine before invoking an external apply”. */
+  /** Provides isolated provider state for the scenario. */
   const provider = new InMemoryProvider(environment, target);
-  /** Defines the write ahead observed fixture for “persists replay quarantine before invoking an external apply”. */
+  /** Tracks whether durable intent preceded effect application. */
   let writeAheadObserved = false;
-  /** Defines the request fixture for “persists replay quarantine before invoking an external apply”. */
+  /** Supplies the operation input under test. */
   const request = requestFor("git.commit", { message: "fix: write ahead" });
-  /** Defines the handler fixture for “persists replay quarantine before invoking an external apply”. */
+  /** Simulates the external effect adapter under test. */
   const handler = testHandler({
     /** Simulates effect application. */
     async apply() {
@@ -319,16 +333,16 @@ test("persists replay quarantine before invoking an external apply", async () =>
 });
 
 test("retains the provider claim when deadline cancellation is not acknowledged", async () => {
-  /** Defines the provider fixture for “retains the provider claim when deadline cancellation is not acknowledged”. */
+  /** Provides isolated provider state for the scenario. */
   const provider = new InMemoryProvider(environment, target);
-  /** Defines the handler fixture for “retains the provider claim when deadline cancellation is not acknowledged”. */
+  /** Simulates the external effect adapter under test. */
   const handler = testHandler({
     /** Simulates effect application. */
     async apply() {
       return new Promise<ExternalEffectObservation>(() => undefined);
     },
   });
-  /** Defines the environment config fixture for “retains the provider claim when deadline cancellation is not acknowledged”. */
+  /** Defines the runtime deadline and adapter bindings. */
   const environmentConfig = {
     adapters: null,
     effects: { handlers: { "git.commit": handler.id }, settings: {} },
@@ -338,7 +352,7 @@ test("retains the provider claim when deadline cancellation is not acknowledged"
     runtime: null,
     schema: "agent-task-manager-environment-v1" as const,
   };
-  /** Defines the broker fixture for “retains the provider claim when deadline cancellation is not acknowledged”. */
+  /** Executes the durable effect workflow under test. */
   const broker = new ExternalEffectBroker(
     resolveExternalEffectEnvironment(environmentConfig, [handler]),
     new ProviderEffectJournal(provider),
@@ -349,7 +363,7 @@ test("retains the provider claim when deadline cancellation is not acknowledged"
     5,
     1_000,
   );
-  /** Defines the request fixture for “retains the provider claim when deadline cancellation is not acknowledged”. */
+  /** Supplies the operation input under test. */
   const request = requestFor("git.commit", { message: "fix: quarantine" });
   await assert.rejects(
     broker.execute(request, Date.now() + 25),
@@ -361,11 +375,11 @@ test("retains the provider claim when deadline cancellation is not acknowledged"
 });
 
 test("durable quarantine blocks replay after its provider claim expires", async () => {
-  /** Defines the provider fixture for “durable quarantine blocks replay after its provider claim expires”. */
+  /** Provides isolated provider state for the scenario. */
   const provider = new InMemoryProvider(environment, target);
-  /** Defines the applications fixture for “durable quarantine blocks replay after its provider claim expires”. */
+  /** Counts external applications to detect duplicate effects. */
   let applications = 0;
-  /** Defines the handler fixture for “durable quarantine blocks replay after its provider claim expires”. */
+  /** Simulates the external effect adapter under test. */
   const handler = testHandler({
     /** Simulates effect application. */
     async apply(_request, control) {
@@ -390,7 +404,7 @@ test("durable quarantine blocks replay after its provider claim expires", async 
       return notApplied();
     },
   });
-  /** Defines the environment config fixture for “durable quarantine blocks replay after its provider claim expires”. */
+  /** Defines the runtime deadline and adapter bindings. */
   const environmentConfig = {
     adapters: null,
     effects: { handlers: { "git.commit": handler.id }, settings: {} },
@@ -400,7 +414,7 @@ test("durable quarantine blocks replay after its provider claim expires", async 
     runtime: null,
     schema: "agent-task-manager-environment-v1" as const,
   };
-  /** Defines the broker fixture for “durable quarantine blocks replay after its provider claim expires”. */
+  /** Executes the durable effect workflow under test. */
   const broker = new ExternalEffectBroker(
     resolveExternalEffectEnvironment(environmentConfig, [handler]),
     new ProviderEffectJournal(provider),
@@ -411,7 +425,7 @@ test("durable quarantine blocks replay after its provider claim expires", async 
     5,
     0,
   );
-  /** Defines the request fixture for “durable quarantine blocks replay after its provider claim expires”. */
+  /** Supplies the operation input under test. */
   const request = requestFor("git.commit", {
     message: "fix: durable quarantine",
   });
@@ -439,13 +453,13 @@ test("durable quarantine blocks replay after its provider claim expires", async 
   );
 });
 
-/** Creates the broker for test fixture. */
+/** Builds an effect broker with deterministic authorization and deadlines. */
 function brokerFor(
   provider: InMemoryProvider,
   handler: ExternalEffectHandler,
   authorized = true,
 ): ExternalEffectBroker {
-  /** Defines the environment config fixture used by broker for. */
+  /** Defines the runtime deadline and adapter bindings. */
   const environmentConfig = {
     adapters: null,
     effects: { handlers: { "git.commit": handler.id }, settings: {} },
@@ -467,6 +481,7 @@ function brokerFor(
     },
   );
 }
+
 /** Requests for. */
 function requestFor(kind: string, payload: Record<string, string>) {
   return finalizeRequest({
@@ -481,7 +496,8 @@ function requestFor(kind: string, payload: Record<string, string>) {
     },
   });
 }
-/** Creates the applied test fixture. */
+
+/** Builds a successful external-effect observation. */
 function applied(id: string): ExternalEffectObservation {
   return {
     evidence: { verified: true },
@@ -489,10 +505,12 @@ function applied(id: string): ExternalEffectObservation {
     state: "applied",
   };
 }
+
 /** Creates a not-applied effect observation. */
 function notApplied(): ExternalEffectObservation {
   return { evidence: {}, externalIdentity: {}, state: "not_applied" };
 }
+
 /** Creates an external-effect handler test double. */
 function testHandler(
   overrides: Partial<ExternalEffectHandler> = {},
@@ -514,6 +532,7 @@ function testHandler(
     ...overrides,
   };
 }
+
 /** Returns a future deadline for the test scenario. */
 function deadline(): number {
   return Date.now() + 10_000;

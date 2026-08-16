@@ -89,7 +89,7 @@ export function readReviewCycleState(
   return reviewState(readCycleState(properties, sharedPolicy(policy)));
 }
 
-/** Records one distinct changes-requested result or rejects a looping review cycle. */
+/** Persists one distinct changes-requested result or rejects a looping review cycle. */
 export function advanceReviewCycle(
   properties: JsonObject,
   findingKeys: readonly string[],

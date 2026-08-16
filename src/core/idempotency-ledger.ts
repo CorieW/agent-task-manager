@@ -38,7 +38,7 @@ export class IdempotencyLedger {
     return structuredClone(entry.result as T);
   }
 
-  /** Stores a result or returns the existing matching process-local replay. */
+  /** A result or returns the existing matching process-local replay. */
   public write<T>(
     key: string,
     operation: string,

@@ -9,7 +9,7 @@ import type {
   HumanSlotResponse,
 } from "./contracts.js";
 
-/** Stores slot fields used by the current operation. */
+/** Slot fields snapshot used consistently during the the current operation operation. */
 const SLOT_FIELDS = [
   "createdAt",
   "generation",
@@ -23,12 +23,15 @@ const SLOT_FIELDS = [
   "sourceErrorKey",
   "taskId",
 ] as const;
-/** Stores slot token used by the current operation. */
+
+/** Result of `Set`, retained for the the current operation operation. */
 const SLOT_TOKEN = "<!-- agent-task-manager:human-slot:";
-/** Stores slot pattern used by the current operation. */
+
+/** Result of `Set`, retained for the the current operation operation. */
 const SLOT_PATTERN =
   /<!-- agent-task-manager:human-slot:([a-f0-9]{64}):start -->\n```json\n([\s\S]*?)\n```\n<!-- agent-task-manager:human-slot:\1:end -->/gu;
-/** Tracks unique kinds values. */
+
+/** Seen kinds values used to reject duplicates. */
 const KINDS = new Set<HumanSlotKind>([
   "answer",
   "resolution",
@@ -36,7 +39,7 @@ const KINDS = new Set<HumanSlotKind>([
   "testing",
 ]);
 
-/** Defines the new human interaction slot data shape. */
+/** Provider-neutral the new human interaction slot data shape contract. */
 export type NewHumanInteractionSlot = Omit<
   HumanInteractionSlot,
   "response" | "schema" | "slotId"
@@ -48,7 +51,7 @@ export function createHumanInteractionSlot(
 ): HumanInteractionSlot {
   /** Collects the canonical fields used to compute the record digest. */
   const core = normalizeCore(input);
-  /** Stores slot id used by create human interaction slot. */
+  /** Result of `digestJson`, retained for the create human interaction slot operation. */
   const slotId = digestJson(toJsonValue(core));
   return {
     ...core,
@@ -60,7 +63,7 @@ export function createHumanInteractionSlot(
 
 /** Renders human interaction slot in its canonical text form. */
 export function renderHumanInteractionSlot(slot: HumanInteractionSlot): string {
-  /** Stores checked used by render human interaction slot. */
+  /** Result of `parseHumanInteractionSlot`, retained for the render human interaction slot operation. */
   const checked = parseHumanInteractionSlot(toJsonValue(slot), slot.slotId);
   return `<!-- agent-task-manager:human-slot:${checked.slotId}:start -->\n\`\`\`json\n${JSON.stringify(checked, null, 2)}\n\`\`\`\n<!-- agent-task-manager:human-slot:${checked.slotId}:end -->`;
 }
@@ -70,9 +73,9 @@ export function appendHumanInteractionSlot(
   body: string,
   slot: HumanInteractionSlot,
 ): string {
-  /** Stores normalized used by append human interaction slot. */
+  /** Result of `normalizeText`, retained for the append human interaction slot operation. */
   const normalized = normalizeText(body);
-  /** Stores existing used by append human interaction slot. */
+  /** Result of `parseHumanInteractionSlots`, retained for the append human interaction slot operation. */
   const existing = parseHumanInteractionSlots(normalized).find(
     (candidate) => candidate.slotId === slot.slotId,
   );
@@ -83,7 +86,7 @@ export function appendHumanInteractionSlot(
       );
     return normalized;
   }
-  /** Stores rendered used by append human interaction slot. */
+  /** Result of `renderHumanInteractionSlot`, retained for the append human interaction slot operation. */
   const rendered = renderHumanInteractionSlot(slot);
   return normalized === ""
     ? rendered
@@ -94,11 +97,11 @@ export function appendHumanInteractionSlot(
 export function parseHumanInteractionSlots(
   body: string,
 ): readonly HumanInteractionSlot[] {
-  /** Stores normalized used by parse human interaction slots. */
+  /** Result of `normalizeText`, retained for the parse human interaction slots operation. */
   const normalized = normalizeText(body);
-  /** Stores slots used by parse human interaction slots. */
+  /** Result of `SLOT_PATTERN.exec`, retained for the parse human interaction slots operation. */
   const slots: HumanInteractionSlot[] = [];
-  /** Stores match used by parse human interaction slots. */
+  /** Result of `SLOT_PATTERN.exec`, retained for the parse human interaction slots operation. */
   let match: RegExpExecArray | null;
   SLOT_PATTERN.lastIndex = 0;
   while ((match = SLOT_PATTERN.exec(normalized)) !== null)
@@ -108,7 +111,7 @@ export function parseHumanInteractionSlots(
         required(match[1], "Human slot marker"),
       ),
     );
-  /** Stores token count used by parse human interaction slots. */
+  /** Result of `normalized.split`, retained for the parse human interaction slots operation. */
   const tokenCount = normalized.split(SLOT_TOKEN).length - 1;
   if (tokenCount !== slots.length * 2)
     throw new TypeError(
@@ -124,12 +127,12 @@ export function verifyAllowedHumanDelta(
   baseline: HumanInteractionSlot,
   edited: HumanInteractionSlot,
 ): HumanAuthority {
-  /** Stores checked baseline used by verify allowed human delta. */
+  /** Result of `parseHumanInteractionSlot`, retained for the verify allowed human delta operation. */
   const checkedBaseline = parseHumanInteractionSlot(
     toJsonValue(baseline),
     baseline.slotId,
   );
-  /** Stores checked edited used by verify allowed human delta. */
+  /** Result of `parseHumanInteractionSlot`, retained for the verify allowed human delta operation. */
   const checkedEdited = parseHumanInteractionSlot(
     toJsonValue(edited),
     baseline.slotId,
@@ -147,7 +150,7 @@ export function verifyAllowedHumanDelta(
     throw new Error(
       `Human response action is not allowed: ${checkedEdited.response.action}`,
     );
-  /** Stores target status used by verify allowed human delta. */
+  /** Target status snapshot used consistently during the verify allowed human delta operation. */
   const targetStatus = checkedEdited.routes[checkedEdited.response.action];
   if (typeof targetStatus !== "string")
     throw new Error(
@@ -170,10 +173,10 @@ export function parseHumanInteractionSlot(
 ): HumanInteractionSlot {
   if (value === null || typeof value !== "object" || Array.isArray(value))
     throw new TypeError("Human interaction slot must be an object");
-  /** Holds the parsed value being validated by parse human interaction slot. */
+  /** Parsed candidate awaiting parse human interaction slot validation. */
   const found = value as Record<string, unknown>;
   closed(found, SLOT_FIELDS);
-  /** Stores marker id used by parse human interaction slot. */
+  /** Marker id snapshot used consistently during the parse human interaction slot operation. */
   const markerId =
     expectedSlotId ?? (typeof found.slotId === "string" ? found.slotId : "");
   if (
@@ -218,6 +221,7 @@ function normalizeCore(
     taskId: text(input.taskId, "taskId", 500),
   };
 }
+
 /** Projects only the machine-owned fields used for delta verification. */
 function machineProjection(
   slot: HumanInteractionSlot,
@@ -226,12 +230,13 @@ function machineProjection(
   const { response: _response, ...machine } = slot;
   return machine;
 }
+
 /** Validates and returns an optional human-slot response. */
 function response(value: unknown): HumanSlotResponse | null {
   if (value === null) return null;
   if (value === null || typeof value !== "object" || Array.isArray(value))
     throw new TypeError("Human response must be an object or null");
-  /** Holds the parsed value being validated by response. */
+  /** Parsed candidate awaiting response validation. */
   const found = value as Record<string, unknown>;
   closed(found, ["action", "text"]);
   return {
@@ -239,11 +244,12 @@ function response(value: unknown): HumanSlotResponse | null {
     text: text(found.text, "response.text", 10_000),
   };
 }
+
 /** Validates response routes as a non-empty map of unique statuses. */
 function routes(value: unknown): Readonly<Record<string, string>> {
   if (value === null || typeof value !== "object" || Array.isArray(value))
     throw new TypeError("Human routes must be an object");
-  /** Stores entries used by routes. */
+  /** Result of `Object.entries`, retained for the routes operation. */
   const entries = Object.entries(value as Record<string, unknown>)
     .map(
       ([action, status]) =>
@@ -260,6 +266,7 @@ function routes(value: unknown): Readonly<Record<string, string>> {
     throw new TypeError("Human routes must be non-empty and unique");
   return Object.fromEntries(entries);
 }
+
 /** Rejects objects whose keys differ from the expected closed shape. */
 function closed(
   value: Record<string, unknown>,
@@ -270,19 +277,22 @@ function closed(
       "Human interaction object has unexpected or missing fields",
     );
 }
+
 /** Returns whether a value is a lowercase SHA-256 digest. */
 function isSha256Digest(value: string): boolean {
   return /^[a-f0-9]{64}$/u.test(value);
 }
+
 /** Validates and returns a positive integer. */
 function integer(value: unknown, field: string): number {
   if (!Number.isSafeInteger(value) || (value as number) < 1)
     throw new TypeError(`${field} must be a positive integer`);
   return value as number;
 }
+
 /** Validates and returns a canonical UTC ISO timestamp. */
 function iso(value: string): string {
-  /** Stores normalized used by iso. */
+  /** Result of `text`, retained for the iso operation. */
   const normalized = text(value, "createdAt", 100);
   if (
     !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u.test(normalized) ||
@@ -291,12 +301,14 @@ function iso(value: string): string {
     throw new TypeError("createdAt must be canonical UTC ISO time");
   return normalized;
 }
+
 /** Validates and returns a supported human-slot kind. */
 function kind(value: unknown): HumanSlotKind {
   if (typeof value !== "string" || !KINDS.has(value as HumanSlotKind))
     throw new TypeError("Human interaction kind is invalid");
   return value as HumanSlotKind;
 }
+
 /** Validates bounded text while preserving null. */
 function nullableText(
   value: unknown,
@@ -305,20 +317,23 @@ function nullableText(
 ): string | null {
   return value === null ? null : text(value, field, maximum);
 }
+
 /** Validates and normalizes a bounded text value. */
 function text(value: unknown, field: string, maximum: number): string {
   if (typeof value !== "string")
     throw new TypeError(`${field} must be a string`);
-  /** Stores normalized used by text. */
+  /** Result of `normalizeText`, retained for the text operation. */
   const normalized = normalizeText(value).trim();
   if (normalized === "" || Buffer.byteLength(normalized, "utf8") > maximum)
     throw new TypeError(`${field} is blank or too large`);
   return normalized;
 }
+
 /** Normalizes the value into its canonical boundary representation. */
 function normalizeText(value: string): string {
   return value.replace(/\r\n?/gu, "\n").normalize("NFC");
 }
+
 /** Returns d or throws when invalid or absent. */
 function required<T>(value: T | undefined, label: string): T {
   if (value === undefined) throw new TypeError(`${label} is missing`);

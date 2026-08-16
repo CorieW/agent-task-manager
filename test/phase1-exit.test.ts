@@ -18,7 +18,7 @@ import {
   type WorkspaceSchemaDescriptor,
 } from "../src/index.js";
 
-/** Defines the shared environment fixture for this test module. */
+/** Supplies the provider environment shared by the scenarios. */
 const environment: ProviderEnvironment = {
   bootstrapParent: null,
   connection: {},
@@ -26,7 +26,7 @@ const environment: ProviderEnvironment = {
   type: "memory",
 };
 
-/** Defines the shared target fixture for this test module. */
+/** Supplies the canonical workspace schema target. */
 const target: WorkspaceSchemaDescriptor = {
   digest: "phase-1-target",
   providerType: "memory",
@@ -90,9 +90,9 @@ function definition(overrides: Partial<AgentDefinition> = {}): AgentDefinition {
 }
 
 test("typed selection results are closed, digested, and authority checked", () => {
-  /** Defines the selector fixture for “typed selection results are closed, digested, and authority checked”. */
+  /** Supplies the coordinator definition authorized to select work. */
   const selector = definition();
-  /** Defines the result fixture for “typed selection results are closed, digested, and authority checked”. */
+  /** Captures the operation outcome used by assertions. */
   const result = finalizeTaskSelectionResult({
     candidateSetDigest: "candidates",
     idempotencyKey: "selection-1",
@@ -108,7 +108,7 @@ test("typed selection results are closed, digested, and authority checked", () =
     targetAgentRevision: 1,
     taskId: "task-1",
   });
-  /** Defines the parsed fixture for “typed selection results are closed, digested, and authority checked”. */
+  /** Captures the validated contract produced by the parser. */
   const parsed = parseTaskSelectionResult(JSON.parse(JSON.stringify(result)));
   assert.deepEqual(parsed, result);
   assert.doesNotThrow(() =>
@@ -134,7 +134,7 @@ test("typed selection results are closed, digested, and authority checked", () =
 });
 
 test("invocation scheduling is deterministic and capacity-aware", () => {
-  /** Defines the scheduled fixture for “invocation scheduling is deterministic and capacity-aware”. */
+  /** Captures the deterministic invocation schedule. */
   const scheduled = scheduleInvocations({
     activeRuns: { busy: 1 },
     definitions: [
@@ -155,12 +155,12 @@ test("invocation scheduling is deterministic and capacity-aware", () => {
 });
 
 test("foundation dry run plans and schedules without writes", async () => {
-  /** Defines the provider fixture for “foundation dry run plans and schedules without writes”. */
+  /** Provides isolated provider state for the scenario. */
   const provider = new InMemoryProvider(environment, target);
   provider.seedDefinition(definition());
-  /** Defines the before fixture for “foundation dry run plans and schedules without writes”. */
+  /** Snapshots provider state before the operation. */
   const before = await provider.inspectWorkspaceSchema();
-  /** Defines the report fixture for “foundation dry run plans and schedules without writes”. */
+  /** Captures validation or dry-run findings used as the oracle. */
   const report = await runFoundationDryRun({
     activeRuns: {},
     dueScheduledDefinitionIds: [],
@@ -171,7 +171,7 @@ test("foundation dry run plans and schedules without writes", async () => {
     scheduleLimit: 1,
     target,
   });
-  /** Defines the after fixture for “foundation dry run plans and schedules without writes”. */
+  /** Snapshots provider state after the operation. */
   const after = await provider.inspectWorkspaceSchema();
   assert.equal(report.environmentValid, true);
   assert.equal(report.workspaceState, "needs_bootstrap");
@@ -185,9 +185,9 @@ test("foundation dry run plans and schedules without writes", async () => {
 });
 
 test("foundation dry run honors capacity and does not plan ready workspaces", async () => {
-  /** Defines the bootstrap fixture for “foundation dry run honors capacity and does not plan ready workspaces”. */
+  /** Runs the bootstrap workflow exercised by the dry run. */
   const bootstrap = new InMemoryProvider(environment, target);
-  /** Defines the initial plan fixture for “foundation dry run honors capacity and does not plan ready workspaces”. */
+  /** Captures the bootstrap plan before the dry run. */
   const initialPlan = await bootstrap.planWorkspaceChanges({
     environmentId: "phase-1",
     mode: "bootstrap",
@@ -197,7 +197,7 @@ test("foundation dry run honors capacity and does not plan ready workspaces", as
   for (const step of initialPlan.steps)
     await bootstrap.applyWorkspaceStep(step);
   bootstrap.seedDefinition(definition());
-  /** Defines the report fixture for “foundation dry run honors capacity and does not plan ready workspaces”. */
+  /** Captures validation or dry-run findings used as the oracle. */
   const report = await runFoundationDryRun({
     activeRuns: { planner: 1 },
     dueScheduledDefinitionIds: [],
@@ -218,7 +218,7 @@ test("pagination and idempotency primitives are deterministic", () => {
     pageAfter(["b", "a", "c"], { cursor: "a", limit: 2 }, (item) => item),
     ["b", "c"],
   );
-  /** Defines the ledger fixture for “pagination and idempotency primitives are deterministic”. */
+  /** Records idempotency results for deterministic replay checks. */
   const ledger = new IdempotencyLedger();
   assert.deepEqual(
     ledger.write("key", "operation", { value: 1 }, { receipt: 1 }),
@@ -238,13 +238,13 @@ test("pagination and idempotency primitives are deterministic", () => {
 
 test("core and domain modules do not import the Notion provider", async () => {
   for (const directory of ["src/core", "src/domain"]) {
-    /** Defines the absolute fixture for “core and domain modules do not import the Notion provider”. */
+    /** Resolves the repository path used by the import-boundary check. */
     const absolute = path.join(process.cwd(), directory);
     for (const entry of await readdir(absolute, { withFileTypes: true })) {
       if (!entry.isFile() || !entry.name.endsWith(".ts")) continue;
-      /** Defines the source fixture for “core and domain modules do not import the Notion provider”. */
+      /** Reads source text for the import-boundary check. */
       const source = await readFile(path.join(absolute, entry.name), "utf8");
-      /** Defines the imports fixture for “core and domain modules do not import the Notion provider”. */
+      /** Collects source imports checked for provider coupling. */
       const imports = source.match(/^import .*$/gmu) ?? [];
       assert.equal(
         imports.some((statement) => /notion/iu.test(statement)),

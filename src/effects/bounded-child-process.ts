@@ -6,30 +6,31 @@ import {
 } from "./contracts.js";
 import { join } from "node:path";
 
-/** Defines the data and behavior required by bounded child process result. */
+/** Outcome returned by bounded child process. */
 export interface BoundedChildProcessResult {
-  /** Provides exit code to bounded child process result. */
+  /** Process exit code returned by the child. */
   readonly exitCode: number;
-  /** Provides stderr to bounded child process result. */
+  /** Captured standard-error bytes. */
   readonly stderr: Uint8Array;
-  /** Provides stdout to bounded child process result. */
+  /** Captured standard-output bytes. */
   readonly stdout: Uint8Array;
 }
-/** Defines the data and behavior required by bounded child process input. */
+
+/** Inputs accepted by bounded child process. */
 export interface BoundedChildProcessInput {
-  /** Lists the arguments accepted by this contract. */
+  /** Ordered the arguments used by this contract. */
   readonly arguments: readonly string[];
-  /** Provides cwd to bounded child process input. */
+  /** Working directory for the operation. */
   readonly cwd: string;
-  /** Records the canonical timestamp for deadline. */
+  /** Canonical timestamp for deadline. */
   readonly deadlineAt: number;
-  /** Provides environment to bounded child process input. */
+  /** Environment variables exposed to the operation. */
   readonly environment: Readonly<Record<string, string>>;
-  /** Provides executable path to bounded child process input. */
+  /** Absolute path of the executable to launch. */
   readonly executablePath: string;
-  /** Sets output limit in bytes. */
+  /** Output limit in bytes. */
   readonly outputLimitBytes: number;
-  /** Provides signal to bounded child process input. */
+  /** Cancellation signal for the operation. */
   readonly signal: AbortSignal;
 }
 
@@ -40,7 +41,7 @@ export async function runBoundedChildProcess(
   if (input.signal.aborted || input.deadlineAt <= Date.now())
     throw new Error("Broker process was cancelled before launch");
   return new Promise((resolvePromise, reject) => {
-    /** Stores child used by run bounded child process. */
+    /** Result of `spawn`, retained for the run bounded child process operation. */
     const child = spawn(input.executablePath, [...input.arguments], {
       cwd: input.cwd,
       detached: process.platform !== "win32",
@@ -53,11 +54,11 @@ export async function runBoundedChildProcess(
     const stdout: Buffer[] = [];
     /** Collects bounded stderr chunks. */
     const stderr: Buffer[] = [];
-    /** Tracks bytes in bytes. */
+    /** Combined output size accumulated in bytes. */
     let bytes = 0;
-    /** Stores settled used by run bounded child process. */
+    /** Result of `async`, retained for the run bounded child process operation. */
     let settled = false;
-    /** Stores settle error used by run bounded child process. */
+    /** Result of `async`, retained for the run bounded child process operation. */
     const settleError = async (
       error: Error,
       cancellation = false,
@@ -84,7 +85,7 @@ export async function runBoundedChildProcess(
         );
       }
     };
-    /** Stores append used by run bounded child process. */
+    /** Local callback implementing append for the run bounded child process operation. */
     const append = (target: Buffer[], chunk: Buffer): void => {
       if (settled) return;
       bytes += chunk.byteLength;
@@ -92,18 +93,18 @@ export async function runBoundedChildProcess(
         void settleError(new Error("Broker process output exceeded its limit"));
       else target.push(chunk);
     };
-    /** Stores on abort used by run bounded child process. */
+    /** Result of `setTimeout`, retained for the run bounded child process operation. */
     const onAbort = (): void => {
       void settleError(new Error("Broker process was cancelled"), true);
     };
-    /** Tracks the timeout handle so it can be cleared. */
+    /** Timeout handle cleared during cleanup. */
     const timer = setTimeout(
       () => {
         void settleError(new Error("Broker process exceeded its deadline"));
       },
       Math.max(1, input.deadlineAt - Date.now()),
     );
-    /** Stores clear used by run bounded child process. */
+    /** Local callback implementing clear for the run bounded child process operation. */
     const clear = (): void => {
       clearTimeout(timer);
       input.signal.removeEventListener("abort", onAbort);
@@ -138,7 +139,7 @@ async function killProcessTree(pid: number | undefined): Promise<void> {
     }
     return;
   }
-  /** Stores system root used by kill process tree. */
+  /** System root snapshot used consistently during the kill process tree operation. */
   const systemRoot = process.env.SystemRoot;
   if (systemRoot === undefined || systemRoot === "") {
     try {
@@ -149,7 +150,7 @@ async function killProcessTree(pid: number | undefined): Promise<void> {
     return;
   }
   await new Promise<void>((resolvePromise) => {
-    /** Stores killer used by kill process tree. */
+    /** Result of `spawn`, retained for the kill process tree operation. */
     const killer = spawn(
       join(systemRoot, "System32", "taskkill.exe"),
       ["/PID", String(pid), "/T", "/F"],

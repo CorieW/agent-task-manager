@@ -51,27 +51,27 @@ import type {
 } from "../domain/schema.js";
 import type { AgentTaskProvider } from "./agent-task-provider.js";
 
-/** Defines memory lease. */
+/** Provider-neutral memory lease contract. */
 interface MemoryLease extends LeaseRequest {
-  /** Identifies memory lease. */
+  /** Stable identifier for memory lease. */
   readonly id: string;
 }
 
-/** Defines memory activity. */
+/** Provider-neutral memory activity contract. */
 interface MemoryActivity {
-  /** Lists run lease IDs for memory activity. */
+  /** Ordered run lease IDs for memory activity. */
   readonly runLeaseIds: readonly string[];
-  /** Lists task IDs for memory activity. */
+  /** Ordered task IDs for memory activity. */
   readonly taskIds: readonly string[];
 }
 
-/** Stores one provider-neutral logical operation for durable-style replay. */
+/** One provider-neutral logical operation for durable-style replay. */
 interface MemoryOperationIntent extends ProviderOperationIntent {
   /** Digest used to reject payload changes under one idempotency key. */
   readonly payloadDigest: string;
 }
 
-/** Returns the Task ID required by a task-assignment lease. */
+/** Returns the Task ID dependency consumed by a task-assignment lease. */
 function requiredLeaseTask(lease: MemoryLease): string {
   if (lease.taskId === null)
     throw new Error("Task-assignment lease is missing its Task");
@@ -86,14 +86,15 @@ function sameLeaseSlot(left: MemoryLease, right: LeaseRequest): boolean {
     : left.taskId === right.taskId;
 }
 
-/** Defines the module-level `TABLE_ORDER` value. */
+/** Table kinds in dependency-safe bootstrap order. */
 const TABLE_ORDER: readonly TableKind[] = [
   "resources",
   "errors",
   "tasks",
   "agents",
 ];
-/** Defines the module-level `TASK_SUMMARY_KEYS` value. */
+
+/** Allowlist of Task fields accepted by summary predicates. */
 const TASK_SUMMARY_KEYS = new Set([
   "archived",
   "id",
@@ -110,7 +111,7 @@ function clone<T>(value: T): T {
 
 /** Digests a canonical workspace-table snapshot. */
 function snapshotDigest(tables: readonly ObservedTable[]): string {
-  /** Holds the `normalized` intermediate used by `snapshotDigest`. */
+  /** Derived normalized value for `snapshotDigest`. */
   const normalized = [...tables]
     .map((table) => ({
       ...table,
@@ -128,9 +129,9 @@ function observedProperty(
   property: PropertyDescriptor,
   target: WorkspaceSchemaDescriptor,
 ): ObservedProperty {
-  /** Holds the `targetKind` intermediate used by `observedProperty`. */
+  /** Related table kind declared by the target property. */
   const targetKind = property.targetTable;
-  /** Holds the `targetTable` intermediate used by `observedProperty`. */
+  /** Target table descriptor used to synthesize the relation identifier. */
   const targetTable =
     targetKind === null
       ? null
@@ -149,7 +150,7 @@ function observedTable(
   kind: TableKind,
   target: WorkspaceSchemaDescriptor,
 ): ObservedTable {
-  /** Holds the `descriptor` intermediate used by `observedTable`. */
+  /** Result of `target.tables.find`, retained for `observedTable`. */
   const descriptor = target.tables.find((table) => table.kind === kind);
   if (descriptor === undefined) throw new Error(`Unknown table kind: ${kind}`);
   return {
@@ -166,7 +167,7 @@ function observedTable(
 
 /** Generates the next table version after a migration. */
 function nextTableVersion(version: string): string {
-  /** Holds the `parsed` intermediate used by `nextTableVersion`. */
+  /** Result of `Number.parseInt`, retained for `nextTableVersion`. */
   const parsed = Number.parseInt(version, 10);
   return Number.isSafeInteger(parsed) && parsed >= 0
     ? String(parsed + 1)
@@ -180,14 +181,14 @@ function evolveSnapshot(
   target: WorkspaceSchemaDescriptor,
   capturedAt: string,
 ): WorkspaceSchemaSnapshot {
-  /** Holds the `kind` intermediate used by `evolveSnapshot`. */
+  /** Kind snapshot used consistently during `evolveSnapshot`. */
   const kind = step.payload.kind;
   if (typeof kind !== "string" || !TABLE_ORDER.includes(kind as TableKind)) {
     throw new Error(`Migration step ${step.id} has an invalid table kind`);
   }
-  /** Holds the `tableKind` intermediate used by `evolveSnapshot`. */
+  /** Result of `clone`, retained for `evolveSnapshot`. */
   const tableKind = kind as TableKind;
-  /** Holds the `tables` intermediate used by `evolveSnapshot`. */
+  /** Result of `clone`, retained for `evolveSnapshot`. */
   let tables = clone(snapshot.tables);
 
   if (step.kind === "create_table") {
@@ -195,13 +196,13 @@ function evolveSnapshot(
       tables = [...tables, observedTable(tableKind, target)];
     }
   } else if (step.kind === "add_property" || step.kind === "add_relation") {
-    /** Holds the `physicalName` intermediate used by `evolveSnapshot`. */
+    /** Result of `target.tables.find`, retained for `evolveSnapshot`. */
     const physicalName = step.payload.physicalName;
     if (typeof physicalName !== "string")
       throw new Error(`Migration step ${step.id} has no property`);
-    /** Holds the `descriptor` intermediate used by `evolveSnapshot`. */
+    /** Result of `target.tables.find`, retained for `evolveSnapshot`. */
     const descriptor = target.tables.find((table) => table.kind === tableKind);
-    /** Holds the `property` intermediate used by `evolveSnapshot`. */
+    /** Result of `tables.map`, retained for `evolveSnapshot`. */
     const property = descriptor?.properties.find(
       (candidate) => candidate.physicalName === physicalName,
     );
@@ -221,7 +222,7 @@ function evolveSnapshot(
           },
     );
   } else if (step.kind === "add_managed_range") {
-    /** Holds the `managedRange` intermediate used by `evolveSnapshot`. */
+    /** Result of `tables.map`, retained for `evolveSnapshot`. */
     const managedRange = step.payload.managedRange;
     if (typeof managedRange !== "string") {
       throw new Error(`Migration step ${step.id} has no managed range`);
@@ -249,43 +250,43 @@ function evolveSnapshot(
 
 /** Implements the deterministic in-memory provider used by conformance tests. */
 export class InMemoryProvider implements AgentTaskProvider {
-  /** Contains completed workspace steps for in-memory provider. */
+  /** Completedworkspacesteps dependency consumed by in-memory provider. */
   readonly #completedWorkspaceSteps = new Set<string>();
-  /** Contains activities for in-memory provider. */
+  /** Activities dependency consumed by in-memory provider. */
   readonly #activities = new Map<string, MemoryActivity>();
-  /** Contains definitions for in-memory provider. */
+  /** Definitions dependency consumed by in-memory provider. */
   readonly #definitions = new Map<string, AgentDefinition>();
-  /** Contains entity versions for in-memory provider. */
+  /** Entityversions dependency consumed by in-memory provider. */
   readonly #entityVersions = new Map<string, number>();
-  /** Contains errors for in-memory provider. */
+  /** Errors table data-source identifier. */
   readonly #errors = new Map<string, Omit<ErrorMutation, "idempotencyKey">>();
-  /** Contains idempotency for in-memory provider. */
+  /** Idempotency dependency consumed by in-memory provider. */
   readonly #idempotency = new IdempotencyLedger();
-  /** Contains intent outcomes for in-memory provider. */
+  /** Intentoutcomes dependency consumed by in-memory provider. */
   readonly #intentOutcomes = new Map<string, ReconciliationResult>();
-  /** Contains prepared logical-operation intents for in-memory provider. */
+  /** Preparedlogical operationintents dependency consumed by in-memory provider. */
   readonly #operationIntents = new Map<string, MemoryOperationIntent>();
-  /** Contains leases for in-memory provider. */
+  /** Leases dependency consumed by in-memory provider. */
   readonly #leases = new Map<string, MemoryLease>();
-  /** Contains released leases for in-memory provider. */
+  /** Releasedleases dependency consumed by in-memory provider. */
   readonly #releasedLeases = new Map<string, MemoryLease>();
-  /** Contains resources for in-memory provider. */
+  /** Resources table data-source identifier. */
   readonly #resources = new Map<string, ResourceRecord>();
-  /** Contains tasks for in-memory provider. */
+  /** Tasks table data-source identifier. */
   readonly #tasks = new Map<string, TaskSnapshot>();
-  /** Contains task status options for in-memory provider. */
+  /** Taskstatusoptions dependency consumed by in-memory provider. */
   readonly #taskStatusOptions = new Set<string>();
-  /** Contains workspace outcomes for in-memory provider. */
+  /** Workspaceoutcomes dependency consumed by in-memory provider. */
   readonly #workspaceOutcomes = new Map<string, ReconciliationResult>();
-  /** Contains snapshot for in-memory provider. */
+  /** Validated provider environment. */
   #snapshot: WorkspaceSchemaSnapshot;
 
   /** Initializes in-memory provider. */
   public constructor(
-    /** Contains environment for in-memory provider. */ private readonly environment: ProviderEnvironment,
-    /** Contains target for in-memory provider. */ private readonly target: WorkspaceSchemaDescriptor,
+    /** Environment callback invoked by in-memory provider. */ private readonly environment: ProviderEnvironment,
+    /** Target callback invoked by in-memory provider. */ private readonly target: WorkspaceSchemaDescriptor,
     snapshot?: WorkspaceSchemaSnapshot,
-    /** Contains now for in-memory provider. */ private readonly now: () => Date = () =>
+    /** Now callback invoked by in-memory provider. */ private readonly now: () => Date = () =>
       new Date(),
   ) {
     this.#snapshot = clone(
@@ -342,7 +343,7 @@ export class InMemoryProvider implements AgentTaskProvider {
   public async validateEnvironment(
     environment: ProviderEnvironment,
   ): Promise<ValidationReport> {
-    /** Tracks the `issues` condition in `validateEnvironment`. */
+    /** Mutable state shared across `validateEnvironment`. */
     const issues: ValidationIssue[] = [];
     if (environment.type !== "memory") {
       issues.push({
@@ -369,7 +370,7 @@ export class InMemoryProvider implements AgentTaskProvider {
   public async planWorkspaceChanges(
     request: WorkspaceSchemaRequest,
   ): Promise<WorkspaceMigrationPlan> {
-    /** Holds the `report` intermediate used by `planWorkspaceChanges`. */
+    /** Result of `compareWorkspaceSchema`, retained for `planWorkspaceChanges`. */
     const report = compareWorkspaceSchema(request.observed, request.target);
     if (report.state === "blocked_incompatible") {
       throw new Error(
@@ -377,17 +378,17 @@ export class InMemoryProvider implements AgentTaskProvider {
       );
     }
 
-    /** Holds the `drafts` intermediate used by `planWorkspaceChanges`. */
+    /** Result of `request.target.tables.find`, retained for `planWorkspaceChanges`. */
     const drafts: Array<
       Pick<WorkspaceMigrationStep, "id" | "kind" | "payload">
     > = [];
     for (const kind of TABLE_ORDER) {
-      /** Defines `expected` for comparison in `planWorkspaceChanges`. */
+      /** Target table descriptor used to derive missing migration steps. */
       const expected = request.target.tables.find(
         (table) => table.kind === kind,
       );
       if (expected === undefined) continue;
-      /** Defines `observed` for comparison in `planWorkspaceChanges`. */
+      /** Expected observed used to validate `planWorkspaceChanges`. */
       const observed = request.observed.tables.find(
         (table) => table.kind === kind,
       );
@@ -424,14 +425,14 @@ export class InMemoryProvider implements AgentTaskProvider {
       }
     }
 
-    /** Holds the `simulated` intermediate used by `planWorkspaceChanges`. */
+    /** Result of `clone`, retained for `planWorkspaceChanges`. */
     let simulated = clone(request.observed);
-    /** Holds the `steps` intermediate used by `planWorkspaceChanges`. */
+    /** Result of `steps.at`, retained for `planWorkspaceChanges`. */
     const steps: WorkspaceMigrationStep[] = [];
     for (const draft of drafts) {
-      /** Holds the `previous` intermediate used by `planWorkspaceChanges`. */
+      /** Result of `steps.at`, retained for `planWorkspaceChanges`. */
       const previous = steps.at(-1);
-      /** Holds the `partial` intermediate used by `planWorkspaceChanges`. */
+      /** Partial snapshot used consistently during `planWorkspaceChanges`. */
       const partial = {
         dependsOn: previous === undefined ? [] : [previous.id],
         expectedPreSchemaDigest: simulated.digest,
@@ -440,14 +441,14 @@ export class InMemoryProvider implements AgentTaskProvider {
         payload: draft.payload,
         reversibility: "additive" as const,
       };
-      /** Holds the `next` intermediate used by `planWorkspaceChanges`. */
+      /** Result of `evolveSnapshot`, retained for `planWorkspaceChanges`. */
       const next = evolveSnapshot(
         simulated,
         partial,
         request.target,
         simulated.capturedAt,
       );
-      /** Holds the `step` intermediate used by `planWorkspaceChanges`. */
+      /** Step snapshot used consistently during `planWorkspaceChanges`. */
       const step: WorkspaceMigrationStep = {
         ...partial,
         expectedPostSchemaDigest: next.digest,
@@ -472,7 +473,7 @@ export class InMemoryProvider implements AgentTaskProvider {
   public async applyWorkspaceStep(
     step: WorkspaceMigrationStep,
   ): Promise<WriteReceipt> {
-    /** Holds the `prior` intermediate used by `applyWorkspaceStep`. */
+    /** Result of `this.lookupIdempotent`, retained for `applyWorkspaceStep`. */
     const prior = this.lookupIdempotent<WriteReceipt>(
       step.id,
       "workspace_step",
@@ -489,7 +490,7 @@ export class InMemoryProvider implements AgentTaskProvider {
     if (this.#snapshot.digest !== step.expectedPreSchemaDigest) {
       throw new Error(`Migration precondition changed: ${step.id}`);
     }
-    /** Holds the `next` intermediate used by `applyWorkspaceStep`. */
+    /** Result of `evolveSnapshot`, retained for `applyWorkspaceStep`. */
     const next = evolveSnapshot(
       this.#snapshot,
       step,
@@ -503,13 +504,13 @@ export class InMemoryProvider implements AgentTaskProvider {
     }
     this.#snapshot = next;
     this.#completedWorkspaceSteps.add(step.id);
-    /** Holds the `kind` intermediate used by `applyWorkspaceStep`. */
+    /** Result of `next.tables.find`, retained for `applyWorkspaceStep`. */
     const kind = step.payload.kind as TableKind;
-    /** Holds the `table` intermediate used by `applyWorkspaceStep`. */
+    /** Result of `next.tables.find`, retained for `applyWorkspaceStep`. */
     const table = next.tables.find((candidate) => candidate.kind === kind);
     if (table === undefined)
       throw new Error(`Migration did not produce table: ${kind}`);
-    /** Captures `receipt` returned by `applyWorkspaceStep`. */
+    /** Durable receipt for the completed workspace migration step. */
     const receipt = this.receipt(kind, table.id, step.id, table.version);
     this.recordIdempotent(
       step.id,
@@ -533,7 +534,7 @@ export class InMemoryProvider implements AgentTaskProvider {
     );
   }
 
-  /** Lists Agent definitions. */
+  /** Returns Agent definitions ordered by stable identifier. */
   public async listAgentDefinitions(): Promise<readonly AgentDefinition[]> {
     return [...this.#definitions.values()]
       .sort((left, right) => left.id.localeCompare(right.id))
@@ -542,7 +543,7 @@ export class InMemoryProvider implements AgentTaskProvider {
 
   /** Returns Agent definition. */
   public async getAgentDefinition(id: string): Promise<AgentDefinition> {
-    /** Holds the `definition` intermediate used by `getAgentDefinition`. */
+    /** Requested definition, if its identifier is registered. */
     const definition = this.#definitions.get(id);
     if (definition === undefined)
       throw new Error(`Unknown Agent definition: ${id}`);
@@ -553,7 +554,7 @@ export class InMemoryProvider implements AgentTaskProvider {
   public async getAgentActivity(id: string): Promise<AgentActivity> {
     if (!this.#definitions.has(id))
       throw new Error(`Unknown Agent definition: ${id}`);
-    /** Holds the `activity` intermediate used by `getAgentActivity`. */
+    /** Stored activity, defaulting to an empty offline projection. */
     const activity = this.#activities.get(id) ?? {
       runLeaseIds: [],
       taskIds: [],
@@ -568,7 +569,7 @@ export class InMemoryProvider implements AgentTaskProvider {
   /** Returns lease projection. */
   public async getLeaseProjection(id: string): Promise<LeaseProjection> {
     this.pruneExpiredLeases();
-    /** Holds the `leases` intermediate used by `getLeaseProjection`. */
+    /** Active leases owned by the requested Agent. */
     const leases = [...this.#leases.values()].filter(
       (lease) => lease.agentId === id,
     );
@@ -595,12 +596,12 @@ export class InMemoryProvider implements AgentTaskProvider {
   public async getLeaseSnapshot(
     leaseId: string,
   ): Promise<LeaseSnapshot | null> {
-    /** Holds the `active` intermediate used by `getLeaseSnapshot`. */
+    /** Active lease with the requested identifier, if present. */
     const active = this.#leases.get(leaseId);
-    /** Holds the `lease` intermediate used by `getLeaseSnapshot`. */
+    /** Active or released lease selected for the snapshot. */
     const lease = active ?? this.#releasedLeases.get(leaseId);
     if (lease === undefined) return null;
-    /** Holds the `released` intermediate used by `getLeaseSnapshot`. */
+    /** Whether the selected lease has left the active set. */
     const released = active === undefined;
     return {
       expiresAt: lease.expiresAt,
@@ -614,7 +615,7 @@ export class InMemoryProvider implements AgentTaskProvider {
     };
   }
 
-  /** Lists task status options. */
+  /** Returns configured Task status options in deterministic order. */
   public async listTaskStatusOptions(): Promise<readonly string[]> {
     return [...this.#taskStatusOptions].sort();
   }
@@ -624,9 +625,9 @@ export class InMemoryProvider implements AgentTaskProvider {
     agentId: string,
     idempotencyKey: string,
   ): Promise<ReconciliationResult> {
-    /** Holds the `projection` intermediate used by `reconcileAgentActivity`. */
+    /** Lease-derived activity that the stored record must match. */
     const projection = await this.getLeaseProjection(agentId);
-    /** Holds the `current` intermediate used by `reconcileAgentActivity`. */
+    /** Stored activity, defaulting to an empty offline projection. */
     const current = this.#activities.get(agentId) ?? {
       runLeaseIds: [],
       taskIds: [],
@@ -643,7 +644,7 @@ export class InMemoryProvider implements AgentTaskProvider {
         state: "not_applied",
       };
     }
-    /** Captures `receipt` returned by `reconcileAgentActivity`. */
+    /** Receipt proving the reconciled activity write. */
     const receipt = await this.updateAgentActivity({
       expectedRunLeaseIds: current.runLeaseIds,
       expectedTaskIds: current.taskIds,
@@ -666,7 +667,7 @@ export class InMemoryProvider implements AgentTaskProvider {
   public async updateAgentActivity(
     change: ActivityMutation,
   ): Promise<WriteReceipt> {
-    /** Holds the `prior` intermediate used by `updateAgentActivity`. */
+    /** Result of `this.lookupIdempotent`, retained for `updateAgentActivity`. */
     const prior = this.lookupIdempotent<WriteReceipt>(
       change.idempotencyKey,
       "agent_activity",
@@ -676,7 +677,7 @@ export class InMemoryProvider implements AgentTaskProvider {
     if (!this.#definitions.has(change.agentId)) {
       throw new Error(`Unknown Agent definition: ${change.agentId}`);
     }
-    /** Holds the `current` intermediate used by `updateAgentActivity`. */
+    /** Current snapshot used consistently during `updateAgentActivity`. */
     const current = this.#activities.get(change.agentId) ?? {
       runLeaseIds: [],
       taskIds: [],
@@ -687,7 +688,7 @@ export class InMemoryProvider implements AgentTaskProvider {
     ) {
       throw new Error("Agent activity version conflict");
     }
-    /** Holds the `projection` intermediate used by `updateAgentActivity`. */
+    /** Result of `this.getLeaseProjection`, retained for `updateAgentActivity`. */
     const projection = await this.getLeaseProjection(change.agentId);
     if (
       !this.sameSet(projection.runLeaseIds, change.nextRunLeaseIds) ||
@@ -701,9 +702,9 @@ export class InMemoryProvider implements AgentTaskProvider {
       runLeaseIds: this.normalizedSet(change.nextRunLeaseIds),
       taskIds: this.normalizedSet(change.nextTaskIds),
     });
-    /** Holds the `version` intermediate used by `updateAgentActivity`. */
+    /** Result of `this.nextEntityVersion`, retained for `updateAgentActivity`. */
     const version = this.nextEntityVersion("agents", change.agentId);
-    /** Captures `receipt` returned by `updateAgentActivity`. */
+    /** Receipt proving the activity update. */
     const receipt = this.receipt(
       "agents",
       change.agentId,
@@ -719,7 +720,7 @@ export class InMemoryProvider implements AgentTaskProvider {
     return clone(receipt);
   }
 
-  /** Lists task summaries. */
+  /** Returns the requested page of filtered Task summaries. */
   public async listTaskSummaries(
     query: TaskQuery,
   ): Promise<readonly TaskSummary[]> {
@@ -728,7 +729,7 @@ export class InMemoryProvider implements AgentTaskProvider {
         throw new Error(`Unsupported task predicate: ${key}`);
     }
 
-    /** Holds the `matching` intermediate used by `listTaskSummaries`. */
+    /** Task summaries satisfying the provider-neutral predicate. */
     const matching = [...this.#tasks.values()]
       .map((task) => this.taskSummary(task))
       .filter((task) => taskSummaryMatchesPredicate(task, query.predicate));
@@ -739,7 +740,7 @@ export class InMemoryProvider implements AgentTaskProvider {
 
   /** Returns task snapshot. */
   public async getTaskSnapshot(taskId: string): Promise<TaskSnapshot> {
-    /** Holds the `task` intermediate used by `getTaskSnapshot`. */
+    /** Task snapshot used consistently during `getTaskSnapshot`. */
     const task = this.#tasks.get(taskId);
     if (task === undefined) throw new Error(`Unknown Task: ${taskId}`);
     return clone(task);
@@ -749,14 +750,14 @@ export class InMemoryProvider implements AgentTaskProvider {
   public async applyTaskMutation(
     mutation: ConditionalTaskMutation,
   ): Promise<WriteReceipt> {
-    /** Holds the `prior` intermediate used by `applyTaskMutation`. */
+    /** Result of `this.lookupIdempotent`, retained for `applyTaskMutation`. */
     const prior = this.lookupIdempotent<WriteReceipt>(
       mutation.idempotencyKey,
       "task",
       mutation,
     );
     if (prior !== undefined) return prior;
-    /** Holds the `task` intermediate used by `applyTaskMutation`. */
+    /** Task snapshot used consistently during `applyTaskMutation`. */
     const task = this.#tasks.get(mutation.taskId);
     if (task === undefined) throw new Error(`Unknown Task: ${mutation.taskId}`);
     if (task.version !== mutation.expectedVersion)
@@ -766,9 +767,9 @@ export class InMemoryProvider implements AgentTaskProvider {
       !this.#taskStatusOptions.has(mutation.nextStatus)
     )
       throw new Error(`Unknown Task status: ${mutation.nextStatus}`);
-    /** Holds the `status` intermediate used by `applyTaskMutation`. */
+    /** Status snapshot used consistently during `applyTaskMutation`. */
     const status = mutation.nextStatus ?? task.status;
-    /** Holds the `version` intermediate used by `applyTaskMutation`. */
+    /** Version snapshot used consistently during `applyTaskMutation`. */
     const version = `memory:${task.id}:${randomUUID()}`;
     this.#tasks.set(task.id, {
       ...clone(task),
@@ -777,7 +778,7 @@ export class InMemoryProvider implements AgentTaskProvider {
       status,
       version,
     });
-    /** Captures `receipt` returned by `applyTaskMutation`. */
+    /** Receipt proving the conditional Task mutation. */
     const receipt = this.receipt(
       "tasks",
       task.id,
@@ -793,7 +794,7 @@ export class InMemoryProvider implements AgentTaskProvider {
     refs: readonly ResourceRef[],
   ): Promise<readonly ResourceRecord[]> {
     return refs.map((ref) => {
-      /** Holds the `resource` intermediate used by `getResources`. */
+      /** Resource snapshot used consistently during `getResources`. */
       const resource = this.#resources.get(ref.key);
       if (resource === undefined)
         throw new Error(`Unknown Resource: ${ref.key}`);
@@ -811,21 +812,21 @@ export class InMemoryProvider implements AgentTaskProvider {
   public async getOptionalResource(
     key: string,
   ): Promise<ResourceRecord | null> {
-    /** Holds the `resource` intermediate used by `getOptionalResource`. */
+    /** Resource snapshot used consistently during `getOptionalResource`. */
     const resource = this.#resources.get(key);
     return resource === undefined ? null : clone(resource);
   }
 
   /** Persists resource. */
   public async putResource(record: ResourceMutation): Promise<WriteReceipt> {
-    /** Holds the `prior` intermediate used by `putResource`. */
+    /** Result of `this.lookupIdempotent`, retained for `putResource`. */
     const prior = this.lookupIdempotent<WriteReceipt>(
       record.idempotencyKey,
       "resource",
       record,
     );
     if (prior !== undefined) return prior;
-    /** Holds the `stored` intermediate used by `putResource`. */
+    /** Stored snapshot used consistently during `putResource`. */
     const stored: ResourceRecord = {
       body: record.body,
       dependencies: clone(record.dependencies),
@@ -836,7 +837,7 @@ export class InMemoryProvider implements AgentTaskProvider {
       version: record.version,
     };
     this.#resources.set(stored.key, stored);
-    /** Captures `receipt` returned by `putResource`. */
+    /** Receipt proving the Resource write. */
     const receipt = this.receipt(
       "resources",
       stored.key,
@@ -849,7 +850,7 @@ export class InMemoryProvider implements AgentTaskProvider {
 
   /** Acquires lease. */
   public async acquireLease(request: LeaseRequest): Promise<LeaseResult> {
-    /** Holds the `prior` intermediate used by `acquireLease`. */
+    /** Result of `this.lookupIdempotent`, retained for `acquireLease`. */
     const prior = this.lookupIdempotent<LeaseResult>(
       request.idempotencyKey,
       "lease_acquire",
@@ -858,7 +859,7 @@ export class InMemoryProvider implements AgentTaskProvider {
     if (prior !== undefined) return prior;
     this.validateLeaseRequest(request);
     this.pruneExpiredLeases();
-    /** Holds the `conflict` intermediate used by `acquireLease`. */
+    /** Active lease occupying the requested exclusivity slot, if any. */
     const conflict = [...this.#leases.values()].find((lease) =>
       request.scope === "task_assignment"
         ? lease.scope === request.scope && lease.taskId === request.taskId
@@ -866,7 +867,7 @@ export class InMemoryProvider implements AgentTaskProvider {
           lease.ownerId === request.ownerId &&
           lease.agentId === request.agentId,
     );
-    /** Captures `result` returned by `acquireLease`. */
+    /** Lease acquisition decision, including any conflicting lease. */
     const result: LeaseResult =
       conflict === undefined
         ? { acquired: true, conflictingLeaseId: null, leaseId: randomUUID() }
@@ -893,7 +894,7 @@ export class InMemoryProvider implements AgentTaskProvider {
 
   /** Renews lease. */
   public async renewLease(request: LeaseRenewal): Promise<LeaseResult> {
-    /** Holds the `prior` intermediate used by `renewLease`. */
+    /** Result of `this.lookupIdempotent`, retained for `renewLease`. */
     const prior = this.lookupIdempotent<LeaseResult>(
       request.idempotencyKey,
       "lease_renew",
@@ -901,9 +902,9 @@ export class InMemoryProvider implements AgentTaskProvider {
     );
     if (prior !== undefined) return prior;
     this.pruneExpiredLeases();
-    /** Holds the `lease` intermediate used by `renewLease`. */
+    /** Result of `this.parseFutureTimestamp`, retained for `renewLease`. */
     const lease = this.#leases.get(request.leaseId);
-    /** Holds the `nextExpiry` intermediate used by `renewLease`. */
+    /** Result of `this.parseFutureTimestamp`, retained for `renewLease`. */
     const nextExpiry = this.parseFutureTimestamp(
       request.nextExpiresAt,
       "nextExpiresAt",
@@ -914,7 +915,7 @@ export class InMemoryProvider implements AgentTaskProvider {
       lease.expiresAt !== request.expectedExpiresAt ||
       nextExpiry <= Date.parse(lease.expiresAt)
     ) {
-      /** Captures `result` returned by `renewLease`. */
+      /** Failed renewal decision returned for a stale or invalid lease. */
       const result = {
         acquired: false,
         conflictingLeaseId: request.leaseId,
@@ -931,7 +932,7 @@ export class InMemoryProvider implements AgentTaskProvider {
       return result;
     }
     this.#leases.set(lease.id, { ...lease, expiresAt: request.nextExpiresAt });
-    /** Captures `result` returned by `renewLease`. */
+    /** Successful renewal decision preserving the lease identifier. */
     const result = {
       acquired: true,
       conflictingLeaseId: null,
@@ -948,16 +949,16 @@ export class InMemoryProvider implements AgentTaskProvider {
 
   /** Releases lease. */
   public async releaseLease(request: LeaseRelease): Promise<WriteReceipt> {
-    /** Holds the `key` intermediate used by `releaseLease`. */
+    /** Result of `this.lookupIdempotent`, retained for `releaseLease`. */
     const key = `lease-release:${request.leaseId}:${request.ownerId}:${request.expectedVersion ?? "unversioned"}`;
-    /** Holds the `prior` intermediate used by `releaseLease`. */
+    /** Result of `this.lookupIdempotent`, retained for `releaseLease`. */
     const prior = this.lookupIdempotent<WriteReceipt>(
       key,
       "lease_release",
       request,
     );
     if (prior !== undefined) return prior;
-    /** Holds the `lease` intermediate used by `releaseLease`. */
+    /** Lease snapshot used consistently during `releaseLease`. */
     const lease = this.#leases.get(request.leaseId);
     if (
       lease === undefined ||
@@ -970,7 +971,7 @@ export class InMemoryProvider implements AgentTaskProvider {
     }
     this.#leases.delete(request.leaseId);
     this.#releasedLeases.set(request.leaseId, lease);
-    /** Captures `receipt` returned by `releaseLease`. */
+    /** Receipt proving the lease release. */
     const receipt = this.receipt("resources", lease.id, key, lease.expiresAt);
     this.recordIdempotent(key, "lease_release", request, receipt);
     return clone(receipt);
@@ -980,19 +981,18 @@ export class InMemoryProvider implements AgentTaskProvider {
   public async createOrUpdateError(
     error: ErrorMutation,
   ): Promise<WriteReceipt> {
-    /** Holds the `prior` intermediate used by `createOrUpdateError`. */
+    /** Result of `this.lookupIdempotent`, retained for `createOrUpdateError`. */
     const prior = this.lookupIdempotent<WriteReceipt>(
       error.idempotencyKey,
       "error",
       error,
     );
     if (prior !== undefined) return prior;
-    /** Groups the `_idempotencyKey` and `stored` intermediates used by `createOrUpdateError`. */
     const { idempotencyKey: _idempotencyKey, ...stored } = error;
     this.#errors.set(error.errorKey, clone(stored));
-    /** Holds the `version` intermediate used by `createOrUpdateError`. */
+    /** Result of `this.nextEntityVersion`, retained for `createOrUpdateError`. */
     const version = this.nextEntityVersion("errors", error.errorKey);
-    /** Captures `receipt` returned by `createOrUpdateError`. */
+    /** Receipt proving the Error upsert. */
     const receipt = this.receipt(
       "errors",
       error.errorKey,
@@ -1028,8 +1028,11 @@ export class InMemoryProvider implements AgentTaskProvider {
     operation: string,
     payload: JsonValue,
   ): Promise<ProviderOperationIntent> {
+    /** Canonical payload stored for exact replay comparison. */
     const canonicalPayload = toJsonValue(payload);
+    /** Digest binding the idempotency key to the canonical payload. */
     const payloadDigest = digestJson(canonicalPayload);
+    /** Existing intent for this idempotency key, if already prepared. */
     const existing = this.#operationIntents.get(intentId);
     if (existing !== undefined) {
       if (
@@ -1042,6 +1045,7 @@ export class InMemoryProvider implements AgentTaskProvider {
       }
       return clone(existing);
     }
+    /** New pending intent persisted before the logical operation begins. */
     const intent: MemoryOperationIntent = {
       idempotencyKey: intentId,
       operation,
@@ -1061,6 +1065,7 @@ export class InMemoryProvider implements AgentTaskProvider {
     payload: JsonValue,
     result: JsonValue,
   ): Promise<ProviderOperationIntent> {
+    /** Existing or newly prepared intent whose result will be finalized. */
     const existing = await this.beginOperationIntent(
       intentId,
       operation,
@@ -1072,6 +1077,7 @@ export class InMemoryProvider implements AgentTaskProvider {
       }
       return existing;
     }
+    /** Applied intent containing the immutable canonical result. */
     const completed: MemoryOperationIntent = {
       ...existing,
       payloadDigest: digestJson(existing.payload),
@@ -1117,7 +1123,7 @@ export class InMemoryProvider implements AgentTaskProvider {
 
   /** Parses and validates future timestamp. */
   private parseFutureTimestamp(value: string, field: string): number {
-    /** Holds the `timestamp` intermediate used by `parseFutureTimestamp`. */
+    /** Result of `Date.parse`, retained for `parseFutureTimestamp`. */
     const timestamp = Date.parse(value);
     if (!Number.isFinite(timestamp) || timestamp <= this.now().getTime()) {
       throw new Error(`${field} must be a valid future timestamp`);
@@ -1127,7 +1133,7 @@ export class InMemoryProvider implements AgentTaskProvider {
 
   /** Removes expired leases from active in-memory state. */
   private pruneExpiredLeases(): void {
-    /** Holds the `now` intermediate used by `pruneExpiredLeases`. */
+    /** Result of `this.now`, retained for `pruneExpiredLeases`. */
     const now = this.now().getTime();
     for (const [id, lease] of this.#leases) {
       if (
@@ -1141,9 +1147,9 @@ export class InMemoryProvider implements AgentTaskProvider {
 
   /** Generates the next opaque in-memory entity version. */
   private nextEntityVersion(table: TableKind, id: string): string {
-    /** Holds the `key` intermediate used by `nextEntityVersion`. */
+    /** Key snapshot used consistently during `nextEntityVersion`. */
     const key = `${table}:${id}`;
-    /** Holds the `version` intermediate used by `nextEntityVersion`. */
+    /** Version snapshot used consistently during `nextEntityVersion`. */
     const version = (this.#entityVersions.get(key) ?? 0) + 1;
     this.#entityVersions.set(key, version);
     return `memory:${key}:${version}`;
@@ -1171,7 +1177,7 @@ export class InMemoryProvider implements AgentTaskProvider {
     return this.#idempotency.read<T>(key, operation, toJsonValue(payload));
   }
 
-  /** Records idempotent. */
+  /** Persists one payload-bound replay result and its reconciliation outcome. */
   private recordIdempotent<T>(
     key: string,
     operation: string,

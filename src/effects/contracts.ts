@@ -1,85 +1,85 @@
-/** Defines provider-persisted external-effect intents, observations, and receipts. */
+/** Provider-neutral provider-persisted external-effect intents, observations, and receipts contract. */
 import type { JsonObject } from "../domain/json.js";
 
 /** Enumerates the supported external effect state variants. */
 export type ExternalEffectState =
   "applied" | "failed" | "indeterminate" | "not_applied" | "pending";
 
-/** Defines the data and behavior required by external effect source. */
+/** Canonical external effect source representation. */
 export interface ExternalEffectSource {
-  /** Stores the SHA-256 digest of context. */
+  /** SHA-256 digest of canonical context. */
   readonly contextDigest: string;
-  /** Stores the SHA-256 digest of definition. */
+  /** SHA-256 digest of canonical definition. */
   readonly definitionDigest: string;
-  /** Provides intent index to external effect source. */
+  /** Intent index dependency consumed by external effect source. */
   readonly intentIndex: number;
-  /** Stores the SHA-256 digest of result. */
+  /** SHA-256 digest of canonical result. */
   readonly resultDigest: string;
-  /** Identifies run. */
+  /** Stable identifier for run id. */
   readonly runId: string;
 }
 
-/** Defines the data and behavior required by external effect request. */
+/** Inputs accepted by external effect. */
 export interface ExternalEffectRequest {
-  /** Identifies effect. */
+  /** Stable identifier for effect id. */
   readonly effectId: string;
   /** Discriminates the kind variant. */
   readonly kind: string;
-  /** Provides payload to external effect request. */
+  /** Validated effect payload. */
   readonly payload: JsonObject;
-  /** Stores the SHA-256 digest of payload. */
+  /** SHA-256 digest of canonical payload. */
   readonly payloadDigest: string;
-  /** Provides source to external effect request. */
+  /** Definition and intent indexes that identify the effect origin. */
   readonly source: ExternalEffectSource;
 }
 
-/** Defines the data and behavior required by external effect observation. */
+/** Canonical external effect observation representation. */
 export interface ExternalEffectObservation {
-  /** Provides evidence to external effect observation. */
+  /** Canonical evidence used to verify the observed effect. */
   readonly evidence: JsonObject;
-  /** Provides external identity to external effect observation. */
+  /** Provider identity used to correlate the external effect. */
   readonly externalIdentity: JsonObject;
-  /** Records the current state for workflow decisions. */
+  /** Lifecycle state used for workflow decisions. */
   readonly state: Exclude<ExternalEffectState, "pending">;
 }
 
-/** Defines the data and behavior required by external effect receipt. */
+/** Durable receipt returned by external effect. */
 export interface ExternalEffectReceipt extends ExternalEffectObservation {
-  /** Identifies effect. */
+  /** Stable identifier for effect id. */
   readonly effectId: string;
-  /** Identifies handler. */
+  /** Stable identifier for handler id. */
   readonly handlerId: string;
-  /** Records the handler version used for compatibility checks. */
+  /** Opaque version token for handler. */
   readonly handlerVersion: string;
   /** Version tag for the external effect receipt representation. */
   readonly schema: "external-effect-receipt-v1";
 }
 
-/** Defines the data and behavior required by external effect intent record. */
+/** Persisted state for external effect intent. */
 export interface ExternalEffectIntentRecord extends ExternalEffectRequest {
   /** Indicates whether automatic replay blocked. */
   readonly automaticReplayBlocked: boolean;
-  /** Identifies handler. */
+  /** Stable identifier for handler id. */
   readonly handlerId: string;
-  /** Records the handler version used for compatibility checks. */
+  /** Opaque version token for handler. */
   readonly handlerVersion: string;
-  /** Provides last observation to external effect intent record. */
+  /** Most recent durable observation, or null before reconciliation. */
   readonly lastObservation: ExternalEffectObservation | null;
-  /** Provides receipt to external effect intent record. */
+  /** Applied-effect receipt, or null until mutation succeeds. */
   readonly receipt: ExternalEffectReceipt | null;
   /** Version tag for the external effect intent record representation. */
   readonly schema: "external-effect-intent-v2";
-  /** Records the current state for workflow decisions. */
+  /** Lifecycle state used for workflow decisions. */
   readonly state: ExternalEffectState;
 }
 
-/** Defines the data and behavior required by external effect handler. */
+/** Provider-neutral external effect handler contract. */
 export interface ExternalEffectHandler {
-  /** Provides id to external effect handler. */
+  /** Stable identifier for external effect handler. */
   readonly id: string;
   /** Discriminates the kind variant. */
   readonly kind: string;
-  /** Records the version used for compatibility checks. */
+  /** Opaque version token used for compatibility checks. */
   readonly version: string;
   /** Applies the requested external effect. */
   apply(
@@ -94,34 +94,36 @@ export interface ExternalEffectHandler {
   /** Validates the supplied payload against this handler contract. */
   validate(payload: JsonObject): void;
 }
-/** Defines the data and behavior required by external effect control. */
+
+/** Canonical external effect control representation. */
 export interface ExternalEffectControl {
-  /** Records the canonical timestamp for deadline. */
+  /** Canonical timestamp for deadline. */
   readonly deadlineAt: number;
-  /** Provides signal to external effect control. */
+  /** Cancellation signal for the operation. */
   readonly signal: AbortSignal;
 }
 
-/** Defines the data and behavior required by external effect authority verifier. */
+/** External effect authority verifier boundary. */
 export interface ExternalEffectAuthorityVerifier {
   /** Verifies that the request still has live execution authority. */
   verify(request: ExternalEffectRequest): Promise<void>;
 }
 
-/** Defines the data and behavior required by external effect execution. */
+/** Canonical external effect execution representation. */
 export interface ExternalEffectExecution {
-  /** Provides receipt to external effect execution. */
+  /** Applied-effect receipt, or null until mutation succeeds. */
   readonly receipt: ExternalEffectReceipt | null;
-  /** Provides request to external effect execution. */
+  /** Request dependency consumed by external effect execution. */
   readonly request: ExternalEffectRequest;
-  /** Records the current state for workflow decisions. */
+  /** Lifecycle state used for workflow decisions. */
   readonly state: Exclude<ExternalEffectState, "pending">;
 }
 
 /** Represents a effect cancellation acknowledged failure. */
 export class EffectCancellationAcknowledgedError extends Error {}
+
 /** Represents a effect termination unconfirmed failure. */
 export class EffectTerminationUnconfirmedError extends AggregateError {
-  /** Provides effect execution may continue to effect termination unconfirmed error. */
+  /** Effect execution may continue dependency consumed by effect termination unconfirmed error. */
   public readonly effectExecutionMayContinue = true;
 }

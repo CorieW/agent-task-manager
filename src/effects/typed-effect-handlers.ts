@@ -7,7 +7,7 @@ import type {
   ExternalEffectRequest,
 } from "./contracts.js";
 
-/** Stores external effect kinds used by the current operation. */
+/** External effect kinds snapshot used consistently during the the current operation operation. */
 export const EXTERNAL_EFFECT_KINDS = [
   "browser.run",
   "child_agent.wave",
@@ -20,159 +20,170 @@ export const EXTERNAL_EFFECT_KINDS = [
   "workspace.provision",
   "workspace.release",
 ] as const;
-/** Defines the external effect kind data shape. */
+
+/** Provider-neutral the external effect kind data shape contract. */
 export type ExternalEffectKind = (typeof EXTERNAL_EFFECT_KINDS)[number];
 
-/** Defines the data and behavior required by workspace provision payload. */
+/** Canonical workspace provision payload representation. */
 export interface WorkspaceProvisionPayload {
-  /** Provides mode to workspace provision payload. */
+  /** Selected operating mode. */
   readonly mode: "mirror" | "worktree";
-  /** Identifies repository. */
+  /** Stable identifier for repository id. */
   readonly repositoryId: string;
-  /** Provides source revision to workspace provision payload. */
+  /** Immutable repository revision used as the workspace source. */
   readonly sourceRevision: string;
-  /** Identifies workspace. */
+  /** Stable key of the target workspace. */
   readonly workspaceKey: string;
 }
-/** Defines the data and behavior required by workspace release payload. */
+
+/** Canonical workspace release payload representation. */
 export interface WorkspaceReleasePayload {
-  /** Identifies repository. */
+  /** Stable identifier for repository id. */
   readonly repositoryId: string;
-  /** Identifies workspace. */
+  /** Stable key of the target workspace. */
   readonly workspaceKey: string;
 }
-/** Defines the data and behavior required by git observe payload. */
+
+/** Canonical git observe payload representation. */
 export interface GitObservePayload {
-  /** Identifies repository. */
+  /** Stable identifier for repository id. */
   readonly repositoryId: string;
-  /** Provides revision to git observe payload. */
+  /** Immutable repository revision. */
   readonly revision: string;
-  /** Identifies workspace. */
+  /** Stable key of the target workspace. */
   readonly workspaceKey: string;
 }
-/** Defines the data and behavior required by git branch payload. */
+
+/** Canonical git branch payload representation. */
 export interface GitBranchPayload {
-  /** Provides branch to git branch payload. */
+  /** Git branch name. */
   readonly branch: string;
-  /** Provides expected head to git branch payload. */
+  /** Workspace revision required before mutation. */
   readonly expectedHead: string;
-  /** Identifies repository. */
+  /** Stable identifier for repository id. */
   readonly repositoryId: string;
-  /** Identifies workspace. */
+  /** Stable key of the target workspace. */
   readonly workspaceKey: string;
 }
-/** Defines the data and behavior required by git commit payload. */
+
+/** Canonical git commit payload representation. */
 export interface GitCommitPayload {
-  /** Provides expected head to git commit payload. */
+  /** Ordered expected head accepted by git commit payload. */
   readonly expectedHead: string;
-  /** Provides message to git commit payload. */
+  /** Ordered message accepted by git commit payload. */
   readonly message: string;
-  /** Lists the paths accepted by this contract. */
+  /** Ordered the paths used by this contract. */
   readonly paths: readonly string[];
-  /** Identifies repository. */
+  /** Stable identifier for repository id. */
   readonly repositoryId: string;
-  /** Identifies workspace. */
+  /** Stable key of the target workspace. */
   readonly workspaceKey: string;
 }
-/** Defines the data and behavior required by git push payload. */
+
+/** Canonical git push payload representation. */
 export interface GitPushPayload {
-  /** Provides branch to git push payload. */
+  /** Git branch name. */
   readonly branch: string;
-  /** Provides expected local head to git push payload. */
+  /** Local revision required before push. */
   readonly expectedLocalHead: string;
-  /** Provides expected remote head to git push payload. */
+  /** Remote revision required for the force-with-lease check. */
   readonly expectedRemoteHead: string | null;
-  /** Provides remote to git push payload. */
+  /** Configured Git remote name. */
   readonly remote: string;
-  /** Identifies repository. */
+  /** Stable identifier for repository id. */
   readonly repositoryId: string;
-  /** Identifies workspace. */
+  /** Stable key of the target workspace. */
   readonly workspaceKey: string;
 }
-/** Defines the data and behavior required by draft pr payload. */
+
+/** Canonical draft pr payload representation. */
 export interface DraftPrPayload {
-  /** Provides base branch to draft pr payload. */
+  /** Target branch of the draft pull request. */
   readonly baseBranch: string;
-  /** Provides body to draft pr payload. */
+  /** Canonical body content. */
   readonly body: string;
-  /** Provides expected head to draft pr payload. */
+  /** Workspace revision required before mutation. */
   readonly expectedHead: string;
-  /** Provides head branch to draft pr payload. */
+  /** Source branch of the draft pull request. */
   readonly headBranch: string;
-  /** Provides publication target to draft pr payload. */
+  /** Configured draft-publication target. */
   readonly publicationTarget: string;
-  /** Identifies repository. */
+  /** Stable identifier for repository id. */
   readonly repositoryId: string;
-  /** Provides title to draft pr payload. */
+  /** Human-readable title. */
   readonly title: string;
 }
-/** Defines the data and behavior required by command run payload. */
+
+/** Canonical command run payload representation. */
 export interface CommandRunPayload {
-  /** Lists the arguments accepted by this contract. */
+  /** Ordered the arguments used by this contract. */
   readonly arguments: readonly string[];
-  /** Identifies command. */
+  /** Configured command identifier. */
   readonly commandKey: string;
-  /** Identifies repository. */
+  /** Stable identifier for repository id. */
   readonly repositoryId: string;
-  /** Identifies workspace. */
+  /** Stable key of the target workspace. */
   readonly workspaceKey: string;
 }
-/** Defines the data and behavior required by browser run payload. */
+
+/** Canonical browser run payload representation. */
 export interface BrowserRunPayload {
-  /** Identifies environment. */
+  /** Configured disposable-environment identifier. */
   readonly environmentKey: string;
-  /** Identifies repository. */
+  /** Stable identifier for repository id. */
   readonly repositoryId: string;
-  /** Provides scenario resource to browser run payload. */
+  /** Resource key containing the browser scenario. */
   readonly scenarioResource: string;
-  /** Identifies workspace. */
+  /** Stable key of the target workspace. */
   readonly workspaceKey: string;
 }
-/** Defines the data and behavior required by child agent node. */
+
+/** Provider-neutral child agent node contract. */
 export interface ChildAgentNode {
-  /** Stores the SHA-256 digest of context. */
+  /** SHA-256 digest of canonical context. */
   readonly contextDigest: string;
-  /** Provides context resource to child agent node. */
+  /** Resource key containing immutable child-agent context. */
   readonly contextResource: string;
-  /** Records the context version used for compatibility checks. */
+  /** Opaque version token for context. */
   readonly contextVersion: string;
-  /** Identifies definition. */
+  /** Stable identifier for definition id. */
   readonly definitionId: string;
-  /** Lists the depends on accepted by this contract. */
+  /** Ordered the depends on used by this contract. */
   readonly dependsOn: readonly string[];
-  /** Identifies node. */
+  /** Stable key of the child node. */
   readonly nodeKey: string;
 }
-/** Defines the data and behavior required by child agent wave payload. */
+
+/** Canonical child agent wave payload representation. */
 export interface ChildAgentWavePayload {
   /** Bounds the max concurrency accepted by this contract. */
   readonly maxConcurrency: number;
-  /** Lists the nodes accepted by this contract. */
+  /** Ordered the nodes used by this contract. */
   readonly nodes: readonly ChildAgentNode[];
 }
 
-/** Defines the data and behavior required by reconcilable effect adapter. */
+/** Reconcilable effect adapter boundary. */
 export interface ReconcilableEffectAdapter<T> {
-  /** Provides id to reconcilable effect adapter. */
+  /** Stable identifier for reconcilable effect adapter. */
   readonly id: string;
-  /** Records the version used for compatibility checks. */
+  /** Opaque version token used for compatibility checks. */
   readonly version: string;
   /** Applies the typed payload through the underlying effect implementation. */
   apply(input: {
-    /** Provides control to reconcilable effect adapter. */
+    /** Cancellation signal and absolute deadline for the effect. */
     readonly control: ExternalEffectControl;
-    /** Identifies effect. */
+    /** Stable identifier for effect id. */
     readonly effectId: string;
-    /** Provides payload to reconcilable effect adapter. */
+    /** Validated effect payload. */
     readonly payload: T;
   }): Promise<ExternalEffectObservation>;
   /** Reconciles the typed payload through the underlying effect implementation. */
   reconcile(input: {
-    /** Provides control to reconcilable effect adapter. */
+    /** Cancellation signal and absolute deadline for the effect. */
     readonly control: ExternalEffectControl;
-    /** Identifies effect. */
+    /** Stable identifier for effect id. */
     readonly effectId: string;
-    /** Provides payload to reconcilable effect adapter. */
+    /** Validated effect payload. */
     readonly payload: T;
   }): Promise<ExternalEffectObservation>;
 }
@@ -183,54 +194,63 @@ export function createWorkspaceProvisionHandler(
 ): ExternalEffectHandler {
   return handler("workspace.provision", adapter, parseWorkspaceProvision);
 }
+
 /** Creates workspace release handler after validating its inputs. */
 export function createWorkspaceReleaseHandler(
   adapter: ReconcilableEffectAdapter<WorkspaceReleasePayload>,
 ): ExternalEffectHandler {
   return handler("workspace.release", adapter, parseWorkspaceRelease);
 }
+
 /** Creates git observe handler after validating its inputs. */
 export function createGitObserveHandler(
   adapter: ReconcilableEffectAdapter<GitObservePayload>,
 ): ExternalEffectHandler {
   return handler("git.observe", adapter, parseGitObserve);
 }
+
 /** Creates git branch handler after validating its inputs. */
 export function createGitBranchHandler(
   adapter: ReconcilableEffectAdapter<GitBranchPayload>,
 ): ExternalEffectHandler {
   return handler("git.branch", adapter, parseGitBranch);
 }
+
 /** Creates git commit handler after validating its inputs. */
 export function createGitCommitHandler(
   adapter: ReconcilableEffectAdapter<GitCommitPayload>,
 ): ExternalEffectHandler {
   return handler("git.commit", adapter, parseGitCommit);
 }
+
 /** Creates git push handler after validating its inputs. */
 export function createGitPushHandler(
   adapter: ReconcilableEffectAdapter<GitPushPayload>,
 ): ExternalEffectHandler {
   return handler("git.push", adapter, parseGitPush);
 }
+
 /** Creates draft pr handler after validating its inputs. */
 export function createDraftPrHandler(
   adapter: ReconcilableEffectAdapter<DraftPrPayload>,
 ): ExternalEffectHandler {
   return handler("publication.draft_pr", adapter, parseDraftPr);
 }
+
 /** Creates command run handler after validating its inputs. */
 export function createCommandRunHandler(
   adapter: ReconcilableEffectAdapter<CommandRunPayload>,
 ): ExternalEffectHandler {
   return handler("command.run", adapter, parseCommandRun);
 }
+
 /** Creates browser run handler after validating its inputs. */
 export function createBrowserRunHandler(
   adapter: ReconcilableEffectAdapter<BrowserRunPayload>,
 ): ExternalEffectHandler {
   return handler("browser.run", adapter, parseBrowserRun);
 }
+
 /** Creates child agent wave handler after validating its inputs. */
 export function createChildAgentWaveHandler(
   adapter: ReconcilableEffectAdapter<ChildAgentWavePayload>,
@@ -275,7 +295,7 @@ function handler<T>(
 /** Parses and validates workspace provision. */
 function parseWorkspaceProvision(value: JsonObject): WorkspaceProvisionPayload {
   exact(value, ["mode", "repositoryId", "sourceRevision", "workspaceKey"]);
-  /** Stores mode used by parse workspace provision. */
+  /** Mode snapshot used consistently during the parse workspace provision operation. */
   const mode = value.mode;
   if (mode !== "mirror" && mode !== "worktree")
     throw new TypeError("workspace.provision mode is invalid");
@@ -286,6 +306,7 @@ function parseWorkspaceProvision(value: JsonObject): WorkspaceProvisionPayload {
     workspaceKey: key(value.workspaceKey, "workspaceKey"),
   };
 }
+
 /** Parses and validates workspace release. */
 function parseWorkspaceRelease(value: JsonObject): WorkspaceReleasePayload {
   exact(value, ["repositoryId", "workspaceKey"]);
@@ -294,6 +315,7 @@ function parseWorkspaceRelease(value: JsonObject): WorkspaceReleasePayload {
     workspaceKey: key(value.workspaceKey, "workspaceKey"),
   };
 }
+
 /** Parses and validates git observe. */
 function parseGitObserve(value: JsonObject): GitObservePayload {
   exact(value, ["repositoryId", "revision", "workspaceKey"]);
@@ -303,6 +325,7 @@ function parseGitObserve(value: JsonObject): GitObservePayload {
     workspaceKey: key(value.workspaceKey, "workspaceKey"),
   };
 }
+
 /** Parses and validates git branch. */
 function parseGitBranch(value: JsonObject): GitBranchPayload {
   exact(value, ["branch", "expectedHead", "repositoryId", "workspaceKey"]);
@@ -313,6 +336,7 @@ function parseGitBranch(value: JsonObject): GitBranchPayload {
     workspaceKey: key(value.workspaceKey, "workspaceKey"),
   };
 }
+
 /** Parses and validates git commit. */
 function parseGitCommit(value: JsonObject): GitCommitPayload {
   exact(value, [
@@ -322,7 +346,7 @@ function parseGitCommit(value: JsonObject): GitCommitPayload {
     "repositoryId",
     "workspaceKey",
   ]);
-  /** Stores paths used by parse git commit. */
+  /** Result of `stringList`, retained for the parse git commit operation. */
   const paths = stringList(value.paths, "paths");
   if (paths.length === 0)
     throw new TypeError("git.commit paths cannot be empty");
@@ -335,6 +359,7 @@ function parseGitCommit(value: JsonObject): GitCommitPayload {
     workspaceKey: key(value.workspaceKey, "workspaceKey"),
   };
 }
+
 /** Parses and validates git push. */
 function parseGitPush(value: JsonObject): GitPushPayload {
   exact(value, [
@@ -357,6 +382,7 @@ function parseGitPush(value: JsonObject): GitPushPayload {
     workspaceKey: key(value.workspaceKey, "workspaceKey"),
   };
 }
+
 /** Parses and validates draft pr. */
 function parseDraftPr(value: JsonObject): DraftPrPayload {
   exact(value, [
@@ -368,11 +394,11 @@ function parseDraftPr(value: JsonObject): DraftPrPayload {
     "repositoryId",
     "title",
   ]);
-  /** Stores title used by parse draft pr. */
+  /** Result of `text`, retained for the parse draft pr operation. */
   const title = text(value.title, "title");
   if (title.length > 200)
     throw new TypeError("publication.draft_pr title is too long");
-  /** Stores body used by parse draft pr. */
+  /** Body snapshot used consistently during the parse draft pr operation. */
   const body = typeof value.body === "string" ? value.body : invalid("body");
   if (body.length > 100_000)
     throw new TypeError("publication.draft_pr body is too long");
@@ -386,10 +412,11 @@ function parseDraftPr(value: JsonObject): DraftPrPayload {
     title,
   };
 }
+
 /** Parses and validates command run. */
 function parseCommandRun(value: JsonObject): CommandRunPayload {
   exact(value, ["arguments", "commandKey", "repositoryId", "workspaceKey"]);
-  /** Stores args used by parse command run. */
+  /** Result of `stringList`, retained for the parse command run operation. */
   const args = stringList(value.arguments, "arguments");
   if (args.length > 100 || args.some((entry) => entry.length > 10_000))
     throw new TypeError("command.run arguments exceed their bounds");
@@ -400,6 +427,7 @@ function parseCommandRun(value: JsonObject): CommandRunPayload {
     workspaceKey: key(value.workspaceKey, "workspaceKey"),
   };
 }
+
 /** Parses and validates browser run. */
 function parseBrowserRun(value: JsonObject): BrowserRunPayload {
   exact(value, [
@@ -415,10 +443,11 @@ function parseBrowserRun(value: JsonObject): BrowserRunPayload {
     workspaceKey: key(value.workspaceKey, "workspaceKey"),
   };
 }
+
 /** Parses and validates child agent wave. */
 function parseChildAgentWave(value: JsonObject): ChildAgentWavePayload {
   exact(value, ["maxConcurrency", "nodes"]);
-  /** Stores max concurrency used by parse child agent wave. */
+  /** Max concurrency snapshot used consistently during the parse child agent wave operation. */
   const maxConcurrency = value.maxConcurrency;
   if (
     typeof maxConcurrency !== "number" ||
@@ -433,9 +462,9 @@ function parseChildAgentWave(value: JsonObject): ChildAgentWavePayload {
     value.nodes.length > 1_000
   )
     throw new TypeError("child_agent.wave nodes are invalid");
-  /** Stores nodes used by parse child agent wave. */
+  /** Result of `value.nodes.map`, retained for the parse child agent wave operation. */
   const nodes = value.nodes.map((entry, index) => {
-    /** Stores node used by parse child agent wave. */
+    /** Result of `object`, retained for the parse child agent wave operation. */
     const node = object(entry, `nodes[${index}]`);
     exact(node, [
       "contextDigest",
@@ -456,7 +485,7 @@ function parseChildAgentWave(value: JsonObject): ChildAgentWavePayload {
       nodeKey: key(node.nodeKey, "nodeKey"),
     };
   });
-  /** Tracks unique keys values. */
+  /** Seen keys values used to reject duplicates. */
   const keys = new Set(nodes.map((node) => node.nodeKey));
   if (keys.size !== nodes.length)
     throw new TypeError("child_agent.wave node keys must be unique");
@@ -474,11 +503,11 @@ function assertAcyclic(nodes: readonly ChildAgentNode[]): void {
   const dependencies = new Map(
     nodes.map((node) => [node.nodeKey, node.dependsOn]),
   );
-  /** Tracks unique visiting values. */
+  /** Seen visiting values used to reject duplicates. */
   const visiting = new Set<string>();
-  /** Tracks unique visited values. */
+  /** Seen visited values used to reject duplicates. */
   const visited = new Set<string>();
-  /** Stores visit used by assert acyclic. */
+  /** Local callback implementing visit for the assert acyclic operation. */
   const visit = (node: string): void => {
     if (visiting.has(node))
       throw new TypeError("child_agent.wave dependency graph contains a cycle");
@@ -490,6 +519,7 @@ function assertAcyclic(nodes: readonly ChildAgentNode[]): void {
   };
   nodes.forEach((node) => visit(node.nodeKey));
 }
+
 /** Rejects objects whose keys differ from the expected closed shape. */
 function exact(value: JsonObject, keys: readonly string[]): void {
   if (Object.keys(value).sort().join("\0") !== [...keys].sort().join("\0"))
@@ -497,21 +527,24 @@ function exact(value: JsonObject, keys: readonly string[]): void {
       "External-effect payload has unexpected or missing fields",
     );
 }
+
 /** Validates and returns the required object representation. */
 function object(value: JsonValue | undefined, label: string): JsonObject {
   if (value === null || typeof value !== "object" || Array.isArray(value))
     throw new TypeError(`${label} must be an object`);
   return value;
 }
+
 /** Validates and normalizes a bounded text value. */
 function text(value: JsonValue | undefined, label: string): string {
   if (typeof value !== "string" || value === "" || value.length > 100_000)
     throw new TypeError(`${label} must be a bounded non-empty string`);
   return value;
 }
+
 /** Validates and returns a bounded provider key. */
 function key(value: JsonValue | undefined, label: string): string {
-  /** Holds the validated result returned by key. */
+  /** Validated result returned by key. */
   const result = text(value, label);
   if (
     !/^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$/u.test(result) ||
@@ -520,14 +553,16 @@ function key(value: JsonValue | undefined, label: string): string {
     throw new TypeError(`${label} is invalid`);
   return result;
 }
+
 /** Validates and returns an immutable Git revision. */
 function revision(value: JsonValue | undefined, label: string): string {
-  /** Holds the validated result returned by revision. */
+  /** Validated result returned by revision. */
   const result = text(value, label);
   if (!/^[a-f0-9]{40,64}$/u.test(result))
     throw new TypeError(`${label} must be a full immutable revision`);
   return result;
 }
+
 /** Validates and returns an immutable Git revision. */
 function nullableRevision(
   value: JsonValue | undefined,
@@ -535,17 +570,19 @@ function nullableRevision(
 ): string | null {
   return value === null ? null : revision(value, label);
 }
+
 /** Validates and returns a lowercase SHA-256 digest. */
 function digest(value: JsonValue | undefined, label: string): string {
-  /** Holds the validated result returned by digest. */
+  /** Validated result returned by digest. */
   const result = text(value, label);
   if (!/^[a-f0-9]{64}$/u.test(result))
     throw new TypeError(`${label} must be a SHA-256 digest`);
   return result;
 }
+
 /** Validates and returns a safe Git branch name. */
 function branch(value: JsonValue | undefined): string {
-  /** Holds the validated result returned by branch. */
+  /** Validated result returned by branch. */
   const result = text(value, "branch");
   if (
     !/^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$/u.test(result) ||
@@ -556,6 +593,7 @@ function branch(value: JsonValue | undefined): string {
     throw new TypeError("branch is invalid");
   return result;
 }
+
 /** Validates and returns a repository-relative path. */
 function relativePath(value: string, label: string): string {
   if (
@@ -566,6 +604,7 @@ function relativePath(value: string, label: string): string {
     throw new TypeError(`${label} must be repository-relative`);
   return value;
 }
+
 /** Validates and returns unique non-empty strings. */
 function stringList(
   value: JsonValue | undefined,
@@ -576,20 +615,22 @@ function stringList(
     value.some((entry) => typeof entry !== "string" || entry === "")
   )
     throw new TypeError(`${label} must contain non-empty strings`);
-  /** Holds the validated result returned by string list. */
+  /** Validated result returned by string list. */
   const result = value as string[];
   if (new Set(result).size !== result.length)
     throw new TypeError(`${label} cannot contain duplicates`);
   return [...result];
 }
+
 /** Validates and returns a bounded Git commit message. */
 function commitMessage(value: JsonValue | undefined): string {
-  /** Holds the validated result returned by commit message. */
+  /** Validated result returned by commit message. */
   const result = text(value, "message");
   if (result.length > 10_000 || /[\r\n]/u.test(result.split("\n", 1)[0] ?? ""))
     throw new TypeError("git.commit message is invalid");
   return result;
 }
+
 /** Throws a typed validation error for the named field. */
 function invalid(label: string): never {
   throw new TypeError(`${label} is invalid`);

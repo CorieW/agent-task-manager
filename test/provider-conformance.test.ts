@@ -14,7 +14,7 @@ import {
   type WorkspaceSchemaSnapshot,
 } from "../src/index.js";
 
-/** Defines the shared environment fixture for this test module. */
+/** Supplies the provider environment shared by the scenarios. */
 const environment: ProviderEnvironment = {
   bootstrapParent: null,
   connection: {},
@@ -22,7 +22,7 @@ const environment: ProviderEnvironment = {
   type: "memory",
 };
 
-/** Defines the shared target fixture for this test module. */
+/** Supplies the canonical workspace schema target. */
 const target: WorkspaceSchemaDescriptor = {
   digest: "target-v1",
   providerType: "memory",
@@ -84,7 +84,7 @@ function task(id: string, status: string): TaskSnapshot {
   };
 }
 
-/** Defines the shared provider cases fixture for this test module. */
+/** Enumerates provider implementations sharing conformance tests. */
 const providerCases = [
   {
     create: (
@@ -108,7 +108,7 @@ const providerCases = [
 
 for (const providerCase of providerCases) {
   describe(providerCase.name, () => {
-    /** Defines the shared create provider fixture for this test module. */
+    /** Constructs the provider implementation under conformance test. */
     const createProvider = (
       _environment: ProviderEnvironment,
       _target: WorkspaceSchemaDescriptor,
@@ -117,13 +117,13 @@ for (const providerCase of providerCases) {
     ): SeedableAgentTaskProvider => providerCase.create(snapshot, now);
 
     test("task summaries honor predicates and cursors without exposing snapshots", async () => {
-      /** Defines the provider fixture for “task summaries honor predicates and cursors without exposing snapshots”. */
+      /** Provides isolated provider state for the scenario. */
       const provider = createProvider(environment, target);
       provider.seedTask(task("a", "open"));
       provider.seedTask(task("b", "closed"));
       provider.seedTask(task("c", "open"));
 
-      /** Defines the summaries fixture for “task summaries honor predicates and cursors without exposing snapshots”. */
+      /** Collects decoded Task summaries returned by the provider. */
       const summaries = await provider.listTaskSummaries({
         cursor: "a",
         limit: 10,
@@ -166,14 +166,14 @@ for (const providerCase of providerCases) {
     });
 
     test("task writes are atomic, opaque-versioned, replayable, and isolated", async () => {
-      /** Defines the provider fixture for “task writes are atomic, opaque-versioned, replayable, and isolated”. */
+      /** Provides isolated provider state for the scenario. */
       const provider = createProvider(environment, target);
-      /** Defines the seeded fixture for “task writes are atomic, opaque-versioned, replayable, and isolated”. */
+      /** Preserves the caller-owned Task object used to test isolation. */
       const seeded = task("atomic", "open");
       provider.seedTask(seeded);
       seeded.properties.nested = { value: "caller-mutated" };
 
-      /** Defines the first mutation fixture for “task writes are atomic, opaque-versioned, replayable, and isolated”. */
+      /** Describes the first contender in the atomic write race. */
       const firstMutation = {
         expectedVersion: "opaque-atomic",
         idempotencyKey: "task-write-1",
@@ -182,13 +182,13 @@ for (const providerCase of providerCases) {
         nextStatus: null,
         taskId: "atomic",
       } as const;
-      /** Defines the second mutation fixture for “task writes are atomic, opaque-versioned, replayable, and isolated”. */
+      /** Describes the competing atomic write. */
       const secondMutation = {
         ...firstMutation,
         idempotencyKey: "task-write-2",
         nextBody: "second",
       };
-      /** Defines the results fixture for “task writes are atomic, opaque-versioned, replayable, and isolated”. */
+      /** Collects operation outcomes used by assertions. */
       const results = await Promise.allSettled([
         provider.applyTaskMutation(firstMutation),
         provider.applyTaskMutation(secondMutation),
@@ -202,9 +202,9 @@ for (const providerCase of providerCases) {
         1,
       );
 
-      /** Defines the receipt fixture for “task writes are atomic, opaque-versioned, replayable, and isolated”. */
+      /** Captures the durable write or effect result used as the oracle. */
       const receipt = await provider.applyTaskMutation(firstMutation);
-      /** Defines the stored fixture for “task writes are atomic, opaque-versioned, replayable, and isolated”. */
+      /** Reads persisted state used as the assertion oracle. */
       const stored = await provider.getTaskSnapshot("atomic");
       assert.equal(receipt.providerRecord.id, "atomic");
       assert.equal(receipt.observedVersion, stored.version);
@@ -223,8 +223,11 @@ for (const providerCase of providerCases) {
     });
 
     test("logical operation intents retain payloads and replay results", async () => {
+      /** Creates the provider implementation under conformance test. */
       const provider = createProvider(environment, target);
+      /** Represents the immutable plan bound to the operation key. */
       const payload = { mutation: { taskId: "task-1" }, schema: "plan-v1" };
+      /** Captures the newly persisted operation before completion. */
       const pending = await provider.beginOperationIntent(
         "operation-1",
         "transition",
@@ -247,6 +250,7 @@ for (const providerCase of providerCases) {
         }),
         /different operation or payload/u,
       );
+      /** Captures the applied result later replayed by the provider. */
       const completed = await provider.completeOperationIntent(
         "operation-1",
         "transition",
@@ -261,16 +265,16 @@ for (const providerCase of providerCases) {
     });
 
     test("leases are exclusive, expiry-aware, and replayable", async () => {
-      /** Defines the current fixture for “leases are exclusive, expiry-aware, and replayable”. */
+      /** Tracks the mutable simulated clock or current record state. */
       let current = Date.parse("2026-01-01T00:00:00.000Z");
-      /** Defines the provider fixture for “leases are exclusive, expiry-aware, and replayable”. */
+      /** Provides isolated provider state for the scenario. */
       const provider = createProvider(
         environment,
         target,
         undefined,
         () => new Date(current),
       );
-      /** Defines the request fixture for “leases are exclusive, expiry-aware, and replayable”. */
+      /** Supplies the operation input under test. */
       const request = {
         expiresAt: "2026-01-01T00:01:00.000Z",
         idempotencyKey: "lease-1",
@@ -279,7 +283,7 @@ for (const providerCase of providerCases) {
         agentId: "agent-1",
         taskId: "task-1",
       };
-      /** Defines the acquired fixture for “leases are exclusive, expiry-aware, and replayable”. */
+      /** Captures the lease granted by the provider. */
       const acquired = await provider.acquireLease(request);
       assert.equal(acquired.acquired, true);
       assert.deepEqual(await provider.acquireLease(request), acquired);
@@ -310,14 +314,14 @@ for (const providerCase of providerCases) {
     });
 
     test("lease renewals replay their original result", async () => {
-      /** Defines the provider fixture for “lease renewals replay their original result”. */
+      /** Provides isolated provider state for the scenario. */
       const provider = createProvider(
         environment,
         target,
         undefined,
         () => new Date("2026-01-01T00:00:00.000Z"),
       );
-      /** Defines the acquired fixture for “lease renewals replay their original result”. */
+      /** Captures the lease granted by the provider. */
       const acquired = await provider.acquireLease({
         expiresAt: "2026-01-01T00:01:00.000Z",
         idempotencyKey: "lease-acquire",
@@ -326,7 +330,7 @@ for (const providerCase of providerCases) {
         agentId: "agent",
         taskId: null,
       });
-      /** Defines the renewal fixture for “lease renewals replay their original result”. */
+      /** Describes the exact lease renewal request replayed by the provider. */
       const renewal = {
         expectedExpiresAt: "2026-01-01T00:01:00.000Z",
         idempotencyKey: "lease-renew",
@@ -334,7 +338,7 @@ for (const providerCase of providerCases) {
         nextExpiresAt: "2026-01-01T00:02:00.000Z",
         ownerId: "run",
       };
-      /** Defines the first fixture for “lease renewals replay their original result”. */
+      /** Captures the first operation result for replay comparison. */
       const first = await provider.renewLease(renewal);
       assert.deepEqual(await provider.renewLease(renewal), first);
       assert.equal(
@@ -344,16 +348,16 @@ for (const providerCase of providerCases) {
     });
 
     test("manual lease release requires the exact inspected lease version", async () => {
-      /** Defines the current fixture for “manual lease release requires the exact inspected lease version”. */
+      /** Tracks the mutable simulated clock or current record state. */
       let current = Date.parse("2026-01-01T00:00:00.000Z");
-      /** Defines the provider fixture for “manual lease release requires the exact inspected lease version”. */
+      /** Provides isolated provider state for the scenario. */
       const provider = createProvider(
         environment,
         target,
         undefined,
         () => new Date(current),
       );
-      /** Defines the acquired fixture for “manual lease release requires the exact inspected lease version”. */
+      /** Captures the lease granted by the provider. */
       const acquired = await provider.acquireLease({
         expiresAt: "2026-01-01T00:10:00.000Z",
         idempotencyKey: "manual-acquire",
@@ -362,7 +366,7 @@ for (const providerCase of providerCases) {
         agentId: "worker",
         taskId: null,
       });
-      /** Defines the before fixture for “manual lease release requires the exact inspected lease version”. */
+      /** Snapshots provider state before the operation. */
       const before = await provider.getLeaseSnapshot(acquired.leaseId!);
       assert.notEqual(before, null);
       current += 1_000;
@@ -381,7 +385,7 @@ for (const providerCase of providerCases) {
         }),
         /release conflict/u,
       );
-      /** Defines the after fixture for “manual lease release requires the exact inspected lease version”. */
+      /** Snapshots provider state after the operation. */
       const after = await provider.getLeaseSnapshot(acquired.leaseId!);
       assert.notEqual(after, null);
       await provider.releaseLease({
@@ -389,10 +393,10 @@ for (const providerCase of providerCases) {
         leaseId: acquired.leaseId!,
         ownerId: "owner",
       });
-      /** Defines the released fixture for “manual lease release requires the exact inspected lease version”. */
+      /** Captures ownership state after the release operation. */
       const released = await provider.getLeaseSnapshot(acquired.leaseId!);
       assert.equal(released?.released, true);
-      /** Defines the reacquired fixture for “manual lease release requires the exact inspected lease version”. */
+      /** Captures the lease granted after expiry and release. */
       const reacquired = await provider.acquireLease({
         expiresAt: "2026-01-01T00:30:00.000Z",
         idempotencyKey: "manual-reacquire",
@@ -406,7 +410,7 @@ for (const providerCase of providerCases) {
     });
 
     test("agent activity is conditionally replaced", async () => {
-      /** Defines the provider fixture for “agent activity is conditionally replaced”. */
+      /** Provides isolated provider state for the scenario. */
       const provider = createProvider(environment, target);
       provider.seedDefinition({
         allowedIntents: [],
@@ -442,7 +446,7 @@ for (const providerCase of providerCases) {
         transitions: { succeeded: "$current" },
         outputSchema: "result",
       });
-      /** Defines the run fixture for “agent activity is conditionally replaced”. */
+      /** Represents the active Agent run exercised by the scenario. */
       const run = await provider.acquireLease({
         expiresAt: "2099-01-01T00:00:00.000Z",
         idempotencyKey: "activity-run",
@@ -459,7 +463,7 @@ for (const providerCase of providerCases) {
         agentId: "worker",
         taskId: "task-1",
       });
-      /** Defines the first fixture for “agent activity is conditionally replaced”. */
+      /** Captures the first operation result for replay comparison. */
       const first = {
         expectedRunLeaseIds: [],
         expectedTaskIds: [],
@@ -482,9 +486,9 @@ for (const providerCase of providerCases) {
     });
 
     test("errors use distinct entity and operation identities", async () => {
-      /** Defines the provider fixture for “errors use distinct entity and operation identities”. */
+      /** Provides isolated provider state for the scenario. */
       const provider = createProvider(environment, target);
-      /** Defines the base fixture for “errors use distinct entity and operation identities”. */
+      /** Provides the common mutation fields varied by the scenario. */
       const base = {
         description: "description",
         errorKey: "error-1",
@@ -497,10 +501,10 @@ for (const providerCase of providerCases) {
         status: "Not Fixed" as const,
         title: "Error",
       };
-      /** Defines the first fixture for “errors use distinct entity and operation identities”. */
+      /** Captures the first operation result for replay comparison. */
       const first = await provider.createOrUpdateError(base);
       assert.deepEqual(await provider.createOrUpdateError(base), first);
-      /** Defines the second fixture for “errors use distinct entity and operation identities”. */
+      /** Captures the replayed result for idempotency comparison. */
       const second = await provider.createOrUpdateError({
         ...base,
         idempotencyKey: "error-write-2",
@@ -512,9 +516,9 @@ for (const providerCase of providerCases) {
     });
 
     test("resource pins and read models exclude mutation metadata", async () => {
-      /** Defines the provider fixture for “resource pins and read models exclude mutation metadata”. */
+      /** Provides isolated provider state for the scenario. */
       const provider = createProvider(environment, target);
-      /** Defines the mutation fixture for “resource pins and read models exclude mutation metadata”. */
+      /** Describes the provider mutation exercised by the scenario. */
       const mutation = {
         body: "body",
         dependencies: [],
@@ -525,10 +529,10 @@ for (const providerCase of providerCases) {
         state: "active" as const,
         version: "2",
       };
-      /** Defines the first fixture for “resource pins and read models exclude mutation metadata”. */
+      /** Captures the first operation result for replay comparison. */
       const first = await provider.putResource(mutation);
       assert.deepEqual(await provider.putResource(mutation), first);
-      /** Defines the resource fixture for “resource pins and read models exclude mutation metadata”. */
+      /** Captures the Resource read model used as the oracle. */
       const [resource] = await provider.getResources([
         { digest: "digest-2", key: "policy", version: "2" },
       ]);
@@ -542,11 +546,11 @@ for (const providerCase of providerCases) {
     });
 
     test("workspace plans converge with verified dependency and digest chains", async () => {
-      /** Defines the provider fixture for “workspace plans converge with verified dependency and digest chains”. */
+      /** Provides isolated provider state for the scenario. */
       const provider = createProvider(environment, target);
-      /** Defines the observed fixture for “workspace plans converge with verified dependency and digest chains”. */
+      /** Captures observed state used as the assertion oracle. */
       const observed = await provider.inspectWorkspaceSchema();
-      /** Defines the plan fixture for “workspace plans converge with verified dependency and digest chains”. */
+      /** Captures the workspace changes proposed by the provider. */
       const plan = await provider.planWorkspaceChanges({
         environmentId: "test",
         mode: "bootstrap",
@@ -560,7 +564,7 @@ for (const providerCase of providerCases) {
       );
       for (const step of plan.steps) await provider.applyWorkspaceStep(step);
       assert.equal((await provider.validateTables()).state, "ready");
-      /** Defines the next plan fixture for “workspace plans converge with verified dependency and digest chains”. */
+      /** Captures the plan recomputed after schema changes. */
       const nextPlan = await provider.planWorkspaceChanges({
         environmentId: "test",
         mode: "migration",
@@ -575,7 +579,7 @@ for (const providerCase of providerCases) {
     });
 
     test("workspace planning fails closed for an unverifiable relation target", async () => {
-      /** Defines the provider fixture for “workspace planning fails closed for an unverifiable relation target”. */
+      /** Provides isolated provider state for the scenario. */
       const provider = createProvider(environment, target, {
         capturedAt: "2026-01-01T00:00:00.000Z",
         digest: "observed",
@@ -606,7 +610,7 @@ for (const providerCase of providerCases) {
           },
         ],
       });
-      /** Defines the observed fixture for “workspace planning fails closed for an unverifiable relation target”. */
+      /** Captures observed state used as the assertion oracle. */
       const observed = await provider.inspectWorkspaceSchema();
       await assert.rejects(
         provider.planWorkspaceChanges({
@@ -620,9 +624,9 @@ for (const providerCase of providerCases) {
     });
 
     test("environment validation reports the supplied provider mismatch", async () => {
-      /** Defines the provider fixture for “environment validation reports the supplied provider mismatch”. */
+      /** Provides isolated provider state for the scenario. */
       const provider = createProvider(environment, target);
-      /** Defines the report fixture for “environment validation reports the supplied provider mismatch”. */
+      /** Captures validation or dry-run findings used as the oracle. */
       const report = await provider.validateEnvironment({
         ...environment,
         type: "other",
@@ -634,9 +638,9 @@ for (const providerCase of providerCases) {
 }
 
 test("CLI help lists only implemented commands", () => {
-  /** Defines the cli fixture for “CLI help lists only implemented commands”. */
+  /** Resolves the built CLI entry point invoked by the test. */
   const cli = fileURLToPath(new URL("../src/cli.js", import.meta.url));
-  /** Defines the result fixture for “CLI help lists only implemented commands”. */
+  /** Captures the operation outcome used by assertions. */
   const result = spawnSync(process.execPath, [cli, "--help"], {
     encoding: "utf8",
   });
@@ -648,7 +652,7 @@ test("CLI help lists only implemented commands", () => {
 });
 
 test("serialized provider emulator rejects lossy non-JSON values", async () => {
-  /** Defines the provider fixture for “serialized provider emulator rejects lossy non-JSON values”. */
+  /** Provides isolated provider state for the scenario. */
   const provider = new SerializedProviderEmulator(
     new InMemoryProvider(environment, target),
   );

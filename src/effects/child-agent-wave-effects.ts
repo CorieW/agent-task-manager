@@ -18,79 +18,82 @@ import type {
   ReconcilableEffectAdapter,
 } from "./typed-effect-handlers.js";
 
-/** Defines the data and behavior required by child agent node input. */
+/** Inputs accepted by child agent node. */
 export interface ChildAgentNodeInput {
-  /** Provides control to child agent node input. */
+  /** Ordered control accepted by child agent node input. */
   readonly control: ExternalEffectControl;
-  /** Provides context to child agent node input. */
+  /** Ordered context accepted by child agent node input. */
   readonly context: ResourceRecord;
-  /** Lists the dependency receipts accepted by this contract. */
+  /** Ordered the dependency receipts used by this contract. */
   readonly dependencyReceipts: readonly ChildAgentNodeReceipt[];
-  /** Provides node to child agent node input. */
+  /** Child-node specification executed by the wave. */
   readonly node: ChildAgentNode;
-  /** Identifies node effect. */
+  /** Stable identifier for node effect id. */
   readonly nodeEffectId: string;
-  /** Identifies wave effect. */
+  /** Stable identifier for wave effect id. */
   readonly waveEffectId: string;
 }
-/** Defines the data and behavior required by child agent node driver. */
+
+/** Child agent node driver boundary. */
 export interface ChildAgentNodeDriver {
   /** Runs child agent node driver within its configured limits. */
   run(input: ChildAgentNodeInput): Promise<ExternalEffectObservation>;
   /** Reconciles previously observed child-node execution state. */
   reconcile(input: ChildAgentNodeInput): Promise<ExternalEffectObservation>;
 }
-/** Defines the data and behavior required by child agent node receipt. */
+
+/** Durable receipt returned by child agent node. */
 export interface ChildAgentNodeReceipt {
-  /** Provides evidence to child agent node receipt. */
+  /** Canonical evidence used to verify the observed effect. */
   readonly evidence: JsonObject;
-  /** Provides external identity to child agent node receipt. */
+  /** Provider identity used to correlate the external effect. */
   readonly externalIdentity: JsonObject;
-  /** Identifies node effect. */
+  /** Stable identifier for node effect id. */
   readonly nodeEffectId: string;
-  /** Identifies node. */
+  /** Stable key of the child node. */
   readonly nodeKey: string;
-  /** Records the current state for workflow decisions. */
+  /** Lifecycle state used for workflow decisions. */
   readonly state: "applied" | "failed";
 }
-/** Defines the data and behavior required by child agent node record. */
+
+/** Persisted state for child agent node. */
 interface ChildAgentNodeRecord {
-  /** Stores the SHA-256 digest of context. */
+  /** SHA-256 digest of canonical context. */
   readonly contextDigest: string;
-  /** Identifies context. */
+  /** Resource key of the node's immutable context. */
   readonly contextKey: string;
-  /** Records the context version used for compatibility checks. */
+  /** Opaque version token for context. */
   readonly contextVersion: string;
-  /** Identifies definition. */
+  /** Stable identifier for definition id. */
   readonly definitionId: string;
-  /** Lists the dependency node keys accepted by this contract. */
+  /** Ordered the dependency node keys used by this contract. */
   readonly dependencyNodeKeys: readonly string[];
-  /** Provides last observation to child agent node record. */
+  /** Most recent durable observation, or null before reconciliation. */
   readonly lastObservation: ExternalEffectObservation | null;
-  /** Identifies node effect. */
+  /** Stable identifier for node effect id. */
   readonly nodeEffectId: string;
-  /** Identifies node. */
+  /** Stable key of the child node. */
   readonly nodeKey: string;
-  /** Provides receipt to child agent node record. */
+  /** Applied-effect receipt, or null until mutation succeeds. */
   readonly receipt: ChildAgentNodeReceipt | null;
   /** Version tag for the child agent node record representation. */
   readonly schema: "child-agent-node-intent-v1";
-  /** Records the current state for workflow decisions. */
+  /** Lifecycle state used for workflow decisions. */
   readonly state: "applied" | "failed" | "indeterminate" | "pending";
-  /** Identifies wave effect. */
+  /** Stable identifier for wave effect id. */
   readonly waveEffectId: string;
 }
 
 /** Implements provider child agent wave effects and its boundary checks. */
 export class ProviderChildAgentWaveEffects implements ReconcilableEffectAdapter<ChildAgentWavePayload> {
-  /** Provides id to provider child agent wave effects. */
+  /** Stable identifier for provider child agent wave effects. */
   public readonly id = "provider-child-agent-wave";
-  /** Records the version used for compatibility checks. */
+  /** Opaque version token used for compatibility checks. */
   public readonly version = "1";
   /** Creates provider child agent wave effects with its required collaborators. */
   public constructor(
-    /** Provides provider to provider child agent wave effects. */ private readonly provider: AgentTaskProvider,
-    /** Provides driver to provider child agent wave effects. */ private readonly driver: ChildAgentNodeDriver,
+    /** Provider boundary used for durable state reads and writes. */ private readonly provider: AgentTaskProvider,
+    /** Driver used to control the underlying runtime. */ private readonly driver: ChildAgentNodeDriver,
   ) {}
 
   /** Reconciles a durable child-agent wave before running new nodes. */
@@ -99,33 +102,33 @@ export class ProviderChildAgentWaveEffects implements ReconcilableEffectAdapter<
     effectId,
     payload,
   }: {
-    /** Provides control to reconcile. */
+    /** Cancellation signal and absolute deadline for the effect. */
     readonly control: ExternalEffectControl;
-    /** Identifies effect. */
+    /** Stable identifier for effect id. */
     readonly effectId: string;
-    /** Provides payload to reconcile. */
+    /** Validated effect payload. */
     readonly payload: ChildAgentWavePayload;
   }): Promise<ExternalEffectObservation> {
     /** Indexes receipts for deterministic lookup by reconcile. */
     const receipts = new Map<string, ChildAgentNodeReceipt>();
     for (const node of payload.nodes) {
-      /** Holds the durable record processed by reconcile. */
+      /** Durable child-node record processed by reconcile. */
       const record = await this.readNode(effectId, node);
       if (record === null) continue;
-      /** Stores context used by reconcile. */
+      /** Result of `this.context`, retained for the reconcile operation. */
       const context = await this.context(node);
       if (record.receipt !== null) {
         receipts.set(node.nodeKey, record.receipt);
         continue;
       }
-      /** Stores dependencies used by reconcile. */
+      /** Derived dependencies value for the reconcile operation. */
       const dependencies = node.dependsOn
         .map((key) => receipts.get(key))
         .filter(
           (receipt): receipt is ChildAgentNodeReceipt => receipt !== undefined,
         );
       if (dependencies.length !== node.dependsOn.length) continue;
-      /** Stores observation used by reconcile. */
+      /** Result of `this.driver.reconcile`, retained for the reconcile operation. */
       const observation = await this.driver.reconcile({
         context,
         control,
@@ -134,7 +137,7 @@ export class ProviderChildAgentWaveEffects implements ReconcilableEffectAdapter<
         nodeEffectId: record.nodeEffectId,
         waveEffectId: effectId,
       });
-      /** Stores finalized used by reconcile. */
+      /** Result of `this.updateFromObservation`, retained for the reconcile operation. */
       const finalized = await this.updateFromObservation(record, observation);
       if (finalized.receipt !== null)
         receipts.set(node.nodeKey, finalized.receipt);
@@ -155,17 +158,17 @@ export class ProviderChildAgentWaveEffects implements ReconcilableEffectAdapter<
     effectId,
     payload,
   }: {
-    /** Provides control to apply. */
+    /** Cancellation signal and absolute deadline for the effect. */
     readonly control: ExternalEffectControl;
-    /** Identifies effect. */
+    /** Stable identifier for effect id. */
     readonly effectId: string;
-    /** Provides payload to apply. */
+    /** Validated effect payload. */
     readonly payload: ChildAgentWavePayload;
   }): Promise<ExternalEffectObservation> {
     /** Indexes receipts for deterministic lookup by apply. */
     const receipts = new Map<string, ChildAgentNodeReceipt>();
     while (receipts.size < payload.nodes.length) {
-      /** Stores ready used by apply. */
+      /** Result of `payload.nodes.filter`, retained for the apply operation. */
       const ready = payload.nodes.filter(
         (node) =>
           !receipts.has(node.nodeKey) &&
@@ -173,11 +176,11 @@ export class ProviderChildAgentWaveEffects implements ReconcilableEffectAdapter<
       );
       if (ready.length === 0)
         return failedWave(receipts, "dependency_failed_or_unresolved");
-      /** Stores batch used by apply. */
+      /** Result of `ready.slice`, retained for the apply operation. */
       const batch = ready.slice(0, payload.maxConcurrency);
       if (control.signal.aborted || control.deadlineAt <= Date.now())
         throw new Error("Child-agent wave was cancelled");
-      /** Stores settled used by apply. */
+      /** Result of `Promise.allSettled`, retained for the apply operation. */
       const settled = await Promise.allSettled(
         batch.map(async (node) =>
           this.executeNode(
@@ -213,9 +216,9 @@ export class ProviderChildAgentWaveEffects implements ReconcilableEffectAdapter<
     node: ChildAgentNode,
     dependencies: readonly ChildAgentNodeReceipt[],
   ): Promise<ChildAgentNodeReceipt> {
-    /** Stores context used by execute node. */
+    /** Result of `this.context`, retained for the execute node operation. */
     const context = await this.context(node);
-    /** Holds the durable record processed by execute node. */
+    /** Durable child-node record processed by execute node. */
     let record = await this.readNode(waveEffectId, node);
     if (record === null) {
       record = {
@@ -239,7 +242,7 @@ export class ProviderChildAgentWaveEffects implements ReconcilableEffectAdapter<
         `Child-agent context changed after node creation: ${node.nodeKey}`,
       );
     if (record.receipt !== null) return record.receipt;
-    /** Stores input used by execute node. */
+    /** Input snapshot used consistently during the execute node operation. */
     const input = {
       context,
       control,
@@ -248,9 +251,9 @@ export class ProviderChildAgentWaveEffects implements ReconcilableEffectAdapter<
       nodeEffectId: record.nodeEffectId,
       waveEffectId,
     };
-    /** Stores prior used by execute node. */
+    /** Result of `this.driver.reconcile`, retained for the execute node operation. */
     const prior = await this.driver.reconcile(input);
-    /** Stores observation used by execute node. */
+    /** Result of `this.driver.run`, retained for the execute node operation. */
     let observation = prior;
     if (prior.state === "not_applied") {
       try {
@@ -274,7 +277,7 @@ export class ProviderChildAgentWaveEffects implements ReconcilableEffectAdapter<
         throw error;
       }
     }
-    /** Stores finalized used by execute node. */
+    /** Result of `this.updateFromObservation`, retained for the execute node operation. */
     const finalized = await this.updateFromObservation(
       record,
       observation,
@@ -292,7 +295,7 @@ export class ProviderChildAgentWaveEffects implements ReconcilableEffectAdapter<
     knownContext?: ResourceRecord,
   ): Promise<ChildAgentNodeRecord> {
     validateEffectObservation(observation);
-    /** Stores context used by update from observation. */
+    /** Context snapshot used consistently during the update from observation operation. */
     const context =
       knownContext ??
       (await this.context({
@@ -305,7 +308,7 @@ export class ProviderChildAgentWaveEffects implements ReconcilableEffectAdapter<
       }));
     if (observation.state === "not_applied") return record;
     if (observation.state === "indeterminate") {
-      /** Stores next used by update from observation. */
+      /** Next snapshot used consistently during the update from observation operation. */
       const next = {
         ...record,
         lastObservation: observation,
@@ -314,7 +317,7 @@ export class ProviderChildAgentWaveEffects implements ReconcilableEffectAdapter<
       await this.writeNode(next, context);
       return next;
     }
-    /** Captures the receipt produced by update from observation. */
+    /** Receipt produced by update from observation. */
     const receipt: ChildAgentNodeReceipt = {
       evidence: observation.evidence,
       externalIdentity: observation.externalIdentity,
@@ -322,7 +325,7 @@ export class ProviderChildAgentWaveEffects implements ReconcilableEffectAdapter<
       nodeKey: record.nodeKey,
       state: observation.state,
     };
-    /** Stores next used by update from observation. */
+    /** Next snapshot used consistently during the update from observation operation. */
     const next = {
       ...record,
       lastObservation: observation,
@@ -335,7 +338,7 @@ export class ProviderChildAgentWaveEffects implements ReconcilableEffectAdapter<
 
   /** Loads and verifies the immutable context Resource for a child node. */
   private async context(node: ChildAgentNode): Promise<ResourceRecord> {
-    /** Stores resource used by context. */
+    /** Result of `this.provider.getOptionalResource`, retained for the context operation. */
     const resource = await this.provider.getOptionalResource(
       node.contextResource,
     );
@@ -357,7 +360,7 @@ export class ProviderChildAgentWaveEffects implements ReconcilableEffectAdapter<
     waveEffectId: string,
     node: ChildAgentNode,
   ): Promise<ChildAgentNodeRecord | null> {
-    /** Stores resource used by read node. */
+    /** Result of `this.provider.getOptionalResource`, retained for the read node operation. */
     const resource = await this.provider.getOptionalResource(
       nodeResourceKey(waveEffectId, node.nodeKey),
     );
@@ -369,13 +372,13 @@ export class ProviderChildAgentWaveEffects implements ReconcilableEffectAdapter<
       resource.digest !== sha256(resource.body)
     )
       throw new Error(`Child-agent node Resource is invalid: ${node.nodeKey}`);
-    /** Holds the durable record processed by read node. */
+    /** Durable child-node record processed by read node. */
     const record = parseNodeRecord(
       JSON.parse(resource.body) as unknown,
       waveEffectId,
       node,
     );
-    /** Stores dependency used by read node. */
+    /** Dependency snapshot used consistently during the read node operation. */
     const dependency = resource.dependencies[0];
     if (
       resource.dependencies.length !== 1 ||
@@ -393,9 +396,9 @@ export class ProviderChildAgentWaveEffects implements ReconcilableEffectAdapter<
     record: ChildAgentNodeRecord,
     context: ResourceRecord,
   ): Promise<void> {
-    /** Stores body used by write node. */
+    /** Result of `canonicalize`, retained for the write node operation. */
     const body = canonicalize(toJsonValue(record));
-    /** Stores dependency used by write node. */
+    /** Dependency snapshot used consistently during the write node operation. */
     const dependency: ResourceRef = {
       digest: context.digest,
       key: context.key,
@@ -411,7 +414,7 @@ export class ProviderChildAgentWaveEffects implements ReconcilableEffectAdapter<
       state: "active",
       version: "v1",
     });
-    /** Stores verified used by write node. */
+    /** Result of `this.provider.getOptionalResource`, retained for the write node operation. */
     const verified = await this.provider.getOptionalResource(
       nodeResourceKey(record.waveEffectId, record.nodeKey),
     );
@@ -430,28 +433,31 @@ export class ProviderChildAgentWaveEffects implements ReconcilableEffectAdapter<
 function nodeEffectId(waveEffectId: string, node: ChildAgentNode): string {
   return digestJson(toJsonValue({ node, waveEffectId }));
 }
+
 /** Builds the deterministic provider key for this durable record. */
 function nodeResourceKey(waveEffectId: string, nodeKey: string): string {
   return `child-agent-node/${waveEffectId}/${sha256(nodeKey)}`;
 }
+
 /** Returns d receipt or throws when invalid or absent. */
 function requiredReceipt(
   receipts: ReadonlyMap<string, ChildAgentNodeReceipt>,
   key: string,
 ): ChildAgentNodeReceipt {
-  /** Holds the parsed value being validated by required receipt. */
+  /** Parsed candidate awaiting required receipt validation. */
   const found = receipts.get(key);
   if (found === undefined)
     throw new Error(`Child-agent dependency receipt is missing: ${key}`);
   return found;
 }
+
 /** Parses and validates node record. */
 function parseNodeRecord(
   value: unknown,
   waveEffectId: string,
   node: ChildAgentNode,
 ): ChildAgentNodeRecord {
-  /** Holds the durable record processed by parse node record. */
+  /** Durable child-node record processed by parse node record. */
   const record = object(value, "Child-agent node record");
   exact(record, [
     "contextDigest",
@@ -467,14 +473,14 @@ function parseNodeRecord(
     "state",
     "waveEffectId",
   ]);
-  /** Tracks mutable state shared by parse node record. */
+  /** Mutable state shared across parse node record. */
   const state = record.state;
   if (
     record.schema !== "child-agent-node-intent-v1" ||
     !["applied", "failed", "indeterminate", "pending"].includes(String(state))
   )
     throw new TypeError("Child-agent node record schema or state is invalid");
-  /** Stores parsed used by parse node record. */
+  /** Parsed snapshot used consistently during the parse node record operation. */
   const parsed: ChildAgentNodeRecord = {
     contextDigest: digest(record.contextDigest, "contextDigest"),
     contextKey: string(record.contextKey, "contextKey"),
@@ -525,9 +531,10 @@ function parseNodeRecord(
     throw new TypeError("Child-agent node receipt identity is invalid");
   return structuredClone(parsed);
 }
+
 /** Parses and validates the persisted external-effect value. */
 function receipt(value: unknown): ChildAgentNodeReceipt {
-  /** Holds the parsed value being validated by receipt. */
+  /** Parsed candidate awaiting receipt validation. */
   const found = object(value, "Child-agent node receipt");
   exact(found, [
     "evidence",
@@ -546,12 +553,13 @@ function receipt(value: unknown): ChildAgentNodeReceipt {
     state: found.state,
   };
 }
+
 /** Parses and validates the persisted external-effect value. */
 function observation(value: unknown): ExternalEffectObservation {
-  /** Holds the parsed value being validated by observation. */
+  /** Parsed candidate awaiting observation validation. */
   const found = object(value, "Child-agent observation");
   exact(found, ["evidence", "externalIdentity", "state"]);
-  /** Stores parsed used by observation. */
+  /** Parsed snapshot used consistently during the observation operation. */
   const parsed = {
     evidence: json(found.evidence, "observation evidence"),
     externalIdentity: json(found.externalIdentity, "observation identity"),
@@ -560,15 +568,17 @@ function observation(value: unknown): ExternalEffectObservation {
   validateEffectObservation(parsed);
   return parsed;
 }
+
 /** Validates and returns the required object representation. */
 function object(value: unknown, label: string): JsonObject {
   if (value === null || typeof value !== "object" || Array.isArray(value))
     throw new TypeError(`${label} must be an object`);
   return value as JsonObject;
 }
+
 /** Validates and returns the required object representation. */
 function json(value: unknown, label: string): JsonObject {
-  /** Stores converted used by json. */
+  /** Result of `toJsonValue`, retained for the json operation. */
   const converted = toJsonValue(value);
   if (
     converted === null ||
@@ -578,25 +588,29 @@ function json(value: unknown, label: string): JsonObject {
     throw new TypeError(`${label} must be an object`);
   return converted;
 }
+
 /** Rejects objects whose keys differ from the expected closed shape. */
 function exact(value: JsonObject, keys: readonly string[]): void {
   if (Object.keys(value).sort().join("\0") !== [...keys].sort().join("\0"))
     throw new TypeError("Child-agent record has unexpected or missing fields");
 }
+
 /** Validates and returns a non-empty string. */
 function string(value: unknown, label: string): string {
   if (typeof value !== "string" || value === "")
     throw new TypeError(`${label} must be a non-empty string`);
   return value;
 }
+
 /** Validates and returns a lowercase SHA-256 digest. */
 function digest(value: unknown, label: string): string {
-  /** Holds the validated result returned by digest. */
+  /** Validated result returned by digest. */
   const result = string(value, label);
   if (!/^[a-f0-9]{64}$/u.test(result))
     throw new TypeError(`${label} must be a digest`);
   return result;
 }
+
 /** Validates and returns unique non-empty strings. */
 function strings(value: unknown, label: string): readonly string[] {
   if (
@@ -607,12 +621,13 @@ function strings(value: unknown, label: string): readonly string[] {
     throw new TypeError(`${label} must contain unique strings`);
   return [...value] as string[];
 }
+
 /** Builds a terminal wave observation from ordered child receipts. */
 function appliedWave(
   effectId: string,
   receipts: ReadonlyMap<string, ChildAgentNodeReceipt>,
 ): ExternalEffectObservation {
-  /** Stores ordered used by applied wave. */
+  /** Derived ordered value for the applied wave operation. */
   const ordered = [...receipts.values()].sort((left, right) =>
     left.nodeKey.localeCompare(right.nodeKey),
   );
@@ -625,6 +640,7 @@ function appliedWave(
     { waveEffectId: effectId },
   );
 }
+
 /** Builds a terminal wave observation from ordered child receipts. */
 function failedWave(
   receipts: ReadonlyMap<string, ChildAgentNodeReceipt>,
@@ -639,6 +655,7 @@ function failedWave(
     reason,
   });
 }
+
 /** Creates the corresponding canonical external-effect observation. */
 function notApplied(evidence: JsonObject): ExternalEffectObservation {
   return createEffectObservation("not_applied", evidence);

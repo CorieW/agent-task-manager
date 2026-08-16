@@ -1,4 +1,4 @@
-/** Defines canonical workspace schemas, observed schema snapshots, differences, and migration plans. */
+/** Provider-neutral canonical workspace schemas, observed schema snapshots, differences, and migration plans contract. */
 import type { JsonObject } from "./json.js";
 import type { TableKind, ValidationIssue } from "./provider.js";
 

@@ -36,33 +36,33 @@ import {
   type NotionTransport,
 } from "./notion-transport.js";
 
-/** Defines Notion mutable table IDs. */
+/** Provider-neutral Notion mutable table IDs contract. */
 export interface NotionMutableTableIds {
-  /** Contains errors for Notion mutable table IDs. */
+  /** Errors table data-source identifier. */
   readonly errors: string;
-  /** Contains resources for Notion mutable table IDs. */
+  /** Resources table data-source identifier. */
   readonly resources: string;
-  /** Contains Agents for Notion mutable table IDs. */
+  /** Agents table data-source identifier. */
   readonly agents: string;
-  /** Contains tasks for Notion mutable table IDs. */
+  /** Tasks table data-source identifier. */
   readonly tasks: string;
 }
 
-/** Defines located page. */
+/** Provider-neutral located page contract. */
 export interface LocatedPage {
-  /** Identifies located page. */
+  /** Stable identifier for located page. */
   readonly id: string;
-  /** Contains page for located page. */
+  /** Raw Notion page paired with its normalized identifier. */
   readonly page: JsonObject;
   /** Carries the opaque located page version used for compatibility or concurrency checks. */
   readonly version: string;
 }
 
-/** Defines Notion agent activity. */
+/** Provider-neutral Notion agent activity contract. */
 export interface NotionAgentActivity {
-  /** Records the status for Notion agent activity. */
+  /** Ordered status used by Notion agent activity. */
   readonly status: string;
-  /** Lists task IDs for Notion agent activity. */
+  /** Ordered task IDs for Notion agent activity. */
   readonly taskIds: readonly string[];
   /** Carries the opaque Notion agent activity version used for compatibility or concurrency checks. */
   readonly version: string;
@@ -72,9 +72,9 @@ export interface NotionAgentActivity {
 export class NotionPageStore {
   /** Initializes Notion page store. */
   public constructor(
-    /** Contains tables for Notion page store. */ private readonly tables: NotionMutableTableIds,
-    /** Contains transport for Notion page store. */ private readonly transport: NotionTransport,
-    /** Contains now for Notion page store. */ private readonly now: () => Date = () =>
+    /** Tables callback invoked by Notion page store. */ private readonly tables: NotionMutableTableIds,
+    /** Transport callback invoked by Notion page store. */ private readonly transport: NotionTransport,
+    /** Now callback invoked by Notion page store. */ private readonly now: () => Date = () =>
       new Date(),
   ) {}
 
@@ -84,14 +84,14 @@ export class NotionPageStore {
     property: string,
     value: string,
   ): Promise<LocatedPage | null> {
-    /** Holds the `pages` intermediate used by `findUniqueByTitle`. */
+    /** Pages matching the canonical title predicate. */
     const pages = await this.filteredPages(table, {
       property,
       title: { equals: value },
     });
     if (pages.length > 1)
       throw new Error(`${table}.${property}=${value} is not unique`);
-    /** Holds the `page` intermediate used by `findUniqueByTitle`. */
+    /** Sole matching page, if one exists. */
     const page = pages[0];
     return page === undefined ? null : located(page);
   }
@@ -102,25 +102,25 @@ export class NotionPageStore {
     property: string,
     value: string,
   ): Promise<LocatedPage | null> {
-    /** Holds the `pages` intermediate used by `findUniqueByRichText`. */
+    /** Pages matching the canonical rich-text predicate. */
     const pages = await this.filteredPages(table, {
       property,
       rich_text: { equals: value },
     });
     if (pages.length > 1)
       throw new Error(`${table}.${property}=${value} is not unique`);
-    /** Holds the `page` intermediate used by `findUniqueByRichText`. */
+    /** Sole matching page, if one exists. */
     const page = pages[0];
     return page === undefined ? null : located(page);
   }
 
-  /** Lists by select. */
+  /** Returns pages whose select property exactly matches a canonical value in deterministic order. */
   public async listBySelect(
     table: TableKind,
     property: string,
     value: string,
   ): Promise<readonly LocatedPage[]> {
-    /** Holds the `pages` intermediate used by `listBySelect`. */
+    /** Provider pages returned by the encoded select filter. */
     const pages = await this.filteredPages(table, {
       property,
       select: { equals: encodeSelectFilter(table, property, value) },
@@ -128,17 +128,17 @@ export class NotionPageStore {
     return pages.map((page) => located(page));
   }
 
-  /** Creates resource. */
+  /** Creates or updates a Resource in the representation selected by its kind. */
   public async createResource(record: ResourceMutation): Promise<WriteReceipt> {
     assertResourceBodyDigest(record);
-    /** Holds the `existing` intermediate used by `createResource`. */
+    /** Existing Resource page reused for idempotent create-or-update behavior. */
     const existing = await this.findUniqueByTitle(
       "resources",
       "Resource",
       record.key,
     );
     if (existing !== null) return this.updateResource(existing, record);
-    /** Holds the `created` intermediate used by `createResource`. */
+    /** Provider page created in the representation dependency consumed by the Resource kind. */
     const created = isMarkdownResourceKind(record.kind)
       ? await this.createMarkdownResourcePage(record)
       : await this.createManagedPage(
@@ -150,7 +150,7 @@ export class NotionPageStore {
     return this.receipt("resources", created, record.idempotencyKey);
   }
 
-  /** Updates resource. */
+  /** Replaces Resource metadata and its complete manager-owned body. */
   public async updateResource(
     existing: LocatedPage,
     record: ResourceMutation,
@@ -166,7 +166,7 @@ export class NotionPageStore {
     } else {
       await this.replaceManagedResourceBlocks(existing.id, record.body);
     }
-    /** Holds the `verified` intermediate used by `updateResource`. */
+    /** Read-after-write snapshot used to verify the authoritative properties. */
     const verified = await this.getPage(existing.id);
     verifyPropertyText(verified.page, "Resource", record.key);
     verifyPropertyText(verified.page, "Digest", record.digest);
@@ -177,6 +177,7 @@ export class NotionPageStore {
   public async resourceTargetMetadataMatches(
     record: ResourceMutation,
   ): Promise<boolean> {
+    /** Existing page whose raw properties may describe the staged target. */
     const existing = await this.findUniqueByTitle(
       "resources",
       "Resource",
@@ -205,15 +206,15 @@ export class NotionPageStore {
   public async createOrUpdateError(
     error: ErrorMutation,
   ): Promise<WriteReceipt> {
-    /** Holds the `existing` intermediate used by `createOrUpdateError`. */
+    /** Existing Error row identified by its stable Error Key. */
     const existing = await this.findUniqueByRichText(
       "errors",
       "Error Key",
       error.errorKey,
     );
-    /** Holds the `properties` intermediate used by `createOrUpdateError`. */
+    /** Complete Notion property projection for the requested Error state. */
     const properties = errorProperties(error);
-    /** Holds the `locatedPage` intermediate used by `createOrUpdateError`. */
+    /** Written Error page used to construct the provider receipt. */
     let locatedPage: LocatedPage;
     if (existing === null) {
       locatedPage = await this.createManagedPage(
@@ -249,16 +250,16 @@ export class NotionPageStore {
   public async errorTargetReceipt(
     error: ErrorMutation,
   ): Promise<WriteReceipt | null> {
-    /** Holds the `existing` intermediate used by `errorTargetReceipt`. */
+    /** Existing Error row that may already equal the requested target. */
     const existing = await this.findUniqueByRichText(
       "errors",
       "Error Key",
       error.errorKey,
     );
     if (existing === null) return null;
-    /** Holds the `current` intermediate used by `errorTargetReceipt`. */
+    /** Current Error properties decoded from the provider page. */
     const current = await this.getPage(existing.id);
-    /** Holds the `exact` intermediate used by `errorTargetReceipt`. */
+    /** Whether every manager-owned Error field matches the target mutation. */
     const exact =
       propertyText(current.page, "Error") === error.title &&
       propertyText(current.page, "Error Key") === error.errorKey &&
@@ -289,15 +290,15 @@ export class NotionPageStore {
   public async updateAgentActivity(
     change: ActivityMutation,
   ): Promise<WriteReceipt> {
-    /** Holds the `current` intermediate used by `updateAgentActivity`. */
+    /** Current agent activity used as the conditional-write basis. */
     const current = await this.getPage(change.agentId);
-    /** Holds the `currentTaskIds` intermediate used by `updateAgentActivity`. */
+    /** Canonically ordered Task relations in the current activity projection. */
     const currentTaskIds = await this.relationIds(current.page, "Working On");
     if (!sameSet(currentTaskIds, change.expectedTaskIds))
       throw new Error("Agent Working On conflict");
-    /** Holds the `currentStatus` intermediate used by `updateAgentActivity`. */
+    /** Current Online/Offline projection derived from active run leases. */
     const currentStatus = propertyOption(current.page, "Status");
-    /** Defines `expectedStatus` for comparison in `updateAgentActivity`. */
+    /** Expected status used to validate `updateAgentActivity`. */
     const expectedStatus = activityStatus(change.expectedRunLeaseIds);
     if (currentStatus !== expectedStatus) {
       throw new Error("Agent Status conflict");
@@ -314,7 +315,7 @@ export class NotionPageStore {
 
   /** Returns Agent activity. */
   public async getAgentActivity(agentId: string): Promise<NotionAgentActivity> {
-    /** Holds the `current` intermediate used by `getAgentActivity`. */
+    /** Current agent page and its provider version. */
     const current = await this.getPage(agentId);
     return {
       status: propertyOption(current.page, "Status") ?? "",
@@ -325,7 +326,7 @@ export class NotionPageStore {
     };
   }
 
-  /** Sets Agent activity. */
+  /** Persists Agent activity with optimistic concurrency. */
   public async setAgentActivity(
     agentId: string,
     expectedStatus: string,
@@ -334,7 +335,7 @@ export class NotionPageStore {
     nextTaskIds: readonly string[],
     idempotencyKey: string,
   ): Promise<WriteReceipt> {
-    /** Holds the `current` intermediate used by `setAgentActivity`. */
+    /** Current activity projection that must match the requested basis. */
     const current = await this.getPage(agentId);
     if (
       propertyOption(current.page, "Status") !== expectedStatus ||
@@ -357,9 +358,9 @@ export class NotionPageStore {
       method: "PATCH",
       path: `/v1/pages/${agentId}`,
     });
-    /** Holds the `verified` intermediate used by `setAgentActivity`. */
+    /** Read-after-write activity projection used to verify the replacement. */
     const verified = await this.getPage(agentId);
-    /** Holds the `status` intermediate used by `setAgentActivity`. */
+    /** Status decoded from the verified provider page. */
     const status = propertyOption(verified.page, "Status");
     if (status !== nextStatus) {
       throw new Error("Agent Status post-verification failed");
@@ -376,17 +377,17 @@ export class NotionPageStore {
   public async applyTaskMutation(
     mutation: ConditionalTaskMutation,
   ): Promise<WriteReceipt> {
-    /** Holds the `current` intermediate used by `applyTaskMutation`. */
+    /** Current Task snapshot used for version and replay checks. */
     const current = await this.getPage(mutation.taskId);
     assertPageParent(current.page, this.tables.tasks, "Task");
     if (current.version !== mutation.expectedVersion)
       throw new Error("Task version conflict");
-    /** Holds the `currentStatus` intermediate used by `applyTaskMutation`. */
+    /** Current Task status decoded before applying the conditional mutation. */
     const currentStatus = propertyOption(current.page, "Status");
     if (currentStatus === null) throw new Error("Task Status is missing");
-    /** Holds the `mutationDigest` intermediate used by `applyTaskMutation`. */
+    /** Digest that identifies the complete requested Task mutation. */
     const mutationDigest = digestJson(toJsonValue(mutation));
-    /** Holds the `targetProperties` intermediate used by `applyTaskMutation`. */
+    /** Canonical target properties including the requested status. */
     const targetProperties = {
       ...taskPropertiesWithStatus(
         mutation.nextProperties,
@@ -394,7 +395,7 @@ export class NotionPageStore {
       ),
       [NOTION_TASK_MUTATION_PROPERTY]: mutationDigest,
     };
-    /** Holds the `nextProperties` intermediate used by `applyTaskMutation`. */
+    /** Provider property payload with the recovery marker attached. */
     const nextProperties = encodeGenericProperties(
       targetProperties,
       current.page,
@@ -416,7 +417,7 @@ export class NotionPageStore {
       method: "PATCH",
       path: `/v1/pages/${mutation.taskId}`,
     });
-    /** Holds the `verified` intermediate used by `applyTaskMutation`. */
+    /** Read-after-write Task snapshot used to verify body and properties. */
     const verified = await this.getPage(mutation.taskId);
     if (verified.version === current.version)
       throw new Error("Task write did not advance last_edited_time");
@@ -438,7 +439,7 @@ export class NotionPageStore {
     taskId: string,
     idempotencyKey: string,
   ): Promise<WriteReceipt> {
-    /** Holds the `current` intermediate used by `taskReceipt`. */
+    /** Current Task snapshot compared with the requested mutation target. */
     const current = await this.getPage(taskId);
     assertPageParent(current.page, this.tables.tasks, "Task");
     return this.receipt("tasks", current, idempotencyKey);
@@ -448,10 +449,10 @@ export class NotionPageStore {
   public async completeMarkedTaskProperties(
     mutation: ConditionalTaskMutation,
   ): Promise<WriteReceipt> {
-    /** Holds the `current` intermediate used by `completeMarkedTaskProperties`. */
+    /** Marked Task snapshot recovered after a property-write interruption. */
     const current = await this.getPage(mutation.taskId);
     assertPageParent(current.page, this.tables.tasks, "Task");
-    /** Holds the `mutationDigest` intermediate used by `completeMarkedTaskProperties`. */
+    /** Digest parsed from the Task's manager-owned recovery marker. */
     const mutationDigest = digestJson(toJsonValue(mutation));
     if (
       (await this.taskBodyGenerationMarker(mutation.taskId)) !==
@@ -468,10 +469,10 @@ export class NotionPageStore {
       if (!propertyMatches(current.page, name, expected))
         throw new Error(`Task source property ${name} changed before recovery`);
     }
-    /** Holds the `sourceStatus` intermediate used by `completeMarkedTaskProperties`. */
+    /** Status captured in the original conditional mutation basis. */
     const sourceStatus = propertyOption(current.page, "Status");
     if (sourceStatus === null) throw new Error("Task Status is missing");
-    /** Holds the `targetProperties` intermediate used by `completeMarkedTaskProperties`. */
+    /** Final Task properties reconstructed from the frozen mutation. */
     const targetProperties = {
       ...taskPropertiesWithStatus(
         mutation.nextProperties,
@@ -486,7 +487,7 @@ export class NotionPageStore {
       method: "PATCH",
       path: `/v1/pages/${mutation.taskId}`,
     });
-    /** Holds the `verified` intermediate used by `completeMarkedTaskProperties`. */
+    /** Read-after-write Task snapshot confirming recovery completion. */
     const verified = await this.getPage(mutation.taskId);
     for (const [name, expected] of Object.entries(targetProperties))
       if (!propertyMatches(verified.page, name, expected))
@@ -494,9 +495,9 @@ export class NotionPageStore {
     return this.receipt("tasks", verified, mutation.idempotencyKey);
   }
 
-  /** Returns page. */
+  /** Retrieves a page and verifies that it belongs to its configured data source. */
   public async getPage(pageId: string): Promise<LocatedPage> {
-    /** Holds the `page` intermediate used by `getPage`. */
+    /** Provider response for the requested page identifier. */
     const page = await this.transport.request({
       method: "GET",
       path: `/v1/pages/${pageId}`,
@@ -508,7 +509,7 @@ export class NotionPageStore {
 
   /** Reads the body of a named managed child-block section. */
   public async managedText(pageId: string, heading: string): Promise<string> {
-    /** Holds the `section` intermediate used by `managedText`. */
+    /** Unique manager-owned heading and following content block. */
     const section = await this.findManagedSection(pageId, heading);
     return blockText(section.content);
   }
@@ -529,7 +530,7 @@ export class NotionPageStore {
       method: "POST",
       path: "/v1/pages",
     });
-    /** Identifies the newly created readable Resource page. */
+    /** Page ID returned after creating the readable Resource. */
     const id = requiredString(response.id, "Created readable Resource page id");
     if ((await this.readResourceMarkdown(id)) !== canonicalBody) {
       throw new Error("Created readable Resource Markdown did not verify");
@@ -540,10 +541,10 @@ export class NotionPageStore {
   /** Replaces a readable Resource through Notion's native Markdown surface. */
   private async replaceManagedResourceMarkdown(
     pageId: string,
-    text: string,
+    resourceBody: string,
   ): Promise<void> {
     /** Rejects a non-canonical or unsafe body before the external mutation. */
-    const canonicalBody = canonicalResourceMarkdown(text);
+    const canonicalBody = canonicalResourceMarkdown(resourceBody);
     /** Replaces the complete manager-owned readable Resource body. */
     const response = await this.transport.request({
       body: {
@@ -558,6 +559,7 @@ export class NotionPageStore {
         "Updated readable Resource Markdown response did not verify",
       );
     }
+
     if ((await this.readResourceMarkdown(pageId)) !== canonicalBody) {
       throw new Error("Updated readable Resource Markdown did not verify");
     }
@@ -566,8 +568,10 @@ export class NotionPageStore {
   /** Rebuilds the complete machine-readable Resource body idempotently. */
   private async replaceManagedResourceBlocks(
     pageId: string,
-    text: string,
+    resourceBody: string,
   ): Promise<void> {
+    /** Canonical machine-readable body written into the managed code block. */
+    const canonicalBody = normalizeText(resourceBody);
     for (const block of await this.childBlocks(pageId)) {
       await this.transport.request({
         body: { in_trash: true },
@@ -577,14 +581,13 @@ export class NotionPageStore {
     }
     await this.transport.request({
       body: {
-        children: [managedHeading("Resource body"), managedCode(text)],
+        children: [managedHeading("Resource body"), managedCode(canonicalBody)],
       },
       method: "PATCH",
       path: `/v1/blocks/${pageId}/children`,
     });
-    if (
-      (await this.managedText(pageId, "Resource body")) !== normalizeText(text)
-    ) {
+
+    if ((await this.managedText(pageId, "Resource body")) !== canonicalBody) {
       throw new Error("Updated ## Resource body content did not verify");
     }
   }
@@ -606,17 +609,17 @@ export class NotionPageStore {
     heading: string,
     text: string,
     additional: readonly {
-      /** Contains heading for create managed page. */
+      /** Managed section heading. */
       readonly heading: string;
-      /** Contains text for create managed page. */
+      /** Canonical code-block text beneath the heading. */
       readonly text: string;
     }[] = [],
   ): Promise<LocatedPage> {
-    /** Holds the `children` intermediate used by `createManagedPage`. */
+    /** Optional heading and code block used for manager-owned page content. */
     const children = [managedHeading(heading), managedCode(text)];
     for (const section of additional)
       children.push(managedHeading(section.heading), managedCode(section.text));
-    /** Captures `response` returned by `createManagedPage`. */
+    /** Notion response containing the newly created page identifier. */
     const response = await this.transport.request({
       body: {
         children,
@@ -626,9 +629,9 @@ export class NotionPageStore {
       method: "POST",
       path: "/v1/pages",
     });
-    /** Holds the `id` intermediate used by `createManagedPage`. */
+    /** Page identifier returned by the Notion create operation. */
     const id = requiredString(response.id, "Created page id");
-    /** Holds the `verified` intermediate used by `createManagedPage`. */
+    /** Read-after-create page used to verify the managed body. */
     const verified = await this.getPage(id);
     if ((await this.managedText(id, heading)) !== normalizeText(text)) {
       throw new Error(`Created ## ${heading} content did not verify`);
@@ -642,9 +645,9 @@ export class NotionPageStore {
     heading: string,
     text: string,
   ): Promise<void> {
-    /** Holds the `section` intermediate used by `replaceManagedText`. */
+    /** Existing managed section whose content block will be replaced. */
     const section = await this.findManagedSection(pageId, heading);
-    /** Holds the `type` intermediate used by `replaceManagedText`. */
+    /** Notion block type of the managed content block. */
     const type = requiredString(
       section.content.type,
       "Managed content block type",
@@ -684,15 +687,15 @@ export class NotionPageStore {
 
   /** Reads managed task body. */
   private async readManagedTaskBody(pageId: string): Promise<string | null> {
-    /** Holds the `blocks` intermediate used by `readManagedTaskBody`. */
+    /** Complete Task block tree used to identify marked body generations. */
     const blocks = await this.childBlocks(pageId);
-    /** Holds the `generated` intermediate used by `readManagedTaskBody`. */
+    /** Valid manager-generated Task body candidates. */
     const generated = activeTaskBodyGeneration(blocks);
     if (generated !== null) return generated.body;
-    /** Holds the `active` intermediate used by `readManagedTaskBody`. */
+    /** Latest valid marked generation selected as authoritative. */
     const active = blocks.length === 1 ? blocks[0] : undefined;
     if (active?.type !== "code") return null;
-    /** Holds the `code` intermediate used by `readManagedTaskBody`. */
+    /** Code block immediately following the active generation marker. */
     const code = objectValue(active.code, "Task body code");
     return code.language === "markdown" ? blockText(active) : null;
   }
@@ -711,17 +714,17 @@ export class NotionPageStore {
     page: JsonObject,
     propertyName: string,
   ): Promise<readonly string[]> {
-    /** Holds the `property` intermediate used by `relationIds`. */
+    /** Inline relation property and its pagination metadata. */
     const property = pageProperty(page, propertyName);
     if (property.has_more !== true) return normalizedSet(relationIds(property));
-    /** Holds the `pageId` intermediate used by `relationIds`. */
+    /** Page identifier required for relation-property pagination. */
     const pageId = requiredString(page.id, "Page id");
-    /** Holds the `propertyId` intermediate used by `relationIds`. */
+    /** Property identifier required for relation-property pagination. */
     const propertyId = requiredString(
       property.id,
       `${propertyName} property id`,
     );
-    /** Holds the `items` intermediate used by `relationIds`. */
+    /** Relation targets accumulated across every property page. */
     const items = await collectNotionPages((cursor) =>
       this.transport.request({
         method: "GET",
@@ -737,11 +740,11 @@ export class NotionPageStore {
     pageId: string,
     heading: string,
   ): Promise<{
-    /** Contains content for find managed section. */ readonly content: JsonObject;
+    /** Code block immediately following the unique managed heading. */ readonly content: JsonObject;
   }> {
-    /** Holds the `blocks` intermediate used by `findManagedSection`. */
+    /** Complete child-block sequence searched for the managed heading. */
     const blocks = await this.childBlocks(pageId);
-    /** Holds the `matches` intermediate used by `findManagedSection`. */
+    /** Indexes whose heading text exactly matches the managed section. */
     const matches = blocks
       .map((block, index) => ({ block, index }))
       .filter(
@@ -750,11 +753,11 @@ export class NotionPageStore {
       );
     if (matches.length !== 1)
       throw new Error(`Page ${pageId} must contain exactly one ## ${heading}`);
-    /** Holds the `match` intermediate used by `findManagedSection`. */
+    /** Sole managed heading index after uniqueness validation. */
     const match = matches[0];
     if (match === undefined)
       throw new Error(`Page ${pageId} managed heading is missing`);
-    /** Holds the `content` intermediate used by `findManagedSection`. */
+    /** Block immediately following the managed heading, if present. */
     const content = blocks[match.index + 1];
     if (content === undefined || content.type !== "code")
       throw new Error(`## ${heading} must be followed by a code block`);
@@ -779,7 +782,7 @@ export class NotionPageStore {
     );
   }
 
-  /** Lists blocks. */
+  /** Returns every direct child block across all Notion result pages. */
   private async childBlocks(pageId: string): Promise<readonly JsonObject[]> {
     return collectNotionPages((cursor) =>
       this.transport.request({
@@ -819,10 +822,14 @@ function resourceProperties(record: ResourceMutation): JsonObject {
 
 /** Rejects a Resource whose digest does not bind its canonical stored body. */
 function assertResourceBodyDigest(record: ResourceMutation): void {
-  const body = isMarkdownResourceKind(record.kind)
+  /** Canonical representation that the provider will persist and verify. */
+  const canonicalBody = isMarkdownResourceKind(record.kind)
     ? canonicalResourceMarkdown(record.body)
     : normalizeText(record.body);
-  if (body !== record.body || sha256(body) !== record.digest) {
+  if (
+    canonicalBody !== record.body ||
+    sha256(canonicalBody) !== record.digest
+  ) {
     throw new TypeError(
       `Resource ${record.key} body and Digest must be canonical`,
     );
@@ -853,7 +860,7 @@ function encodeGenericProperties(
 ): JsonObject {
   return Object.fromEntries(
     Object.entries(properties).map(([name, value]) => {
-      /** Holds the `current` intermediate used by `encodeGenericProperties`. */
+      /** Existing Task property used to preserve the provider property type. */
       const current = pageProperty(page, name);
       return [
         name,
@@ -903,9 +910,9 @@ function propertyMatches(
   name: string,
   expected: JsonValue,
 ): boolean {
-  /** Holds the `property` intermediate used by `propertyMatches`. */
+  /** Raw Notion property compared with the provider-neutral target. */
   const property = pageProperty(page, name);
-  /** Holds the `type` intermediate used by `propertyMatches`. */
+  /** Notion property type that determines comparison semantics. */
   const type = property.type;
   if (type === "checkbox") return property.checkbox === expected;
   if (type === "number") return property.number === expected;
@@ -923,7 +930,7 @@ function propertyMatches(
 
 /** Builds a located page with its opaque version. */
 function located(page: JsonObject): LocatedPage {
-  /** Holds the `id` intermediate used by `located`. */
+  /** Stable Notion page identifier paired with the raw page object. */
   const id = requiredString(page.id, "Page id");
   return {
     id,
@@ -941,7 +948,7 @@ function assertPageParent(
   tableId: string,
   label: string,
 ): void {
-  /** Holds the `parent` intermediate used by `assertPageParent`. */
+  /** Parent descriptor used to verify data-source ownership. */
   const parent = objectValue(page.parent, `${label} parent`);
   if (
     typeof parent.data_source_id !== "string" ||
@@ -960,14 +967,17 @@ function compactIdentifier(value: string): string {
 function titleProperty(text: string): JsonObject {
   return { title: richText(text) };
 }
+
 /** Converts text property. */
 function richTextProperty(text: string): JsonObject {
   return { rich_text: richText(text) };
 }
+
 /** Builds property. */
 function selectProperty(name: string): JsonObject {
   return { select: { name } };
 }
+
 /** Reads property. */
 function relationProperty(ids: readonly string[]): JsonObject {
   return { relation: normalizedSet(ids).map((id) => ({ id })) };
@@ -1010,10 +1020,10 @@ function codeValue(
 
 /** Converts text. */
 function richText(text: string): JsonValue[] {
-  /** Holds the `normalized` intermediate used by `richText`. */
+  /** NFC-normalized text split to Notion's rich-text size bound. */
   const normalized = normalizeText(text);
   if (normalized === "") return [];
-  /** Holds the `chunks` intermediate used by `richText`. */
+  /** Unicode-safe chunks accepted by individual Notion text objects. */
   const chunks: JsonValue[] = [];
   for (let index = 0; index < normalized.length; index += 2000) {
     chunks.push({
@@ -1026,27 +1036,27 @@ function richText(text: string): JsonValue[] {
 
 /** Extracts plain text from a supported Notion block. */
 function blockText(block: JsonObject): string {
-  /** Holds the `type` intermediate used by `blockText`. */
+  /** Notion block type whose rich text is being decoded. */
   const type = requiredString(block.type, "Block type");
   return richTextValue(objectValue(block[type], `Block ${type}`).rich_text);
 }
 
 /** Extracts text from a title or rich-text page property. */
 function propertyText(page: JsonObject, name: string): string {
-  /** Holds the `property` intermediate used by `propertyText`. */
+  /** Raw Notion property expected to contain title or rich text. */
   const property = pageProperty(page, name);
-  /** Holds the `type` intermediate used by `propertyText`. */
+  /** Property type that selects the supported text projection. */
   const type = requiredString(property.type, `${name} type`);
   return richTextValue(property[type]);
 }
 
 /** Extracts an optional select value from a page property. */
 function propertyOption(page: JsonObject, name: string): string | null {
-  /** Holds the `property` intermediate used by `propertyOption`. */
+  /** Raw Notion property expected to contain a select-like option. */
   const property = pageProperty(page, name);
-  /** Holds the `type` intermediate used by `propertyOption`. */
+  /** Property type that selects the supported option projection. */
   const type = requiredString(property.type, `${name} type`);
-  /** Holds the `value` intermediate used by `propertyOption`. */
+  /** Selected option object, or null when the property is unset. */
   const value = property[type];
   if (value === null || value === undefined) return null;
   return requiredString(
@@ -1060,7 +1070,7 @@ function richTextValue(value: JsonValue | undefined): string {
   if (!Array.isArray(value)) return "";
   return value
     .map((item) => {
-      /** Holds the `object` intermediate used by `richTextValue`. */
+      /** Rich-text fragment validated before extracting plain text. */
       const object = objectValue(item, "Rich text item");
       if (typeof object.plain_text === "string") return object.plain_text;
       return requiredString(
@@ -1096,7 +1106,7 @@ function relationIds(property: JsonObject): readonly string[] {
 
 /** Returns a named property from a Notion page. */
 function pageProperty(page: JsonObject, name: string): JsonObject {
-  /** Holds the `properties` intermediate used by `pageProperty`. */
+  /** Page property map containing the requested canonical property name. */
   const properties = objectValue(page.properties, "Page properties");
   return objectValue(properties[name], `Property ${name}`);
 }
@@ -1115,14 +1125,17 @@ function verifyPropertyText(
 function normalizedSet(values: readonly string[]): readonly string[] {
   return [...new Set(values)].sort();
 }
+
 /** Compares two string collections as normalized sets. */
 function sameSet(left: readonly string[], right: readonly string[]): boolean {
   return normalizedSet(left).join("\0") === normalizedSet(right).join("\0");
 }
+
 /** Derives Agent activity from active run leases. */
 function activityStatus(runLeaseIds: readonly string[]): "Offline" | "Online" {
   return runLeaseIds.length === 0 ? "Offline" : "Online";
 }
+
 /** Normalizes text. */
 function normalizeText(text: string): string {
   return text.replace(/\r\n?/gu, "\n").normalize("NFC");
@@ -1130,7 +1143,7 @@ function normalizeText(text: string): string {
 
 /** Returns a validated JSON object. */
 function objectValue(value: JsonValue | undefined, label: string): JsonObject {
-  /** Holds the `checked` intermediate used by `objectValue`. */
+  /** Non-array object accepted at the JSON boundary. */
   const checked = toJsonValue(value);
   if (checked === null || typeof checked !== "object" || Array.isArray(checked))
     throw new TypeError(`${label} must be an object`);

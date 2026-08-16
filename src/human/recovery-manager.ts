@@ -32,7 +32,7 @@ import {
 
 /** Describes a durable human-interaction request and its allowed workflow routes. */
 export interface HumanRequestInput extends NewHumanInteractionSlot {
-  /** Provides error to human request input. */
+  /** Failure captured by human request input. */
   readonly error: Omit<
     ErrorMutation,
     "idempotencyKey" | "relatedTaskId"
@@ -43,11 +43,11 @@ export interface HumanRequestInput extends NewHumanInteractionSlot {
 
 /** Reports the verified Task state after a human request is installed. */
 export interface HumanRequestReceipt {
-  /** Contains the immutable slot baseline presented to the human. */
+  /** The immutable slot baseline presented to the human. */
   readonly slot: HumanInteractionSlot;
   /** Confirms the waiting status observed after the write. */
   readonly status: string;
-  /** Records the task version used for compatibility checks. */
+  /** Opaque version token for task. */
   readonly taskVersion: string;
 }
 
@@ -55,14 +55,14 @@ export interface HumanRequestReceipt {
 export class HumanRecoveryManager {
   /** Creates a recovery manager over the authoritative provider. */
   public constructor(
-    /** Provides conditional Task writes and durable Resource records. */ private readonly provider: AgentTaskProvider,
+    /** Conditional Task writes and durable Resource records. */ private readonly provider: AgentTaskProvider,
   ) {}
 
   /** Installs a human slot and moves its Task to the requested waiting status. */
   public async request(input: HumanRequestInput): Promise<HumanRequestReceipt> {
     if (input.kind === "resolution" && input.error === null)
       throw new Error("Human resolution requests require a stable Error");
-    /** Captures provider-declared statuses for route validation. */
+    /** Provider-declared statuses for route validation. */
     const statuses = await this.provider.listTaskStatusOptions();
     requireStatuses(statuses, [
       input.waitingStatus,
@@ -71,7 +71,7 @@ export class HumanRecoveryManager {
 
     /** Materializes the immutable slot baseline from the request. */
     const slot = createHumanInteractionSlot(input);
-    /** Tracks the Task snapshot across conditional body and status writes. */
+    /** Mutable state recording the Task snapshot across conditional body and status writes. */
     let task = await this.provider.getTaskSnapshot(slot.taskId);
     if (task.archived)
       throw new Error("Cannot request human interaction for an archived Task");
@@ -155,7 +155,7 @@ export class HumanRecoveryManager {
       HumanRequestInput,
       "error" | "kind" | "routes" | "sourceErrorKey"
     > & {
-      /** Provides error to request resolution. */
+      /** Failure captured by request resolution. */
       readonly error: Omit<ErrorMutation, "idempotencyKey" | "relatedTaskId">;
       /** Names the status restored after verified consumption. */
       readonly resumeStatus: string;
@@ -179,7 +179,7 @@ export class HumanRecoveryManager {
     if (baseline.slot.taskId !== taskId)
       throw new Error("Human slot belongs to another Task");
 
-    /** Tracks the Task snapshot across response verification and transition. */
+    /** Mutable state recording the Task snapshot across response verification and transition. */
     let task = await this.provider.getTaskSnapshot(taskId);
     /** Selects the human-edited slot from the current Task body. */
     const edited = requiredSlot(task, slotId);
@@ -330,7 +330,7 @@ export class HumanRecoveryManager {
   private async putAndVerifyResource(record: ResourceMutation): Promise<void> {
     await this.provider.putResource(record);
 
-    /** Captures the authoritative post-write Resource for verification. */
+    /** The authoritative post-write Resource for verification. */
     const verified = await this.provider.getOptionalResource(record.key);
     if (
       verified === null ||
@@ -356,16 +356,18 @@ function verifyConsumption(
       "Human consumption identity conflicts with the current response",
     );
 }
+
 /** Verifies task slot against authoritative state. */
 function verifyTaskSlot(task: TaskSnapshot, slotId: string): void {
   requiredSlot(task, slotId);
 }
+
 /** Returns d slot or throws when invalid or absent. */
 function requiredSlot(
   task: TaskSnapshot,
   slotId: string,
 ): HumanInteractionSlot {
-  /** Stores matches used by required slot. */
+  /** Result of `parseHumanInteractionSlots`, retained for the required slot operation. */
   const matches = parseHumanInteractionSlots(task.body).filter(
     (slot) => slot.slotId === slotId,
   );
@@ -373,12 +375,13 @@ function requiredSlot(
     throw new Error(`Task must contain exactly one human slot: ${slotId}`);
   return matches[0]!;
 }
+
 /** Returns statuses or throws when invalid or absent. */
 function requireStatuses(
   valid: readonly string[],
   requested: readonly string[],
 ): void {
-  /** Tracks unique known values. */
+  /** Seen known values used to reject duplicates. */
   const known = new Set(valid);
   for (const status of requested)
     if (!known.has(status))
@@ -386,6 +389,7 @@ function requireStatuses(
         `Human interaction route is not a valid Task status: ${status}`,
       );
 }
+
 /** Verifies task basis against authoritative state. */
 function verifyTaskBasis(
   baseline: HumanSlotBaselineRecord,
@@ -394,20 +398,20 @@ function verifyTaskBasis(
 ): void {
   if (task.archived !== baseline.taskArchived)
     throw new Error("Human response changed Task archive state");
-  /** Stores rendered used by verify task basis. */
+  /** Result of `renderHumanInteractionSlot`, retained for the verify task basis operation. */
   const rendered = renderHumanInteractionSlot(edited);
-  /** Stores occurrences used by verify task basis. */
+  /** Result of `normalizeText`, retained for the verify task basis operation. */
   const occurrences = normalizeText(task.body).split(rendered).length - 1;
   if (occurrences !== 1)
     throw new Error("Human response changed the canonical slot representation");
-  /** Stores masked body used by verify task basis. */
+  /** Result of `normalizeText`, retained for the verify task basis operation. */
   const maskedBody = normalizeText(task.body).replace(
     rendered,
     renderHumanInteractionSlot(baseline.slot),
   );
   if (sha256(maskedBody) !== baseline.taskBodyDigest)
     throw new Error("Human response changed unrelated Task body content");
-  /** Stores masked properties used by verify task basis. */
+  /** Result of `taskPropertiesWithStatus`, retained for the verify task basis operation. */
   const maskedProperties = taskPropertiesWithStatus(
     task.properties,
     baseline.waitingStatus,
@@ -415,6 +419,7 @@ function verifyTaskBasis(
   if (digestJson(maskedProperties) !== baseline.taskPropertiesDigest)
     throw new Error("Human response changed unrelated Task properties");
 }
+
 /** Normalizes the value into its canonical boundary representation. */
 function normalizeText(value: string): string {
   return value.replace(/\r\n?/gu, "\n").normalize("NFC");

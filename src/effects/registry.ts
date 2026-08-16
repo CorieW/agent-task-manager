@@ -3,7 +3,7 @@ import type { ExternalEffectHandler } from "./contracts.js";
 
 /** Implements external effect handler registry and its boundary checks. */
 export class ExternalEffectHandlerRegistry {
-  /** Provides handlers to external effect handler registry. */
+  /** Handler registry keyed by effect kind. */
   readonly #handlers = new Map<string, ExternalEffectHandler>();
 
   /** Registers one uniquely identified adapter. */
@@ -19,7 +19,7 @@ export class ExternalEffectHandlerRegistry {
 
   /** Returns the handler registered for an exact effect kind. */
   public get(kind: string): ExternalEffectHandler {
-    /** Stores handler used by get. */
+    /** Handler snapshot used consistently during the get operation. */
     const handler = this.#handlers.get(kind);
     if (handler === undefined)
       throw new Error(`External-effect handler is unavailable: ${kind}`);

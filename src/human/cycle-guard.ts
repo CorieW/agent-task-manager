@@ -2,7 +2,7 @@
 import { digestJson } from "../core/digest.js";
 import { toJsonValue, type JsonObject } from "../domain/json.js";
 
-/** Defines provider property names, limits, and diagnostics for one remediation cycle. */
+/** Provider-neutral provider property names, limits, and diagnostics for one remediation cycle contract. */
 export interface CyclePolicy {
   /** Human-readable cycle name used in validation and limit errors. */
   readonly label: string;
@@ -36,7 +36,7 @@ export interface CycleState {
   readonly round: number;
 }
 
-/** Contains one successful state advancement and its replacement Task properties. */
+/** One successful state advancement and its replacement Task properties. */
 export interface CycleAdvance {
   /** Replacement provider-visible Task properties containing the advanced state. */
   readonly nextProperties: JsonObject;
@@ -112,13 +112,13 @@ export function readCycleState(
   return { digest, keys, repeatCount, round };
 }
 
-/** Records one distinct failed result or rejects a looping remediation cycle. */
+/** Persists one distinct failed result or rejects a looping remediation cycle. */
 export function advanceCycle(
   properties: JsonObject,
   evidenceKeys: readonly string[],
   policy: CyclePolicy,
 ): CycleAdvance {
-  /** Captures the verified prior remediation-cycle state. */
+  /** The verified prior remediation-cycle state. */
   const prior = readCycleState(properties, policy);
   if (prior.round >= policy.maxRounds) {
     throw new CycleLimitError("round_limit", prior, policy.label);
@@ -134,7 +134,7 @@ export function advanceCycle(
     throw new CycleLimitError("identical_set_repeated", prior, policy.label);
   }
 
-  /** Defines the advanced state persisted with the status transition. */
+  /** Provider-neutral the advanced state persisted with the status transition contract. */
   const state: CycleState = {
     digest,
     keys,

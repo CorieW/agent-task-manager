@@ -17,7 +17,7 @@ import type {
   NotionTransport,
 } from "../src/provider/notion/notion-transport.js";
 
-/** Defines the shared tables fixture for this test module. */
+/** Maps logical tables to stable fake provider identifiers. */
 const TABLES = {
   errors: "errors",
   resources: "resources",
@@ -27,43 +27,43 @@ const TABLES = {
 
 /** Implements mutable transport. */
 class MutableTransport implements NotionTransport {
-  /** Contains blocks for mutable transport. */
+  /** Stores managed child blocks by their parent Notion page. */
   public readonly blocks = new Map<string, JsonObject[]>();
-  /** Contains native page Markdown for mutable transport. */
+  /** Stores complete native Markdown replacements by Notion page. */
   public readonly markdown = new Map<string, string>();
-  /** Contains pages for mutable transport. */
+  /** Stores mutable fake Notion pages by identifier. */
   public readonly pages = new Map<string, JsonObject>();
-  /** Contains requests for mutable transport. */
+  /** Records every page-store request for preflight assertions. */
   public readonly requests: NotionRequest[] = [];
-  /** Contains version for mutable transport. */
+  /** Advances fake Notion versions after each mutation. */
   #version = 0;
 
   /** Executes one provider request. */
   public async request(request: NotionRequest): Promise<JsonObject> {
     this.requests.push(request);
-    /** Defines the query fixture used by request. */
+    /** Decodes the Notion query request under simulation. */
     const query = /^\/v1\/data_sources\/(\w+)\/query$/u.exec(request.path);
     if (query?.[1] !== undefined) {
-      /** Defines the filter fixture used by request. */
+      /** Decodes the Notion query filter under simulation. */
       const filter = objectValue(request.body).filter;
-      /** Defines the filter object fixture used by request. */
+      /** Normalizes the filter payload for predicate matching. */
       const filterObject = objectValue(filter);
-      /** Defines the property fixture used by request. */
+      /** Identifies the Notion property constrained by the query. */
       const property = String(filterObject.property);
-      /** Defines the title equals fixture used by request. */
+      /** Extracts the title equality operand from the filter. */
       const titleEquals = objectValue(filterObject.title).equals;
-      /** Defines the rich text equals fixture used by request. */
+      /** Extracts the rich-text equality operand from the filter. */
       const richTextEquals = objectValue(filterObject.rich_text).equals;
-      /** Defines the select equals fixture used by request. */
+      /** Extracts the select equality operand from the filter. */
       const selectEquals = objectValue(filterObject.select).equals;
-      /** Defines the equals fixture used by request. */
+      /** Extracts the scalar value from the simulated Notion filter. */
       const equals =
         typeof titleEquals === "string"
           ? titleEquals
           : typeof richTextEquals === "string"
             ? richTextEquals
             : String(selectEquals);
-      /** Defines the results fixture used by request. */
+      /** Collects operation outcomes used by assertions. */
       const results = [...this.pages.values()].filter(
         (page) =>
           objectValue(page.parent).data_source_id === query[1] &&
@@ -72,11 +72,11 @@ class MutableTransport implements NotionTransport {
       return { has_more: false, next_cursor: null, results };
     }
     if (request.method === "POST" && request.path === "/v1/pages") {
-      /** Defines the body fixture used by request. */
+      /** Decodes the request body consumed by the fake transport. */
       const body = objectValue(request.body);
-      /** Defines the ID fixture used by request. */
+      /** Extracts the Notion page identifier targeted by the request. */
       const id = `page-${this.pages.size + 1}`;
-      /** Defines the page fixture used by request. */
+      /** Reads the persisted Notion row used as the assertion oracle. */
       const page = this.newPage(
         id,
         String(objectValue(body.parent).data_source_id),
@@ -125,24 +125,24 @@ class MutableTransport implements NotionTransport {
         unknown_block_ids: [],
       };
     }
-    /** Defines the page match fixture used by request. */
+    /** Parses a page endpoint in the fake Notion transport. */
     const pageMatch = /^\/v1\/pages\/(.+)$/u.exec(request.path);
     if (pageMatch?.[1] !== undefined) {
-      /** Defines the page fixture used by request. */
+      /** Reads the persisted Notion row used as the assertion oracle. */
       const page = required(this.pages.get(pageMatch[1]));
       if (request.method === "GET") return page;
-      /** Defines the body fixture used by request. */
+      /** Decodes the request body consumed by the fake transport. */
       const body = objectValue(request.body);
-      /** Defines the prior properties fixture used by request. */
+      /** Preserves the page properties before applying updates. */
       const priorProperties = objectValue(page.properties);
-      /** Defines the updates fixture used by request. */
+      /** Collects normalized Notion property updates. */
       const updates = Object.fromEntries(
         Object.entries(objectValue(body.properties)).map(([name, value]) => {
-          /** Defines the update fixture used by request. */
+          /** Decodes one Notion property update. */
           const update = objectValue(value);
-          /** Defines the prior fixture used by request. */
+          /** Reads the prior value of one Notion property. */
           const prior = objectValue(priorProperties[name]);
-          /** Defines the type fixture used by request. */
+          /** Identifies the Notion property type being updated. */
           const type =
             typeof prior.type === "string"
               ? prior.type
@@ -150,7 +150,7 @@ class MutableTransport implements NotionTransport {
           return [name, { ...prior, ...update, type }];
         }),
       );
-      /** Defines the next fixture used by request. */
+      /** Builds the provider state expected after applying the update. */
       const next = this.newPage(
         pageMatch[1],
         String(objectValue(page.parent).data_source_id),
@@ -159,7 +159,7 @@ class MutableTransport implements NotionTransport {
       this.pages.set(pageMatch[1], next);
       return next;
     }
-    /** Defines the children fixture used by request. */
+    /** Collects child blocks returned or appended by the fake transport. */
     const children = /^\/v1\/blocks\/(.+)\/children$/u.exec(request.path);
     if (children?.[1] !== undefined && request.method === "GET") {
       return {
@@ -169,9 +169,9 @@ class MutableTransport implements NotionTransport {
       };
     }
     if (children?.[1] !== undefined && request.method === "PATCH") {
-      /** Defines the existing fixture used by request. */
+      /** Reads the managed blocks present before replacement. */
       const existing = this.blocks.get(children[1]) ?? [];
-      /** Defines the added fixture used by request. */
+      /** Collects blocks appended by the simulated Notion request. */
       const added = (objectValue(request.body).children as JsonObject[]).map(
         (item, index) => ({
           ...item,
@@ -179,7 +179,7 @@ class MutableTransport implements NotionTransport {
         }),
       );
       this.blocks.set(children[1], [...existing, ...added]);
-      /** Defines the page fixture used by request. */
+      /** Reads the persisted Notion row used as the assertion oracle. */
       const page = required(this.pages.get(children[1]));
       this.pages.set(
         children[1],
@@ -191,11 +191,11 @@ class MutableTransport implements NotionTransport {
       );
       return { results: added };
     }
-    /** Defines the block fixture used by request. */
+    /** Identifies the managed block targeted by the fake request. */
     const block = /^\/v1\/blocks\/(.+)$/u.exec(request.path);
     if (block?.[1] !== undefined && request.method === "PATCH") {
       for (const [pageId, blocks] of this.blocks) {
-        /** Defines the index fixture used by request. */
+        /** Locates the managed block updated by the fake transport. */
         const index = blocks.findIndex(
           (candidate) => candidate.id === block[1],
         );
@@ -204,10 +204,10 @@ class MutableTransport implements NotionTransport {
             blocks.splice(index, 1);
             return { id: block[1], in_trash: true };
           }
-          /** Defines the current fixture used by request. */
+          /** Tracks the mutable simulated clock or current record state. */
           const current = required(blocks[index]);
           blocks[index] = { ...current, ...objectValue(request.body) };
-          /** Defines the page fixture used by request. */
+          /** Reads the persisted Notion row used as the assertion oracle. */
           const page = required(this.pages.get(pageId));
           this.pages.set(
             pageId,
@@ -256,17 +256,17 @@ class MutableTransport implements NotionTransport {
     this.blocks.set("task-1", []);
   }
 
-  /** Creates the new page test fixture. */
+  /** Builds and stores a fake Notion page with normalized properties. */
   private newPage(
     id: string,
     parent: string,
     properties: JsonObject,
   ): JsonObject {
     this.#version += 1;
-    /** Defines the normalized fixture used by new page. */
+    /** Normalizes page properties before storing the fake row. */
     const normalized = Object.fromEntries(
       Object.entries(properties).map(([name, value]) => {
-        /** Defines the property fixture used by new page. */
+        /** Identifies the Notion property constrained by the query. */
         const property = objectValue(value);
         return [
           name,
@@ -287,11 +287,11 @@ class MutableTransport implements NotionTransport {
 }
 
 test("creates one managed Resource row and verifies its content", async () => {
-  /** Defines the transport fixture for “creates one managed Resource row and verifies its content”. */
+  /** Captures and simulates Notion requests for the scenario. */
   const transport = new MutableTransport();
-  /** Defines the store fixture for “creates one managed Resource row and verifies its content”. */
+  /** Exercises provider-backed persistence for the scenario. */
   const store = new NotionPageStore(TABLES, transport, () => new Date(0));
-  /** Defines the receipt fixture for “creates one managed Resource row and verifies its content”. */
+  /** Captures the durable write or effect result used as the oracle. */
   const receipt = await store.createResource({
     body: "### Policy\n- First rule",
     dependencies: [],
@@ -308,6 +308,7 @@ test("creates one managed Resource row and verifies its content", async () => {
     "## Resource body\n### Policy\n- First rule",
   );
   assert.equal(transport.pages.size, 1);
+  /** Reads the created row to verify its canonical option values. */
   const page = required(transport.pages.get(receipt.providerRecord.id));
   assert.equal(propertyValue(page, "Kind"), "Policy");
   assert.equal(propertyValue(page, "State"), "Active");
@@ -348,7 +349,9 @@ test("supports the child-agent context Resource kind", () => {
 });
 
 test("rejects a noncanonical Resource before provider mutation", async () => {
+  /** Captures Notion requests to prove rejection happens preflight. */
   const transport = new MutableTransport();
+  /** Applies Resource validation before reaching the fake transport. */
   const store = new NotionPageStore(TABLES, transport, () => new Date(0));
   await assert.rejects(
     store.createResource({
@@ -367,7 +370,9 @@ test("rejects a noncanonical Resource before provider mutation", async () => {
 });
 
 test("rebuilds readable Resources into machine-readable bodies", async () => {
+  /** Stores both readable Markdown and machine-managed block forms. */
   const transport = new MutableTransport();
+  /** Exercises representation-aware Resource replacement. */
   const store = new NotionPageStore(TABLES, transport, () => new Date(0));
   await store.createResource({
     body: "Readable policy.",
@@ -379,6 +384,7 @@ test("rebuilds readable Resources into machine-readable bodies", async () => {
     state: "active",
     version: "v1",
   });
+  /** Supplies canonical JSON for the replacement machine Resource. */
   const machineBody = '{"type":"object"}';
   await store.createResource({
     body: machineBody,
@@ -391,6 +397,7 @@ test("rebuilds readable Resources into machine-readable bodies", async () => {
     version: "v2",
   });
 
+  /** Reads the final managed blocks used as the replacement oracle. */
   const blocks = transport.blocks.get("page-1") ?? [];
   assert.equal(blocks.length, 2);
   assert.equal(
@@ -433,12 +440,12 @@ test("rebuilds a machine Resource into readable Markdown", async () => {
 });
 
 test("conditionally updates Status and Working On", async () => {
-  /** Defines the transport fixture for “conditionally updates Status and Working On”. */
+  /** Captures and simulates Notion requests for the scenario. */
   const transport = new MutableTransport();
   transport.seedAgent();
-  /** Defines the store fixture for “conditionally updates Status and Working On”. */
+  /** Exercises provider-backed persistence for the scenario. */
   const store = new NotionPageStore(TABLES, transport, () => new Date(0));
-  /** Defines the receipt fixture for “conditionally updates Status and Working On”. */
+  /** Captures the durable write or effect result used as the oracle. */
   const receipt = await store.updateAgentActivity({
     expectedRunLeaseIds: [],
     expectedTaskIds: [],
@@ -463,10 +470,10 @@ test("conditionally updates Status and Working On", async () => {
 });
 
 test("uses one canonical Status value for Task mutation and verification", async () => {
-  /** Defines the transport fixture for “uses one canonical Status value for Task mutation and verification”. */
+  /** Captures and simulates Notion requests for the scenario. */
   const transport = new MutableTransport();
   transport.seedTask();
-  /** Defines the store fixture for “uses one canonical Status value for Task mutation and verification”. */
+  /** Exercises provider-backed persistence for the scenario. */
   const store = new NotionPageStore(TABLES, transport, () => new Date(0));
   await store.applyTaskMutation({
     expectedVersion: "2026-01-01T00:00:01.000Z",
@@ -476,7 +483,7 @@ test("uses one canonical Status value for Task mutation and verification", async
     nextStatus: "Coding",
     taskId: "task-1",
   });
-  /** Defines the page fixture for “uses one canonical Status value for Task mutation and verification”. */
+  /** Reads the persisted Notion row used as the assertion oracle. */
   const page = transport.pages.get("task-1");
   assert.equal(propertyValue(required(page), "Status"), "Coding");
   assert.match(
@@ -486,11 +493,11 @@ test("uses one canonical Status value for Task mutation and verification", async
 });
 
 test("recognizes the exact Error target after an interrupted intent", async () => {
-  /** Defines the transport fixture for “recognizes the exact Error target after an interrupted intent”. */
+  /** Captures and simulates Notion requests for the scenario. */
   const transport = new MutableTransport();
-  /** Defines the store fixture for “recognizes the exact Error target after an interrupted intent”. */
+  /** Exercises provider-backed persistence for the scenario. */
   const store = new NotionPageStore(TABLES, transport, () => new Date(0));
-  /** Defines the error fixture for “recognizes the exact Error target after an interrupted intent”. */
+  /** Describes the Error mutation used to test reconciliation. */
   const error = {
     description: "Failure details",
     errorKey: "failure/stable",
@@ -503,7 +510,7 @@ test("recognizes the exact Error target after an interrupted intent", async () =
     status: "Not Fixed" as const,
     title: "Stable failure",
   };
-  /** Defines the created fixture for “recognizes the exact Error target after an interrupted intent”. */
+  /** Captures the Error row created before interrupted reconciliation. */
   const created = await store.createOrUpdateError(error);
   assert.deepEqual(await store.errorTargetReceipt(error), created);
   assert.equal(
@@ -528,9 +535,9 @@ test("recognizes the exact Error target after an interrupted intent", async () =
 
 /** Extracts a textual property value from a simulated Notion page. */
 function propertyValue(page: JsonObject, name: string): string {
-  /** Defines the property fixture used by property value. */
+  /** Identifies the Notion property constrained by the query. */
   const property = objectValue(objectValue(page.properties)[name]);
-  /** Defines the values fixture used by property value. */
+  /** Collects plain text extracted from a Notion property. */
   const values = property.title ?? property.rich_text;
   if (Array.isArray(values)) {
     return values

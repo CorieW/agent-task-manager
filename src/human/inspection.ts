@@ -1,4 +1,4 @@
-/** Provides read-only human/lease inspection and explicit provider reconciliation entry points. */
+/** Read-only human/lease inspection and explicit provider reconciliation entry points. */
 import { digestJson } from "../core/digest.js";
 import { toJsonValue } from "../domain/json.js";
 import type { LeaseSnapshot } from "../domain/records.js";
@@ -17,44 +17,45 @@ import {
 } from "./resource-codec.js";
 import { parseHumanInteractionSlots } from "./slot-codec.js";
 
-/** Defines the data and behavior required by human slot inspection. */
+/** Provider-neutral human slot inspection contract. */
 export interface HumanSlotInspection {
   /** Indicates whether baseline valid. */
   readonly baselineValid: boolean;
-  /** Records the current consumption state for workflow decisions. */
+  /** Lifecycle state for consumption. */
   readonly consumptionState: HumanConsumptionRecord["state"] | "none";
   /** Discriminates the kind variant. */
   readonly kind: HumanInteractionSlot["kind"];
-  /** Records the current response state for workflow decisions. */
+  /** Lifecycle state for response. */
   readonly responseState: "blank" | "completed";
-  /** Identifies slot. */
+  /** Stable identifier for slot id. */
   readonly slotId: string;
 }
-/** Defines the data and behavior required by human recovery inspection. */
+
+/** Provider-neutral human recovery inspection contract. */
 export interface HumanRecoveryInspection {
   /** Indicates whether archived. */
   readonly archived: boolean;
-  /** Lists the slots accepted by this contract. */
+  /** Ordered the slots used by this contract. */
   readonly slots: readonly HumanSlotInspection[];
-  /** Records the current status for workflow decisions. */
+  /** Current workflow status. */
   readonly status: string;
-  /** Identifies task. */
+  /** Stable identifier for task id. */
   readonly taskId: string;
-  /** Records the task version used for compatibility checks. */
+  /** Opaque version token for task. */
   readonly taskVersion: string;
 }
 
-/** Defines the data and behavior required by agent activity inspection. */
+/** Provider-neutral agent activity inspection contract. */
 export interface AgentActivityInspection {
-  /** Provides activity to agent activity inspection. */
+  /** Current Agent activity projection. */
   readonly activity: Awaited<ReturnType<AgentTaskProvider["getAgentActivity"]>>;
-  /** Provides lease projection to agent activity inspection. */
+  /** Ordered lease projection accepted by agent activity inspection. */
   readonly leaseProjection: Awaited<
     ReturnType<AgentTaskProvider["getLeaseProjection"]>
   >;
-  /** Lists the leases accepted by this contract. */
+  /** Ordered the leases used by this contract. */
   readonly leases: readonly LeaseSnapshot[];
-  /** Identifies agent. */
+  /** Stable identifier for agent id. */
   readonly agentId: string;
 }
 
@@ -63,18 +64,18 @@ export async function inspectHumanRecovery(
   provider: AgentTaskProvider,
   taskId: string,
 ): Promise<HumanRecoveryInspection> {
-  /** Stores task used by inspect human recovery. */
+  /** Result of `provider.getTaskSnapshot`, retained for the inspect human recovery operation. */
   const task = await provider.getTaskSnapshot(taskId);
-  /** Stores slots used by inspect human recovery. */
+  /** Result of `parseHumanInteractionSlots`, retained for the inspect human recovery operation. */
   const slots = parseHumanInteractionSlots(task.body);
-  /** Stores inspected used by inspect human recovery. */
+  /** Result of `provider.getOptionalResource`, retained for the inspect human recovery operation. */
   const inspected: HumanSlotInspection[] = [];
   for (const slot of slots) {
-    /** Stores baseline used by inspect human recovery. */
+    /** Result of `provider.getOptionalResource`, retained for the inspect human recovery operation. */
     const baseline = await provider.getOptionalResource(
       humanSlotResourceKey(slot.slotId),
     );
-    /** Stores baseline valid used by inspect human recovery. */
+    /** Mutable flag tracking baseline valid during the inspect human recovery operation. */
     let baselineValid = false;
     if (baseline !== null) {
       try {
@@ -84,11 +85,11 @@ export async function inspectHumanRecovery(
         baselineValid = false;
       }
     }
-    /** Stores consumption used by inspect human recovery. */
+    /** Result of `provider.getOptionalResource`, retained for the inspect human recovery operation. */
     const consumption = await provider.getOptionalResource(
       humanConsumptionResourceKey(slot.slotId),
     );
-    /** Stores consumption state used by inspect human recovery. */
+    /** Result of `parseHumanConsumptionResource`, retained for the inspect human recovery operation. */
     let consumptionState: HumanSlotInspection["consumptionState"] = "none";
     if (consumption !== null) {
       consumptionState = parseHumanConsumptionResource(
@@ -129,7 +130,7 @@ export async function reconcileActivity(
   provider: AgentTaskProvider,
   agentId: string,
 ): Promise<ReconciliationResult> {
-  /** Stores basis used by reconcile activity. */
+  /** Basis snapshot used consistently during the reconcile activity operation. */
   const basis = {
     activity: await provider.getAgentActivity(agentId),
     projection: await provider.getLeaseProjection(agentId),
@@ -146,18 +147,18 @@ export async function inspectAgentActivity(
   provider: AgentTaskProvider,
   agentId: string,
 ): Promise<AgentActivityInspection> {
-  /** Stores activity used by inspect agent activity. */
+  /** Result of `provider.getAgentActivity`, retained for the inspect agent activity operation. */
   const activity = await provider.getAgentActivity(agentId);
-  /** Stores lease projection used by inspect agent activity. */
+  /** Result of `provider.getLeaseProjection`, retained for the inspect agent activity operation. */
   const leaseProjection = await provider.getLeaseProjection(agentId);
-  /** Stores ids used by inspect agent activity. */
+  /** Ids snapshot used consistently during the inspect agent activity operation. */
   const ids = [
     ...new Set([
       ...leaseProjection.runLeaseIds,
       ...leaseProjection.taskLeaseIds,
     ]),
   ].sort();
-  /** Stores leases used by inspect agent activity. */
+  /** Result of `Promise.all`, retained for the inspect agent activity operation. */
   const leases = await Promise.all(
     ids.map((leaseId) => provider.getLeaseSnapshot(leaseId)),
   );

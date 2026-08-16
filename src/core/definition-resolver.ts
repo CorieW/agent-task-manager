@@ -201,10 +201,12 @@ function definitionResourceKeys(
     ),
   ];
 }
+
 /** Creates an unpinned reference for a required Resource key. */
 function resourceRef(key: string): ResourceRef {
   return { digest: null, key, version: null };
 }
+
 /** Returns a required resolved Resource or throws when absent. */
 function requiredResource(
   values: ReadonlyMap<string, ResourceRecord>,
@@ -216,6 +218,7 @@ function requiredResource(
     throw new Error(`Definition Resource is missing: ${key}`);
   return resource;
 }
+
 /** Rejects a Resource that does not contain a supported closed JSON Schema. */
 function assertClosedJsonSchema(resource: ResourceRecord): void {
   /** JSON-decoded input before structural validation. */

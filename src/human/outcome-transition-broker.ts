@@ -21,46 +21,46 @@ import {
 } from "./review-cycle-guard.js";
 import { advanceTestCycle, type TestCyclePolicy } from "./test-cycle-guard.js";
 
-/** Defines the data and behavior required by blocked outcome resolution. */
+/** Human-authored recovery request created for a blocked agent outcome. */
 export interface BlockedOutcomeResolution {
-  /** Records the canonical timestamp for created. */
+  /** ISO timestamp used to order and identify the recovery generation. */
   readonly createdAt: string;
-  /** Provides error to blocked outcome resolution. */
+  /** Error details persisted before the Task enters human resolution. */
   readonly error: Omit<ErrorMutation, "idempotencyKey" | "relatedTaskId">;
-  /** Provides generation to blocked outcome resolution. */
+  /** Monotonic human-recovery generation for this Task. */
   readonly generation: number;
-  /** Provides prompt to blocked outcome resolution. */
+  /** Question or decision context presented to the human. */
   readonly prompt: string;
-  /** Identifies the actor that requested resolution. */
+  /** Actor that requested the human decision. */
   readonly requestedBy: string;
-  /** Records the current resume status for workflow decisions. */
+  /** Workflow status for resume. */
   readonly resumeStatus: string;
 }
 
-/** Defines the data and behavior required by outcome transition base. */
+/** Shared routing evidence for every outcome transition. */
 interface OutcomeTransitionBase {
-  /** Provides definition to outcome transition base. */
+  /** Definition-owned routes and human-resolution outcomes. */
   readonly definition: Pick<
     AgentDefinition,
     "humanResolutionOutcomes" | "transitions"
   >;
-  /** Records the current outcome for workflow decisions. */
+  /** Agent result outcome to resolve through the definition routes. */
   readonly outcome: string;
-  /** Identifies task. */
+  /** Task whose status or recovery state will advance. */
   readonly taskId: string;
 }
 
-/** Defines the data and behavior required by human resolution transition input. */
+/** Outcome transition that must create a durable human-recovery slot. */
 export interface HumanResolutionTransitionInput extends OutcomeTransitionBase {
   /** Discriminates the kind variant. */
   readonly kind: "human_resolution";
-  /** Provides resolution to human resolution transition input. */
+  /** Human-recovery generation and Error content to persist. */
   readonly resolution: BlockedOutcomeResolution;
 }
 
-/** Defines the data and behavior required by ordinary transition input. */
+/** Conditional Task transition that can be prepared and replayed idempotently. */
 export interface OrdinaryTransitionInput extends OutcomeTransitionBase {
-  /** Identifies idempotency. */
+  /** Stable identity for the complete logical transition. */
   readonly idempotencyKey: string;
   /** Discriminates the kind variant. */
   readonly kind: "task_transition";
@@ -83,26 +83,27 @@ export interface OrdinaryTransitionInput extends OutcomeTransitionBase {
 /** Enumerates the supported outcome transition input variants. */
 export type OutcomeTransitionInput =
   HumanResolutionTransitionInput | OrdinaryTransitionInput;
+
 /** Enumerates the supported outcome transition receipt variants. */
 export type OutcomeTransitionReceipt =
   | {
-      /** Identifies human slot. */
+      /** Stable identifier for human slot id. */
       readonly humanSlotId: string;
       /** Discriminates the kind variant. */
       readonly kind: "human_resolution";
-      /** Records the current target status for workflow decisions. */
+      /** Workflow status for target. */
       readonly targetStatus: string;
-      /** Records the task version used for compatibility checks. */
+      /** Opaque version token for task. */
       readonly taskVersion: string;
     }
   | {
-      /** Identifies human slot. */
+      /** Ordinary transitions never create a human-recovery slot. */
       readonly humanSlotId: null;
       /** Discriminates the kind variant. */
       readonly kind: "task_transition";
-      /** Records the current target status for workflow decisions. */
+      /** Workflow status for target. */
       readonly targetStatus: string;
-      /** Records the task version used for compatibility checks. */
+      /** Opaque version token for task. */
       readonly taskVersion: string;
     };
 
@@ -112,7 +113,7 @@ interface OutcomeTransitionPlan {
   readonly mutation: ConditionalTaskMutation;
   /** Canonical caller request used to reject changed-input key reuse. */
   readonly request: JsonValue;
-  /** Identifies the durable plan format. */
+  /** Wire-schema discriminator; always `outcome-transition-plan-v1`. */
   readonly schema: "outcome-transition-plan-v1";
   /** Status selected from the source snapshot and definition route. */
   readonly targetStatus: string;
@@ -123,12 +124,12 @@ const OUTCOME_TRANSITION_OPERATION = "outcome_transition";
 
 /** Implements outcome transition broker and its boundary checks. */
 export class OutcomeTransitionBroker {
-  /** Provides human recovery to outcome transition broker. */
+  /** Persists blocker-first recovery generations for declared human outcomes. */
   private readonly humanRecovery: HumanRecoveryManager;
 
-  /** Creates outcome transition broker with its required collaborators. */
+  /** Creates a broker over the provider that owns Task and intent state. */
   public constructor(
-    /** Provides provider to outcome transition broker. */ private readonly provider: AgentTaskProvider,
+    /** Provider used for routing evidence, conditional writes, and replay intents. */ private readonly provider: AgentTaskProvider,
   ) {
     this.humanRecovery = new HumanRecoveryManager(provider);
   }
@@ -137,29 +138,33 @@ export class OutcomeTransitionBroker {
   public async apply(
     input: OutcomeTransitionInput,
   ): Promise<OutcomeTransitionReceipt> {
-    /** Replays an ordinary transition before consulting mutable Task state. */
-    const requested =
+    /** Canonical caller request bound to an ordinary transition's idempotency key. */
+    const requestPayload =
       input.kind === "task_transition" ? toJsonValue(input) : null;
-    if (input.kind === "task_transition" && requested !== null) {
-      const prior = await this.provider.getOperationIntent(
+    if (input.kind === "task_transition" && requestPayload !== null) {
+      /** Previously prepared transition, which must replay before reading mutable Task state. */
+      const existingIntent = await this.provider.getOperationIntent(
         input.idempotencyKey,
       );
-      if (prior !== null) return this.applyPreparedTransition(prior, requested);
+      if (existingIntent !== null)
+        return this.applyPreparedTransition(existingIntent, requestPayload);
     }
-    /** Stores task used by apply. */
-    const task = await this.provider.getTaskSnapshot(input.taskId);
-    if (task.archived)
+
+    /** Source snapshot used to derive routing and the conditional write version. */
+    const taskSnapshot = await this.provider.getTaskSnapshot(input.taskId);
+    if (taskSnapshot.archived)
       throw new Error("Cannot route an outcome for an archived Task");
-    /** Stores statuses used by apply. */
-    const statuses = await this.provider.listTaskStatusOptions();
-    /** Stores target status used by apply. */
+
+    /** Provider-defined statuses accepted by the outcome route. */
+    const validStatuses = await this.provider.listTaskStatusOptions();
+    /** Status selected from the definition and source Task snapshot. */
     const targetStatus = routeOutcome({
-      currentStatus: task.status,
+      currentStatus: taskSnapshot.status,
       definition: input.definition,
       outcome: input.outcome,
-      validStatuses: statuses,
+      validStatuses,
     });
-    /** Stores requires human resolution used by apply. */
+    /** Whether the definition requires a durable human interaction for this outcome. */
     const requiresHumanResolution =
       input.definition.humanResolutionOutcomes.includes(input.outcome);
 
@@ -168,8 +173,8 @@ export class OutcomeTransitionBroker {
         throw new Error(
           `Outcome ${input.outcome} is not declared as a human-resolution outcome`,
         );
-      /** Stores request used by apply. */
-      const request = await this.humanRecovery.requestResolution({
+      /** Persisted recovery generation and verified waiting-state receipt. */
+      const recoveryRequest = await this.humanRecovery.requestResolution({
         createdAt: input.resolution.createdAt,
         error: input.resolution.error,
         generation: input.resolution.generation,
@@ -180,10 +185,10 @@ export class OutcomeTransitionBroker {
         waitingStatus: targetStatus,
       });
       return {
-        humanSlotId: request.slot.slotId,
+        humanSlotId: recoveryRequest.slot.slotId,
         kind: "human_resolution",
-        targetStatus: request.status,
-        taskVersion: request.taskVersion,
+        targetStatus: recoveryRequest.status,
+        taskVersion: recoveryRequest.taskVersion,
       };
     }
 
@@ -197,7 +202,7 @@ export class OutcomeTransitionBroker {
       );
     }
     if (
-      targetStatus === task.status &&
+      targetStatus === taskSnapshot.status &&
       input.reviewCycle === undefined &&
       input.testCycle === undefined
     )
@@ -205,31 +210,33 @@ export class OutcomeTransitionBroker {
         humanSlotId: null,
         kind: "task_transition",
         targetStatus,
-        taskVersion: task.version,
+        taskVersion: taskSnapshot.version,
       };
 
     /** Replays a previously prepared transition before deriving new cycle state. */
-    if (requested === null)
+    if (requestPayload === null)
       throw new Error("Ordinary transition request was not prepared");
 
-    /** Advances remediation state in the same conditional write as the status transition. */
-    const nextTaskProperties =
-      input.reviewCycle !== undefined
-        ? advanceReviewCycle(
-            task.properties,
-            input.reviewCycle.findingKeys,
-            input.reviewCycle.policy,
-          ).nextProperties
-        : input.testCycle !== undefined
-          ? advanceTestCycle(
-              task.properties,
-              input.testCycle.failureKeys,
-              input.testCycle.policy,
-            ).nextProperties
-          : task.properties;
-    const plan: OutcomeTransitionPlan = {
+    /** Task properties after applying the one selected remediation-cycle policy. */
+    let nextTaskProperties = taskSnapshot.properties;
+    if (input.reviewCycle !== undefined) {
+      nextTaskProperties = advanceReviewCycle(
+        taskSnapshot.properties,
+        input.reviewCycle.findingKeys,
+        input.reviewCycle.policy,
+      ).nextProperties;
+    } else if (input.testCycle !== undefined) {
+      nextTaskProperties = advanceTestCycle(
+        taskSnapshot.properties,
+        input.testCycle.failureKeys,
+        input.testCycle.policy,
+      ).nextProperties;
+    }
+
+    /** Frozen, source-versioned transition persisted before its Task mutation. */
+    const transitionPlan: OutcomeTransitionPlan = {
       mutation: {
-        expectedVersion: task.version,
+        expectedVersion: taskSnapshot.version,
         idempotencyKey: `${input.idempotencyKey}:task`,
         nextBody: null,
         nextProperties: taskPropertiesWithStatus(
@@ -237,80 +244,88 @@ export class OutcomeTransitionBroker {
           targetStatus,
         ),
         nextStatus: targetStatus,
-        taskId: task.id,
+        taskId: taskSnapshot.id,
       },
-      request: requested,
+      request: requestPayload,
       schema: "outcome-transition-plan-v1",
       targetStatus,
     };
     /** Persists the exact state-dependent mutation before it can be applied. */
-    let prepared: ProviderOperationIntent;
+    let preparedIntent: ProviderOperationIntent;
     try {
-      prepared = await this.provider.beginOperationIntent(
+      preparedIntent = await this.provider.beginOperationIntent(
         input.idempotencyKey,
         OUTCOME_TRANSITION_OPERATION,
-        toJsonValue(plan),
+        toJsonValue(transitionPlan),
       );
     } catch (error) {
       /** Resolves an exact concurrent request against the winning frozen plan. */
-      const concurrent = await this.provider.getOperationIntent(
+      const concurrentIntent = await this.provider.getOperationIntent(
         input.idempotencyKey,
       );
       if (
-        concurrent === null ||
-        !sameTransitionRequest(concurrent.payload, requested)
+        concurrentIntent === null ||
+        !sameTransitionRequest(concurrentIntent.payload, requestPayload)
       ) {
         throw error;
       }
-      prepared = concurrent;
+      preparedIntent = concurrentIntent;
     }
-    return this.applyPreparedTransition(prepared, requested);
+    return this.applyPreparedTransition(preparedIntent, requestPayload);
   }
 
   /** Applies or replays one frozen transition plan. */
   private async applyPreparedTransition(
-    intent: ProviderOperationIntent,
-    requested: JsonValue,
+    preparedIntent: ProviderOperationIntent,
+    requestPayload: JsonValue,
   ): Promise<OutcomeTransitionReceipt> {
-    if (intent.operation !== OUTCOME_TRANSITION_OPERATION) {
+    if (preparedIntent.operation !== OUTCOME_TRANSITION_OPERATION) {
       throw new Error(
-        `Idempotency key ${intent.idempotencyKey} was reused with a different operation or payload`,
+        `Idempotency key ${preparedIntent.idempotencyKey} was reused with a different operation or payload`,
       );
     }
-    const plan = parseTransitionPlan(intent.payload);
-    if (digestJson(plan.request) !== digestJson(requested)) {
+    /** Frozen plan decoded from the provider-owned operation intent. */
+    const transitionPlan = parseTransitionPlan(preparedIntent.payload);
+    if (digestJson(transitionPlan.request) !== digestJson(requestPayload)) {
       throw new Error(
-        `Idempotency key ${intent.idempotencyKey} was reused with a different operation or payload`,
+        `Idempotency key ${preparedIntent.idempotencyKey} was reused with a different operation or payload`,
       );
     }
-    if (intent.state === "applied") {
-      return parseTransitionReceipt(intent.result);
+    if (preparedIntent.state === "applied") {
+      return parseTransitionReceipt(preparedIntent.result);
     }
-    const write = await this.provider.applyTaskMutation(plan.mutation);
-    const receipt: OutcomeTransitionReceipt = {
+
+    /** Provider receipt from applying or replaying the frozen Task mutation. */
+    const taskWriteReceipt = await this.provider.applyTaskMutation(
+      transitionPlan.mutation,
+    );
+    /** Logical transition receipt persisted after the conditional Task write. */
+    const transitionReceipt: OutcomeTransitionReceipt = {
       humanSlotId: null,
       kind: "task_transition",
-      targetStatus: plan.targetStatus,
-      taskVersion: write.observedVersion,
+      targetStatus: transitionPlan.targetStatus,
+      taskVersion: taskWriteReceipt.observedVersion,
     };
-    const completed = await this.provider.completeOperationIntent(
-      intent.idempotencyKey,
+    /** Completed provider intent that makes future retries read-only. */
+    const completedIntent = await this.provider.completeOperationIntent(
+      preparedIntent.idempotencyKey,
       OUTCOME_TRANSITION_OPERATION,
-      intent.payload,
-      toJsonValue(receipt),
+      preparedIntent.payload,
+      toJsonValue(transitionReceipt),
     );
-    return parseTransitionReceipt(completed.result);
+    return parseTransitionReceipt(completedIntent.result);
   }
 }
 
 /** Reports whether a stored transition plan belongs to the current request. */
 function sameTransitionRequest(
   payload: JsonValue,
-  requested: JsonValue,
+  requestPayload: JsonValue,
 ): boolean {
   try {
     return (
-      digestJson(parseTransitionPlan(payload).request) === digestJson(requested)
+      digestJson(parseTransitionPlan(payload).request) ===
+      digestJson(requestPayload)
     );
   } catch {
     return false;
@@ -319,40 +334,49 @@ function sameTransitionRequest(
 
 /** Parses a provider-owned frozen transition plan. */
 function parseTransitionPlan(value: JsonValue): OutcomeTransitionPlan {
-  const object = objectValue(value, "Outcome transition plan");
-  if (object.schema !== "outcome-transition-plan-v1") {
+  /** Closed JSON record for the persisted transition plan. */
+  const planRecord = objectValue(value, "Outcome transition plan");
+  if (planRecord.schema !== "outcome-transition-plan-v1") {
     throw new TypeError("Outcome transition plan schema is invalid");
   }
-  const mutation = objectValue(object.mutation, "Outcome transition mutation");
+  /** Closed JSON record for the plan's conditional Task mutation. */
+  const mutationRecord = objectValue(
+    planRecord.mutation,
+    "Outcome transition mutation",
+  );
+  /** Replacement Task properties carried by the frozen mutation. */
   const nextProperties = objectValue(
-    mutation.nextProperties,
+    mutationRecord.nextProperties,
     "Outcome transition properties",
   );
   return {
     mutation: {
       expectedVersion: stringValue(
-        mutation.expectedVersion,
+        mutationRecord.expectedVersion,
         "Outcome transition expectedVersion",
       ),
       idempotencyKey: stringValue(
-        mutation.idempotencyKey,
+        mutationRecord.idempotencyKey,
         "Outcome transition mutation idempotencyKey",
       ),
       nextBody:
-        mutation.nextBody === null
+        mutationRecord.nextBody === null
           ? null
-          : stringValue(mutation.nextBody, "Outcome transition nextBody"),
+          : stringValue(mutationRecord.nextBody, "Outcome transition nextBody"),
       nextProperties,
       nextStatus:
-        mutation.nextStatus === null
+        mutationRecord.nextStatus === null
           ? null
-          : stringValue(mutation.nextStatus, "Outcome transition nextStatus"),
-      taskId: stringValue(mutation.taskId, "Outcome transition taskId"),
+          : stringValue(
+              mutationRecord.nextStatus,
+              "Outcome transition nextStatus",
+            ),
+      taskId: stringValue(mutationRecord.taskId, "Outcome transition taskId"),
     },
-    request: object.request ?? null,
-    schema: object.schema,
+    request: planRecord.request ?? null,
+    schema: planRecord.schema,
     targetStatus: stringValue(
-      object.targetStatus,
+      planRecord.targetStatus,
       "Outcome transition targetStatus",
     ),
   };
@@ -360,19 +384,23 @@ function parseTransitionPlan(value: JsonValue): OutcomeTransitionPlan {
 
 /** Parses a completed ordinary transition receipt. */
 function parseTransitionReceipt(value: JsonValue): OutcomeTransitionReceipt {
-  const object = objectValue(value, "Outcome transition receipt");
-  if (object.kind !== "task_transition" || object.humanSlotId !== null) {
+  /** Closed JSON record returned by the completed provider intent. */
+  const receiptRecord = objectValue(value, "Outcome transition receipt");
+  if (
+    receiptRecord.kind !== "task_transition" ||
+    receiptRecord.humanSlotId !== null
+  ) {
     throw new TypeError("Outcome transition receipt is invalid");
   }
   return {
     humanSlotId: null,
     kind: "task_transition",
     targetStatus: stringValue(
-      object.targetStatus,
+      receiptRecord.targetStatus,
       "Outcome transition receipt targetStatus",
     ),
     taskVersion: stringValue(
-      object.taskVersion,
+      receiptRecord.taskVersion,
       "Outcome transition receipt taskVersion",
     ),
   };

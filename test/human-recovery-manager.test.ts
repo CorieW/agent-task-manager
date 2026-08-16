@@ -17,14 +17,15 @@ import {
   type WorkspaceSchemaDescriptor,
 } from "../src/index.js";
 
-/** Defines the shared environment fixture for this test module. */
+/** Supplies the provider environment shared by the scenarios. */
 const environment: ProviderEnvironment = {
   bootstrapParent: null,
   connection: {},
   tables: { errors: "e", resources: "r", agents: "a", tasks: "t" },
   type: "memory",
 };
-/** Defines the shared target fixture for this test module. */
+
+/** Supplies the canonical workspace schema target. */
 const target: WorkspaceSchemaDescriptor = {
   digest: "target",
   providerType: "memory",
@@ -33,11 +34,11 @@ const target: WorkspaceSchemaDescriptor = {
 };
 
 test("creates a stable Error and resolution slot before Needs Human Resolution", async () => {
-  /** Defines the provider fixture for “creates a stable Error and resolution slot before Needs Human Resolution”. */
+  /** Provides isolated provider state for the scenario. */
   const provider = prepared();
-  /** Defines the manager fixture for “creates a stable Error and resolution slot before Needs Human Resolution”. */
+  /** Coordinates the human-recovery workflow under test. */
   const manager = new HumanRecoveryManager(provider);
-  /** Defines the receipt fixture for “creates a stable Error and resolution slot before Needs Human Resolution”. */
+  /** Captures the durable write or effect result used as the oracle. */
   const receipt = await manager.requestResolution({
     createdAt: "2026-08-15T10:00:00.000Z",
     error: {
@@ -58,9 +59,9 @@ test("creates a stable Error and resolution slot before Needs Human Resolution",
     waitingStatus: "Needs Human Resolution",
   });
   assert.equal(receipt.status, "Needs Human Resolution");
-  /** Defines the stored fixture for “creates a stable Error and resolution slot before Needs Human Resolution”. */
+  /** Reads persisted state used as the assertion oracle. */
   const stored = await provider.getTaskSnapshot("task-1");
-  /** Defines the slots fixture for “creates a stable Error and resolution slot before Needs Human Resolution”. */
+  /** Captures the parsed human-response slots. */
   const slots = parseHumanInteractionSlots(stored.body);
   assert.equal(slots.length, 1);
   assert.equal(slots[0]?.sourceErrorKey, "publication/missing");
@@ -69,7 +70,7 @@ test("creates a stable Error and resolution slot before Needs Human Resolution",
       ?.kind,
     "system/human-interaction-slot",
   );
-  /** Defines the inspection fixture for “creates a stable Error and resolution slot before Needs Human Resolution”. */
+  /** Captures the human-interaction state used as the oracle. */
   const inspection = await inspectHumanRecovery(provider, "task-1");
   assert.deepEqual(inspection.slots, [
     {
@@ -83,11 +84,11 @@ test("creates a stable Error and resolution slot before Needs Human Resolution",
 });
 
 test("consumes one allowed human response and replays without another transition", async () => {
-  /** Defines the provider fixture for “consumes one allowed human response and replays without another transition”. */
+  /** Provides isolated provider state for the scenario. */
   const provider = prepared();
-  /** Defines the manager fixture for “consumes one allowed human response and replays without another transition”. */
+  /** Coordinates the human-recovery workflow under test. */
   const manager = new HumanRecoveryManager(provider);
-  /** Defines the requested fixture for “consumes one allowed human response and replays without another transition”. */
+  /** Captures the persisted human-recovery request. */
   const requested = await manager.request({
     createdAt: "2026-08-15T10:00:00.000Z",
     error: null,
@@ -100,9 +101,9 @@ test("consumes one allowed human response and replays without another transition
     taskId: "task-1",
     waitingStatus: "Human Review",
   });
-  /** Defines the task fixture for “consumes one allowed human response and replays without another transition”. */
+  /** Represents the Task state exercised by the scenario. */
   let task = await provider.getTaskSnapshot("task-1");
-  /** Defines the edited fixture for “consumes one allowed human response and replays without another transition”. */
+  /** Represents the Task after the permitted human edit. */
   const edited = {
     ...requested.slot,
     response: { action: "approve", text: "Approved." },
@@ -118,27 +119,27 @@ test("consumes one allowed human response and replays without another transition
     nextStatus: null,
     taskId: task.id,
   });
-  /** Defines the first fixture for “consumes one allowed human response and replays without another transition”. */
+  /** Captures the first operation result for replay comparison. */
   const first = await manager.consume("task-1", requested.slot.slotId);
-  /** Defines the second fixture for “consumes one allowed human response and replays without another transition”. */
+  /** Captures the replayed result for idempotency comparison. */
   const second = await manager.consume("task-1", requested.slot.slotId);
   assert.equal(first.state, "applied");
   assert.deepEqual(second, first);
   task = await provider.getTaskSnapshot("task-1");
   assert.equal(task.status, "Testing");
   assert.equal(task.properties.Status, "Testing");
-  /** Defines the inspection fixture for “consumes one allowed human response and replays without another transition”. */
+  /** Captures the human-interaction state used as the oracle. */
   const inspection = await inspectHumanRecovery(provider, "task-1");
   assert.equal(inspection.slots[0]?.consumptionState, "applied");
   assert.equal(inspection.slots[0]?.responseState, "completed");
 });
 
 test("rejects a response accompanied by unrelated Task body changes", async () => {
-  /** Defines the provider fixture for “rejects a response accompanied by unrelated Task body changes”. */
+  /** Provides isolated provider state for the scenario. */
   const provider = prepared();
-  /** Defines the manager fixture for “rejects a response accompanied by unrelated Task body changes”. */
+  /** Coordinates the human-recovery workflow under test. */
   const manager = new HumanRecoveryManager(provider);
-  /** Defines the requested fixture for “rejects a response accompanied by unrelated Task body changes”. */
+  /** Captures the persisted human-recovery request. */
   const requested = await manager.request({
     createdAt: "2026-08-15T10:00:00.000Z",
     error: null,
@@ -151,9 +152,9 @@ test("rejects a response accompanied by unrelated Task body changes", async () =
     taskId: "task-1",
     waitingStatus: "Human Review",
   });
-  /** Defines the task fixture for “rejects a response accompanied by unrelated Task body changes”. */
+  /** Represents the Task state exercised by the scenario. */
   const task = await provider.getTaskSnapshot("task-1");
-  /** Defines the edited fixture for “rejects a response accompanied by unrelated Task body changes”. */
+  /** Represents the Task after the permitted human edit. */
   const edited = {
     ...requested.slot,
     response: { action: "resume", text: "Resolved." },
@@ -173,11 +174,11 @@ test("rejects a response accompanied by unrelated Task body changes", async () =
 });
 
 test("does not adopt a target status that changed before consumption", async () => {
-  /** Defines the provider fixture for “does not adopt a target status that changed before consumption”. */
+  /** Provides isolated provider state for the scenario. */
   const provider = prepared();
-  /** Defines the manager fixture for “does not adopt a target status that changed before consumption”. */
+  /** Coordinates the human-recovery workflow under test. */
   const manager = new HumanRecoveryManager(provider);
-  /** Defines the requested fixture for “does not adopt a target status that changed before consumption”. */
+  /** Captures the persisted human-recovery request. */
   const requested = await manager.request({
     createdAt: "2026-08-15T10:00:00.000Z",
     error: null,
@@ -190,9 +191,9 @@ test("does not adopt a target status that changed before consumption", async () 
     taskId: "task-1",
     waitingStatus: "Human Review",
   });
-  /** Defines the task fixture for “does not adopt a target status that changed before consumption”. */
+  /** Represents the Task state exercised by the scenario. */
   let task = await provider.getTaskSnapshot("task-1");
-  /** Defines the edited fixture for “does not adopt a target status that changed before consumption”. */
+  /** Represents the Task after the permitted human edit. */
   const edited = {
     ...requested.slot,
     response: { action: "approve", text: "Approved." },
@@ -224,11 +225,11 @@ test("does not adopt a target status that changed before consumption", async () 
 });
 
 test("does not adopt a coincidental target status after consumption becomes pending", async () => {
-  /** Defines the provider fixture for “does not adopt a coincidental target status after consumption becomes pending”. */
+  /** Provides isolated provider state for the scenario. */
   const provider = interrupted();
-  /** Defines the manager fixture for “does not adopt a coincidental target status after consumption becomes pending”. */
+  /** Coordinates the human-recovery workflow under test. */
   const manager = new HumanRecoveryManager(provider);
-  /** Defines the requested fixture for “does not adopt a coincidental target status after consumption becomes pending”. */
+  /** Captures the persisted human-recovery request. */
   const requested = await manager.request({
     createdAt: "2026-08-15T10:00:00.000Z",
     error: null,
@@ -241,9 +242,9 @@ test("does not adopt a coincidental target status after consumption becomes pend
     taskId: "task-1",
     waitingStatus: "Human Review",
   });
-  /** Defines the task fixture for “does not adopt a coincidental target status after consumption becomes pending”. */
+  /** Represents the Task state exercised by the scenario. */
   let task = await provider.getTaskSnapshot("task-1");
-  /** Defines the edited fixture for “does not adopt a coincidental target status after consumption becomes pending”. */
+  /** Represents the Task after the permitted human edit. */
   const edited = {
     ...requested.slot,
     response: { action: "approve", text: "Approved." },
@@ -279,11 +280,11 @@ test("does not adopt a coincidental target status after consumption becomes pend
 });
 
 test("rejects Task archival during a human wait", async () => {
-  /** Defines the provider fixture for “rejects Task archival during a human wait”. */
+  /** Provides isolated provider state for the scenario. */
   const provider = prepared();
-  /** Defines the manager fixture for “rejects Task archival during a human wait”. */
+  /** Coordinates the human-recovery workflow under test. */
   const manager = new HumanRecoveryManager(provider);
-  /** Defines the requested fixture for “rejects Task archival during a human wait”. */
+  /** Captures the persisted human-recovery request. */
   const requested = await manager.request({
     createdAt: "2026-08-15T10:00:00.000Z",
     error: null,
@@ -296,9 +297,9 @@ test("rejects Task archival during a human wait", async () => {
     taskId: "task-1",
     waitingStatus: "Human Review",
   });
-  /** Defines the task fixture for “rejects Task archival during a human wait”. */
+  /** Represents the Task state exercised by the scenario. */
   let task = await provider.getTaskSnapshot("task-1");
-  /** Defines the edited fixture for “rejects Task archival during a human wait”. */
+  /** Represents the Task after the permitted human edit. */
   const edited = {
     ...requested.slot,
     response: { action: "resume", text: "Resume." },
@@ -323,16 +324,16 @@ test("rejects Task archival during a human wait", async () => {
 });
 
 test("reconciles stale Status and Working On from provider-backed leases", async () => {
-  /** Defines the now fixture for “reconciles stale Status and Working On from provider-backed leases”. */
+  /** Controls the simulated provider clock deterministically. */
   let now = new Date("2026-08-15T10:00:00.000Z");
-  /** Defines the provider fixture for “reconciles stale Status and Working On from provider-backed leases”. */
+  /** Provides isolated provider state for the scenario. */
   const provider = new InMemoryProvider(
     environment,
     target,
     undefined,
     () => now,
   );
-  /** Defines the definition fixture for “reconciles stale Status and Working On from provider-backed leases”. */
+  /** Supplies the Agent contract exercised by the scenario. */
   const definition = parseAgentDefinitionManifest(definitionManifest());
   provider.seedDefinition(definition);
   provider.seedTask({
@@ -346,7 +347,7 @@ test("reconciles stale Status and Working On from provider-backed leases", async
     title: "Task",
     version: "v1",
   });
-  /** Defines the run fixture for “reconciles stale Status and Working On from provider-backed leases”. */
+  /** Represents the active Agent run exercised by the scenario. */
   const run = await provider.acquireLease({
     expiresAt: "2026-08-15T10:05:00.000Z",
     idempotencyKey: "run",
@@ -355,7 +356,7 @@ test("reconciles stale Status and Working On from provider-backed leases", async
     agentId: definition.id,
     taskId: null,
   });
-  /** Defines the task fixture for “reconciles stale Status and Working On from provider-backed leases”. */
+  /** Represents the Task state exercised by the scenario. */
   const task = await provider.acquireLease({
     expiresAt: "2026-08-15T10:05:00.000Z",
     idempotencyKey: "task",
@@ -387,7 +388,7 @@ test("reconciles stale Status and Working On from provider-backed leases", async
 
 /** Creates an in-memory provider populated for human-recovery tests. */
 function prepared(): InMemoryProvider {
-  /** Defines the provider fixture used by prepared. */
+  /** Provides isolated provider state for the scenario. */
   const provider = new InMemoryProvider(environment, target);
   provider.seedTaskStatusOptions([
     "Coding",
@@ -410,9 +411,9 @@ function prepared(): InMemoryProvider {
   return provider;
 }
 
-/** Creates the interrupted test fixture. */
+/** Builds a provider that interrupts one human-response mutation. */
 function interrupted(): InterruptingProvider {
-  /** Defines the provider fixture used by interrupted. */
+  /** Provides isolated provider state for the scenario. */
   const provider = new InterruptingProvider(environment, target);
   provider.seedTaskStatusOptions([
     "Coding",
@@ -437,7 +438,7 @@ function interrupted(): InterruptingProvider {
 
 /** Implements interrupting provider. */
 class InterruptingProvider extends InMemoryProvider {
-  /** Contains interrupt for interrupting provider. */
+  /** Arms the provider to interrupt one human-response mutation. */
   #interrupt = true;
   /** Applies task mutation. */
   public override async applyTaskMutation(
@@ -454,7 +455,7 @@ class InterruptingProvider extends InMemoryProvider {
   }
 }
 
-/** Creates the definition manifest test fixture. */
+/** Builds the Agent manifest used by recovery scenarios. */
 function definitionManifest(): JsonObject {
   return {
     allowedIntents: [],

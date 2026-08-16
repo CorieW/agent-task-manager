@@ -39,21 +39,23 @@ import {
   type WriteReceipt,
 } from "../src/index.js";
 
-/** Defines the shared environment fixture for this test module. */
+/** Supplies the provider environment shared by the scenarios. */
 const environment: ProviderEnvironment = {
   bootstrapParent: null,
   connection: {},
   tables: { errors: "e", resources: "r", agents: "a", tasks: "t" },
   type: "memory",
 };
-/** Defines the shared target fixture for this test module. */
+
+/** Supplies the canonical workspace schema target. */
 const target: WorkspaceSchemaDescriptor = {
   digest: "target",
   providerType: "memory",
   tables: [],
   version: "v1",
 };
-/** Defines the shared activation runtime fixture for this test module. */
+
+/** Provides deterministic adapter metadata for definition activation. */
 const activationRuntime: ActivationRuntime = {
   installedCapabilities: ["repository.read"],
   installedIntents: ["task.note"],
@@ -63,7 +65,7 @@ const activationRuntime: ActivationRuntime = {
 
 /** Implements recording provider. */
 class RecordingProvider extends InMemoryProvider {
-  /** Contains errors for recording provider. */
+  /** Captures provider Errors created while dispatching an Agent. */
   public readonly errors: ErrorMutation[] = [];
   /** Creates or updates the Error identified by Error Key. */
   public override async createOrUpdateError(
@@ -75,13 +77,14 @@ class RecordingProvider extends InMemoryProvider {
 }
 
 test("dispatches only from a live assignment through environment-bound adapters", async () => {
-  /** Defines the prepared fixture for “dispatches only from a live assignment through environment-bound adapters”. */
+  /** Provides an assigned run ready for dispatch. */
   const prepared = await preparedDispatch("run-1");
-  /** Defines the observed policy fixture for “dispatches only from a live assignment through environment-bound adapters”. */
+  /** Captures the isolation policy received by the runner. */
   const observedPolicy: {
-    /** Contains value for module. */ value: ToolIsolationPolicy | null;
+    /** Captures the isolation policy observed by the runner. */
+    value: ToolIsolationPolicy | null;
   } = { value: null };
-  /** Defines the runner fixture for “dispatches only from a live assignment through environment-bound adapters”. */
+  /** Simulates Agent execution for the dispatch scenario. */
   const runner = resultRunner(({ context }) =>
     finalizeAgentResult({
       contextDigest: context.digest,
@@ -93,11 +96,11 @@ test("dispatches only from a live assignment through environment-bound adapters"
       schema: "agent-result-v1",
     }),
   );
-  /** Defines the runtime fixture for “dispatches only from a live assignment through environment-bound adapters”. */
+  /** Provides the effect or dispatch runtime exercised by the scenario. */
   const runtime = runtimeEnvironment(runner, undefined, (policy) => {
     observedPolicy.value = policy;
   });
-  /** Defines the dispatched fixture for “dispatches only from a live assignment through environment-bound adapters”. */
+  /** Captures the completed dispatch used for assertions. */
   const dispatched = await dispatchActivatedAgent({
     activated: prepared.activated,
     activationRuntime,
@@ -116,6 +119,7 @@ test("dispatches only from a live assignment through environment-bound adapters"
 });
 
 test("rejects an outcome that omits its required ordered intent sequence", async () => {
+  /** Requires a task-note intent before the success transition. */
   const definition: AgentDefinition = {
     ...agentDefinition(),
     requiredIntentSequenceByOutcome: {
@@ -123,7 +127,9 @@ test("rejects an outcome that omits its required ordered intent sequence", async
     },
     schema: "agent-definition-v1",
   };
+  /** Provides an assigned run using the stricter definition. */
   const prepared = await preparedDispatch("run-required-intent", definition);
+  /** Returns a success result without the required task-note intent. */
   const runner = resultRunner(({ context }) =>
     finalizeAgentResult({
       contextDigest: context.digest,
@@ -150,17 +156,17 @@ test("rejects an outcome that omits its required ordered intent sequence", async
 });
 
 test("rejects fabricated isolation receipts and closes prepared sessions", async () => {
-  /** Defines the prepared fixture for “rejects fabricated isolation receipts and closes prepared sessions”. */
+  /** Provides an assigned run ready for dispatch. */
   const prepared = await preparedDispatch("run-bad-receipt");
-  /** Defines the model closed fixture for “rejects fabricated isolation receipts and closes prepared sessions”. */
+  /** Counts model-session cleanup calls. */
   let modelClosed = 0;
-  /** Defines the isolation closed fixture for “rejects fabricated isolation receipts and closes prepared sessions”. */
+  /** Counts isolation-session cleanup calls. */
   let isolationClosed = 0;
-  /** Defines the model fixture for “rejects fabricated isolation receipts and closes prepared sessions”. */
+  /** Simulates the configured model transport. */
   const model = modelAdapter(() => {
     modelClosed += 1;
   });
-  /** Defines the bad isolation fixture for “rejects fabricated isolation receipts and closes prepared sessions”. */
+  /** Returns a forged isolation receipt for rejection testing. */
   const badIsolation: ToolIsolationAdapter = {
     id: "isolation",
     /** Creates a prepared adapter session. */
@@ -210,11 +216,11 @@ test("rejects fabricated isolation receipts and closes prepared sessions", async
 });
 
 test("blocks unauthorized tool activity without retrying", async () => {
-  /** Defines the prepared fixture for “blocks unauthorized tool activity without retrying”. */
+  /** Provides an assigned run ready for dispatch. */
   const prepared = await preparedDispatch("run-violation");
-  /** Defines the starts fixture for “blocks unauthorized tool activity without retrying”. */
+  /** Counts runner start attempts to prove violations are not retried. */
   let starts = 0;
-  /** Defines the runner fixture for “blocks unauthorized tool activity without retrying”. */
+  /** Simulates Agent execution for the dispatch scenario. */
   const runner = resultRunner(() => {
     starts += 1;
     return {};
@@ -239,11 +245,11 @@ test("blocks unauthorized tool activity without retrying", async () => {
 });
 
 test("rejects malformed primitive result fields", async () => {
-  /** Defines the prepared fixture for “rejects malformed primitive result fields”. */
+  /** Provides an assigned run ready for dispatch. */
   const prepared = await preparedDispatch("run-malformed");
-  /** Defines the runner fixture for “rejects malformed primitive result fields”. */
+  /** Simulates Agent execution for the dispatch scenario. */
   const runner = resultRunner(({ context }) => {
-    /** Defines the core fixture for “rejects malformed primitive result fields”. */
+    /** Builds the otherwise valid result before corrupting one field. */
     const core = {
       contextDigest: context.digest,
       definitionDigest: context.definitionDigest,
@@ -269,7 +275,7 @@ test("rejects malformed primitive result fields", async () => {
 });
 
 test("rejects a Task whose selected version changed before dispatch", async () => {
-  /** Defines the prepared fixture for “rejects a Task whose selected version changed before dispatch”. */
+  /** Provides an assigned run ready for dispatch. */
   const prepared = await preparedDispatch("run-stale-task");
   await prepared.provider.applyTaskMutation({
     expectedVersion: "v1",
@@ -293,13 +299,13 @@ test("rejects a Task whose selected version changed before dispatch", async () =
 });
 
 test("cleans a process handle that resolves only after start cancellation", async () => {
-  /** Defines the definition fixture for “cleans a process handle that resolves only after start cancellation”. */
+  /** Supplies the Agent contract exercised by the scenario. */
   const definition = { ...agentDefinition(), deadlineSeconds: 1 };
-  /** Defines the prepared fixture for “cleans a process handle that resolves only after start cancellation”. */
+  /** Provides an assigned run ready for dispatch. */
   const prepared = await preparedDispatch("run-late-start", definition);
-  /** Defines the cleaned fixture for “cleans a process handle that resolves only after start cancellation”. */
+  /** Counts cleanup calls after process cancellation. */
   let cleaned = 0;
-  /** Defines the runner fixture for “cleans a process handle that resolves only after start cancellation”. */
+  /** Simulates Agent execution for the dispatch scenario. */
   const runner: AgentRunnerAdapter = {
     id: "runner",
     /** Returns the simulated runner identity. */
@@ -316,7 +322,7 @@ test("cleans a process handle that resolves only after start cancellation", asyn
       await new Promise<void>((resolve) =>
         signal.addEventListener("abort", () => resolve(), { once: true }),
       );
-      /** Defines the process fixture for “cleans a process handle that resolves only after start cancellation”. */
+      /** Simulates the child process controlled by the supervisor. */
       const process = completedProcess({
         exitCode: null,
         stderr: "",
@@ -347,28 +353,28 @@ test("cleans a process handle that resolves only after start cancellation", asyn
 });
 
 test("runs a context-only agent through the concrete no-tool stack", async () => {
-  /** Defines the no tool runtime fixture for “runs a context-only agent through the concrete no-tool stack”. */
+  /** Provides the concrete runtime for a context-only Agent. */
   const noToolRuntime: ActivationRuntime = {
     ...activationRuntime,
     installedRunnerProfiles: ["no-tools"],
   };
-  /** Defines the definition fixture for “runs a context-only agent through the concrete no-tool stack”. */
+  /** Supplies the Agent contract exercised by the scenario. */
   const definition: AgentDefinition = {
     ...agentDefinition(),
     capabilities: [],
     runnerProfile: "no-tools",
   };
-  /** Defines the prepared fixture for “runs a context-only agent through the concrete no-tool stack”. */
+  /** Provides an assigned run ready for dispatch. */
   const prepared = await preparedDispatch(
     "run-no-tools",
     definition,
     noToolRuntime,
   );
-  /** Defines the model fixture for “runs a context-only agent through the concrete no-tool stack”. */
+  /** Simulates the configured model transport. */
   const model = new NoToolModelTransportAdapter(
     "no-tool-model",
     {
-      /** Creates the stream test fixture. */
+      /** Exposes the child process output as a readable stream. */
       async *stream({ context }) {
         yield JSON.stringify(
           finalizeAgentResult({
@@ -385,20 +391,20 @@ test("runs a context-only agent through the concrete no-tool stack", async () =>
     },
     sha256("model-client"),
   );
-  /** Defines the runner fixture for “runs a context-only agent through the concrete no-tool stack”. */
+  /** Simulates Agent execution for the dispatch scenario. */
   const runner = new NoToolAgentRunnerAdapter(
     "no-tool-runner",
     sha256("no-tool-runner"),
     "1.0.0",
   );
-  /** Defines the runtime fixture for “runs a context-only agent through the concrete no-tool stack”. */
+  /** Provides the effect or dispatch runtime exercised by the scenario. */
   const runtime = runtimeEnvironment(
     runner,
     new NoToolIsolationAdapter("no-tool-isolation"),
     undefined,
     model,
   );
-  /** Defines the dispatched fixture for “runs a context-only agent through the concrete no-tool stack”. */
+  /** Captures the completed dispatch used for assertions. */
   const dispatched = await dispatchActivatedAgent({
     activated: prepared.activated,
     activationRuntime: noToolRuntime,
@@ -411,19 +417,19 @@ test("runs a context-only agent through the concrete no-tool stack", async () =>
 });
 
 test("streams output and hard-kills a process tree after its deadline", async () => {
-  /** Defines the finish fixture for “streams output and hard-kills a process tree after its deadline”. */
+  /** Resolves when the simulated process is allowed to exit. */
   let finish!: (value: AgentProcessCompletion) => void;
-  /** Defines the waiting fixture for “streams output and hard-kills a process tree after its deadline”. */
+  /** Signals when the simulated process has entered its wait state. */
   const waiting = new Promise<AgentProcessCompletion>((resolve) => {
     finish = resolve;
   });
-  /** Defines the cleaned fixture for “streams output and hard-kills a process tree after its deadline”. */
+  /** Counts cleanup calls after process cancellation. */
   let cleaned = 0;
-  /** Defines the terminated fixture for “streams output and hard-kills a process tree after its deadline”. */
+  /** Tracks whether graceful process termination was requested. */
   let terminated = 0;
-  /** Defines the killed fixture for “streams output and hard-kills a process tree after its deadline”. */
+  /** Counts hard-kill requests issued to the process tree. */
   let killed = 0;
-  /** Defines the process fixture for “streams output and hard-kills a process tree after its deadline”. */
+  /** Simulates the child process controlled by the supervisor. */
   const process: SupervisedAgentProcess = {
     /** Cleans up the simulated process. */
     async cleanup() {
@@ -445,7 +451,7 @@ test("streams output and hard-kills a process tree after its deadline", async ()
       return waiting;
     },
   };
-  /** Defines the result fixture for “streams output and hard-kills a process tree after its deadline”. */
+  /** Captures the operation outcome used by assertions. */
   const result = await superviseProcess({
     deadlineAt: Date.now() + 1,
     graceMilliseconds: 1,
@@ -500,9 +506,9 @@ test("rejects unsupported JSON-Schema keywords before activation", () => {
 });
 
 test("resolves only configured adapters and rejects unsafe environment authority", () => {
-  /** Defines the runner fixture for “resolves only configured adapters and rejects unsafe environment authority”. */
+  /** Simulates Agent execution for the dispatch scenario. */
   const runner = resultRunner(() => ({}));
-  /** Defines the runtime fixture for “resolves only configured adapters and rejects unsafe environment authority”. */
+  /** Provides the effect or dispatch runtime exercised by the scenario. */
   const runtime = runtimeEnvironment(runner);
   assert.equal(runtime.runner, runner);
   assert.match(runtime.digest, /^[a-f0-9]{64}$/u);
@@ -521,27 +527,27 @@ async function preparedDispatch(
   definition = agentDefinition(),
   runtime = activationRuntime,
 ): Promise<{
-  /** Contains activated for prepared dispatch. */
+  /** Resolves the immutable Agent definition selected for dispatch. */
   activated: ActivatedDefinition;
-  /** Contains promotion for prepared dispatch. */
+  /** Carries the active assignment and lease identifiers for dispatch. */
   promotion: AssignmentPromotion;
-  /** Contains provider for prepared dispatch. */
+  /** Exposes the recording provider for post-dispatch assertions. */
   provider: RecordingProvider;
 }> {
-  /** Defines the provider fixture used by prepared dispatch. */
+  /** Provides isolated provider state for the scenario. */
   const provider = await preparedProvider(definition);
-  /** Defines the activated fixture used by prepared dispatch. */
+  /** Captures the validated definition ready for dispatch. */
   const activated = await activateDefinitions({ ...runtime, provider });
-  /** Defines the target fixture used by prepared dispatch. */
+  /** Supplies the canonical workspace schema target. */
   const target = activated[0];
   assert.ok(target);
-  /** Defines the selection context fixture used by prepared dispatch. */
+  /** Supplies the immutable context used for task selection. */
   const selectionContext = await prepareSelection(
     provider,
     target.resolved,
     activated,
   );
-  /** Defines the assignment fixture used by prepared dispatch. */
+  /** Represents the assignment promoted into active work. */
   const assignment = finalizeExplicitAssignment({
     authorityId: ownerId,
     idempotencyKey: `explicit:${ownerId}`,
@@ -551,7 +557,7 @@ async function preparedDispatch(
     targetAgentRevision: target.resolved.definition.revision,
     taskId: "task-1",
   });
-  /** Defines the promotion fixture used by prepared dispatch. */
+  /** Describes the assignment-to-worker lease transition. */
   const promotion = await promoteExplicitAssignment({
     activationRuntime: runtime,
     assignment,
@@ -565,7 +571,7 @@ async function preparedDispatch(
   return { activated: target, promotion, provider };
 }
 
-/** Creates the runtime environment test fixture. */
+/** Resolves a runtime environment from registered fake adapters. */
 function runtimeEnvironment(
   runner: AgentRunnerAdapter,
   isolation = isolationAdapter(),
@@ -573,15 +579,15 @@ function runtimeEnvironment(
   model = modelAdapter(),
   allowedEnvironmentNames: readonly string[] = [],
 ): ResolvedRuntimeEnvironment {
-  /** Defines the runners fixture used by runtime environment. */
+  /** Registers the Agent runners available at runtime. */
   const runners = new RuntimeAdapterRegistry<AgentRunnerAdapter>();
-  /** Defines the models fixture used by runtime environment. */
+  /** Registers the model transports available at runtime. */
   const models = new RuntimeAdapterRegistry<ModelTransportAdapter>();
-  /** Defines the isolations fixture used by runtime environment. */
+  /** Registers the tool-isolation adapters available at runtime. */
   const isolations = new RuntimeAdapterRegistry<ToolIsolationAdapter>();
   runners.register(runner);
   models.register(model);
-  /** Defines the observed fixture used by runtime environment. */
+  /** Captures observed state used as the assertion oracle. */
   const observed: ToolIsolationAdapter =
     observePolicy === undefined
       ? isolation
@@ -594,7 +600,7 @@ function runtimeEnvironment(
           },
         };
   isolations.register(observed);
-  /** Defines the config fixture used by runtime environment. */
+  /** Binds the runtime adapters and policies used by the scenario. */
   const config = parseEnvironmentConfig({
     adapters: {
       agentRunner: runner.id,
@@ -630,7 +636,7 @@ function runtimeEnvironment(
   });
 }
 
-/** Creates the model adapter test fixture. */
+/** Builds a model adapter that exposes deterministic session metadata. */
 function modelAdapter(onClose: () => void = () => {}): ModelTransportAdapter {
   return {
     id: "model-transport",
@@ -655,7 +661,8 @@ function modelAdapter(onClose: () => void = () => {}): ModelTransportAdapter {
     },
   };
 }
-/** Creates the isolation adapter test fixture. */
+
+/** Builds an isolation adapter with observable policy and cleanup hooks. */
 function isolationAdapter(): ToolIsolationAdapter {
   return {
     id: "isolation",
@@ -678,7 +685,8 @@ function isolationAdapter(): ToolIsolationAdapter {
     },
   };
 }
-/** Creates the result runner test fixture. */
+
+/** Builds a runner that returns a configurable Agent result and tool activity. */
 function resultRunner(
   result: (input: Parameters<AgentRunnerAdapter["start"]>[0]) => unknown,
   toolViolation: string | null = null,
@@ -705,12 +713,13 @@ function resultRunner(
     },
   };
 }
+
 /** Creates a completed simulated agent process. */
 function completedProcess(
   value: AgentProcessCompletion & {
-    /** Contains stderr for completed process. */
+    /** Captures the bounded standard-error output from the child process. */
     readonly stderr: string;
-    /** Contains stdout for completed process. */
+    /** Captures the bounded standard output from the child process. */
     readonly stdout: string;
   },
 ): SupervisedAgentProcess {
@@ -734,11 +743,12 @@ function completedProcess(
     },
   };
 }
+
 /** Creates a provider populated with runtime fixtures. */
 async function preparedProvider(
   definition = agentDefinition(),
 ): Promise<RecordingProvider> {
-  /** Defines the provider fixture used by prepared provider. */
+  /** Provides isolated provider state for the scenario. */
   const provider = new RecordingProvider(environment, target);
   provider.seedDefinition(definition);
   provider.seedTaskStatusOptions(["Done", "Todo"]);
@@ -756,7 +766,8 @@ async function preparedProvider(
   for (const record of resources()) await provider.putResource(record);
   return provider;
 }
-/** Creates the agent definition test fixture. */
+
+/** Builds the canonical Agent definition used by dispatch scenarios. */
 function agentDefinition(): AgentDefinition {
   return {
     allowedIntents: ["task.note"],
@@ -793,7 +804,8 @@ function agentDefinition(): AgentDefinition {
     transitions: { succeeded: "Done" },
   };
 }
-/** Creates the resources test fixture. */
+
+/** Builds the Resource graph required by the dispatch definition. */
 function resources(): ResourceMutation[] {
   return [
     resource("prompt/analyst", "prompt", "Inspect the supplied Task."),
@@ -815,6 +827,7 @@ function resources(): ResourceMutation[] {
     ),
   ];
 }
+
 /** Builds resource. */
 function resource(key: string, kind: string, body: string): ResourceMutation {
   return {
@@ -828,7 +841,8 @@ function resource(key: string, kind: string, body: string): ResourceMutation {
     version: "v1",
   };
 }
-/** Creates the closed schema test fixture. */
+
+/** Returns a minimal closed JSON Schema for Agent outputs. */
 function closedSchema(properties: object, required: string[] = []): string {
   return JSON.stringify({
     additionalProperties: false,

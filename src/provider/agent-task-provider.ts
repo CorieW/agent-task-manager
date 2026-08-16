@@ -1,4 +1,4 @@
-/** Defines the complete provider contract for schema management, workflow records, leases, Resources, and recovery. */
+/** Provider-neutral contract for schema management, workflow records, leases, Resources, and recovery. */
 import type {
   ActivityMutation,
   ConditionalTaskMutation,
@@ -63,7 +63,7 @@ export interface AgentTaskProvider {
   /** Reconciles workspace step against provider state. */
   reconcileWorkspaceStep(stepId: string): Promise<ReconciliationResult>;
 
-  /** Lists Agent definitions. */
+  /** Returns agent definitions in deterministic order. */
   listAgentDefinitions(): Promise<readonly AgentDefinition[]>;
   /** Returns Agent definition. */
   getAgentDefinition(id: string): Promise<AgentDefinition>;
@@ -78,12 +78,12 @@ export interface AgentTaskProvider {
     agentId: string,
     idempotencyKey: string,
   ): Promise<ReconciliationResult>;
-  /** Lists task status options. */
+  /** Returns task status options in deterministic order. */
   listTaskStatusOptions(): Promise<readonly string[]>;
   /** Updates Agent activity. */
   updateAgentActivity(change: ActivityMutation): Promise<WriteReceipt>;
 
-  /** Lists task summaries. */
+  /** Returns task summaries in deterministic order. */
   listTaskSummaries(query: TaskQuery): Promise<readonly TaskSummary[]>;
   /** Returns task snapshot. */
   getTaskSnapshot(taskId: string): Promise<TaskSnapshot>;

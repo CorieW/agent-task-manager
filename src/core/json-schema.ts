@@ -21,6 +21,7 @@ const COMMON_KEYS = new Set([
   "title",
   "type",
 ]);
+
 /** JSON Schema keywords accepted for each primitive type. */
 const TYPE_KEYS: Readonly<Record<string, ReadonlySet<string>>> = {
   array: new Set(["items", "maxItems", "minItems", "uniqueItems"]),
@@ -195,6 +196,7 @@ function assertNonNegativeInteger(
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0)
     throw new TypeError(`${label} must be a non-negative integer`);
 }
+
 /** Rejects unsupported numeric JSON Schema bounds. */
 function assertBounds(
   minimum: JsonValue | undefined,
@@ -388,10 +390,12 @@ function matchesType(type: string, value: JsonValue): boolean {
     return typeof value === "number" && Number.isSafeInteger(value);
   return typeof value === type;
 }
+
 /** Reports whether a value is a non-array object. */
 function isObject(value: JsonValue | undefined): value is JsonObject {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
+
 /** Checks structural JSON equality through canonical serialization. */
 function sameJson(left: JsonValue | undefined, right: JsonValue): boolean {
   return JSON.stringify(left) === JSON.stringify(right);

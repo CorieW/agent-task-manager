@@ -12,25 +12,25 @@ import {
 
 /** Compiles run context into its trusted runtime form. */
 export async function compileRunContext(input: {
-  /** Provides activated to compile run context. */
+  /** Activated dependency consumed by compile run context. */
   readonly activated: ActivatedDefinition;
-  /** Provides additional input to compile run context. */
+  /** Additional input dependency consumed by compile run context. */
   readonly additionalInput: JsonObject;
-  /** Provides provider to compile run context. */
+  /** Provider boundary used for durable state reads and writes. */
   readonly provider: AgentTaskProvider;
-  /** Identifies run. */
+  /** Stable identifier for run id. */
   readonly runId: string;
-  /** Provides runtime receipt to compile run context. */
+  /** Runtime receipt dependency consumed by compile run context. */
   readonly runtimeReceipt: RuntimeCapabilityReceipt;
-  /** Identifies task. */
+  /** Stable identifier for task id. */
   readonly taskId: string;
 }): Promise<RunContext> {
   validateRuntimeCapabilityReceipt(input.runtimeReceipt);
-  /** Stores task used by compile run context. */
+  /** Result of `input.provider.getTaskSnapshot`, retained for the compile run context operation. */
   const task = await input.provider.getTaskSnapshot(input.taskId);
   if (task.archived)
     throw new Error("Cannot compile context for an archived Task");
-  /** Stores resolved used by compile run context. */
+  /** Resolved snapshot used consistently during the compile run context operation. */
   const resolved = input.activated.resolved;
   /** Collects the canonical fields used to compute the record digest. */
   const core = {
@@ -49,7 +49,7 @@ export async function compileRunContext(input: {
     schema: "run-context-v1" as const,
     task,
   };
-  /** Tracks bytes in bytes. */
+  /** Combined output size accumulated in bytes. */
   const bytes = Buffer.byteLength(JSON.stringify(toJsonValue(core)), "utf8");
   if (bytes > resolved.definition.contextBudgetBytes)
     throw new Error("Compiled run context exceeds the Agent context budget");

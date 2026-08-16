@@ -8,7 +8,7 @@ export function createEffectObservation(
   evidence: unknown,
   externalIdentity: unknown = {},
 ): ExternalEffectObservation {
-  /** Stores observation used by create effect observation. */
+  /** Observation snapshot used consistently during the create effect observation operation. */
   const observation = {
     evidence: jsonObject(evidence, "External-effect evidence"),
     externalIdentity: jsonObject(externalIdentity, "External-effect identity"),
@@ -32,7 +32,7 @@ export function validateEffectObservation(
 
 /** Validates and returns a non-array JSON object. */
 function jsonObject(value: unknown, label: string): JsonObject {
-  /** Stores converted used by json object. */
+  /** Result of `toJsonValue`, retained for the json object operation. */
   const converted = toJsonValue(value);
   if (
     converted === null ||

@@ -16,7 +16,7 @@ import {
   type WorkspaceSchemaDescriptor,
 } from "../src/index.js";
 
-/** Defines the shared environment fixture for this test module. */
+/** Supplies the provider environment shared by the scenarios. */
 const environment: ProviderEnvironment = {
   bootstrapParent: null,
   connection: {},
@@ -28,7 +28,8 @@ const environment: ProviderEnvironment = {
   },
   type: "memory",
 };
-/** Defines the shared target fixture for this test module. */
+
+/** Supplies the canonical workspace schema target. */
 const target: WorkspaceSchemaDescriptor = {
   digest: "trial-target",
   providerType: "memory",
@@ -37,9 +38,9 @@ const target: WorkspaceSchemaDescriptor = {
 };
 
 test("completes an exact ten-Task trial and compares provider-defined role metrics", async () => {
-  /** Defines the provider fixture for “completes an exact ten-Task trial and compares provider-defined role metrics”. */
+  /** Provides isolated provider state for the scenario. */
   const provider = await preparedProvider();
-  /** Defines the preparation fixture for “completes an exact ten-Task trial and compares provider-defined role metrics”. */
+  /** Captures the dispatch inputs prepared for execution. */
   const preparation = await prepareIdentificationTrial(provider, request());
   assert.equal(preparation.state, "ready");
   if (preparation.state !== "ready") return;
@@ -47,10 +48,10 @@ test("completes an exact ten-Task trial and compares provider-defined role metri
     preparation.plan.definitionBasis.map(({ id }) => id),
     ["dependency-cartographer", "incident-summarizer"],
   );
-  /** Defines the report fixture for “completes an exact ten-Task trial and compares provider-defined role metrics”. */
+  /** Captures validation or dry-run findings used as the oracle. */
   let report = startIdentificationTrial(preparation.plan);
   for (const task of preparation.plan.taskBasis) {
-    /** Defines the step fixture for “completes an exact ten-Task trial and compares provider-defined role metrics”. */
+    /** Represents one workspace plan step under execution. */
     const step = await recordIdentificationTrialObservation(
       provider,
       preparation.plan,
@@ -75,13 +76,13 @@ test("completes an exact ten-Task trial and compares provider-defined role metri
 });
 
 test("stops on the first observed blocker and proposes one provider Error", async () => {
-  /** Defines the provider fixture for “stops on the first observed blocker and proposes one provider Error”. */
+  /** Provides isolated provider state for the scenario. */
   const provider = await preparedProvider();
-  /** Defines the preparation fixture for “stops on the first observed blocker and proposes one provider Error”. */
+  /** Captures the dispatch inputs prepared for execution. */
   const preparation = await prepareIdentificationTrial(provider, request());
   assert.equal(preparation.state, "ready");
   if (preparation.state !== "ready") return;
-  /** Defines the report fixture for “stops on the first observed blocker and proposes one provider Error”. */
+  /** Captures validation or dry-run findings used as the oracle. */
   let report = startIdentificationTrial(preparation.plan);
   report = (
     await recordIdentificationTrialObservation(
@@ -91,7 +92,7 @@ test("stops on the first observed blocker and proposes one provider Error", asyn
       observation(preparation.plan, "task-001"),
     )
   ).report;
-  /** Defines the blocked observation fixture for “stops on the first observed blocker and proposes one provider Error”. */
+  /** Represents an effect quarantined after uncertain completion. */
   const blockedObservation = {
     ...observation(preparation.plan, "task-002"),
     issue: {
@@ -105,7 +106,7 @@ test("stops on the first observed blocker and proposes one provider Error", asyn
     },
     outcome: "blocked" as const,
   };
-  /** Defines the step fixture for “stops on the first observed blocker and proposes one provider Error”. */
+  /** Represents one workspace plan step under execution. */
   const step = await recordIdentificationTrialObservation(
     provider,
     preparation.plan,
@@ -127,13 +128,13 @@ test("stops on the first observed blocker and proposes one provider Error", asyn
 });
 
 test("stops when any frozen Task, definition, Resource, or workspace basis changes", async () => {
-  /** Defines the provider fixture for “stops when any frozen Task, definition, Resource, or workspace basis changes”. */
+  /** Provides isolated provider state for the scenario. */
   const provider = await preparedProvider();
-  /** Defines the preparation fixture for “stops when any frozen Task, definition, Resource, or workspace basis changes”. */
+  /** Captures the dispatch inputs prepared for execution. */
   const preparation = await prepareIdentificationTrial(provider, request());
   assert.equal(preparation.state, "ready");
   if (preparation.state !== "ready") return;
-  /** Defines the task fixture for “stops when any frozen Task, definition, Resource, or workspace basis changes”. */
+  /** Represents the Task state exercised by the scenario. */
   const task = await provider.getTaskSnapshot("task-001");
   await provider.applyTaskMutation({
     expectedVersion: task.version,
@@ -143,7 +144,7 @@ test("stops when any frozen Task, definition, Resource, or workspace basis chang
     nextStatus: null,
     taskId: task.id,
   });
-  /** Defines the step fixture for “stops when any frozen Task, definition, Resource, or workspace basis changes”. */
+  /** Represents one workspace plan step under execution. */
   const step = await recordIdentificationTrialObservation(
     provider,
     preparation.plan,
@@ -156,18 +157,18 @@ test("stops when any frozen Task, definition, Resource, or workspace basis chang
 });
 
 test("binds the provider identity and physical workspace identity", async () => {
-  /** Defines the first provider fixture for “binds the provider identity and physical workspace identity”. */
+  /** Provides the first contender in the concurrency test. */
   const firstProvider = await preparedProvider("workspace-a");
-  /** Defines the second provider fixture for “binds the provider identity and physical workspace identity”. */
+  /** Provides the second contender in the concurrency test. */
   const secondProvider = await preparedProvider("workspace-b");
-  /** Defines the preparation fixture for “binds the provider identity and physical workspace identity”. */
+  /** Captures the dispatch inputs prepared for execution. */
   const preparation = await prepareIdentificationTrial(
     firstProvider,
     request(),
   );
   assert.equal(preparation.state, "ready");
   if (preparation.state !== "ready") return;
-  /** Defines the step fixture for “binds the provider identity and physical workspace identity”. */
+  /** Represents one workspace plan step under execution. */
   const step = await recordIdentificationTrialObservation(
     secondProvider,
     preparation.plan,
@@ -179,15 +180,15 @@ test("binds the provider identity and physical workspace identity", async () => 
 });
 
 test("rejects malformed outcomes, incomplete counters, and duplicate role rows", async () => {
-  /** Defines the provider fixture for “rejects malformed outcomes, incomplete counters, and duplicate role rows”. */
+  /** Provides isolated provider state for the scenario. */
   const provider = await preparedProvider();
-  /** Defines the preparation fixture for “rejects malformed outcomes, incomplete counters, and duplicate role rows”. */
+  /** Captures the dispatch inputs prepared for execution. */
   const preparation = await prepareIdentificationTrial(provider, request());
   assert.equal(preparation.state, "ready");
   if (preparation.state !== "ready") return;
-  /** Defines the report fixture for “rejects malformed outcomes, incomplete counters, and duplicate role rows”. */
+  /** Captures validation or dry-run findings used as the oracle. */
   const report = startIdentificationTrial(preparation.plan);
-  /** Defines the valid fixture for “rejects malformed outcomes, incomplete counters, and duplicate role rows”. */
+  /** Supplies records that satisfy the query predicate. */
   const valid = observation(preparation.plan, "task-001");
   await assert.rejects(
     recordIdentificationTrialObservation(provider, preparation.plan, report, {
@@ -196,9 +197,9 @@ test("rejects malformed outcomes, incomplete counters, and duplicate role rows",
     } as unknown as TrialTaskObservation),
     /outcome is invalid/u,
   );
-  /** Defines the errors and incomplete fixture for “rejects malformed outcomes, incomplete counters, and duplicate role rows”. */
+  /** Selects the nonterminal records requiring attention. */
   const { errors: _errors, ...incomplete } = valid.roleMetrics[0]!;
-  /** Defines the second fixture for “rejects malformed outcomes, incomplete counters, and duplicate role rows”. */
+  /** Captures the replayed result for idempotency comparison. */
   const second = valid.roleMetrics[1]!;
   await assert.rejects(
     recordIdentificationTrialObservation(provider, preparation.plan, report, {
@@ -224,14 +225,14 @@ test("rejects malformed outcomes, incomplete counters, and duplicate role rows",
 });
 
 test("uses distinct replay identities for different definition blockers", async () => {
-  /** Defines the provider fixture for “uses distinct replay identities for different definition blockers”. */
+  /** Provides isolated provider state for the scenario. */
   const provider = await preparedProvider();
-  /** Defines the missing a fixture for “uses distinct replay identities for different definition blockers”. */
+  /** Creates the first missing dependency in the graph. */
   const missingA = await prepareIdentificationTrial(provider, {
     ...request(),
     definitionIds: ["missing-a"],
   });
-  /** Defines the missing b fixture for “uses distinct replay identities for different definition blockers”. */
+  /** Creates the second missing dependency in the graph. */
   const missingB = await prepareIdentificationTrial(provider, {
     ...request(),
     definitionIds: ["missing-b"],
@@ -250,7 +251,7 @@ test("uses distinct replay identities for different definition blockers", async 
 });
 
 test("fails closed before trial execution when provider tables are not ready", async () => {
-  /** Defines the required target fixture for “fails closed before trial execution when provider tables are not ready”. */
+  /** Identifies the relation target required by the schema. */
   const requiredTarget: WorkspaceSchemaDescriptor = {
     digest: "required",
     providerType: "memory",
@@ -259,9 +260,9 @@ test("fails closed before trial execution when provider tables are not ready", a
     ],
     version: "v1",
   };
-  /** Defines the provider fixture for “fails closed before trial execution when provider tables are not ready”. */
+  /** Provides isolated provider state for the scenario. */
   const provider = new InMemoryProvider(environment, requiredTarget);
-  /** Defines the preparation fixture for “fails closed before trial execution when provider tables are not ready”. */
+  /** Captures the dispatch inputs prepared for execution. */
   const preparation = await prepareIdentificationTrial(provider, request());
   assert.equal(preparation.state, "blocked");
   if (preparation.state === "blocked")
@@ -269,12 +270,12 @@ test("fails closed before trial execution when provider tables are not ready", a
 });
 
 test("returns a blocker instead of an unusable ready plan for invalid provider data", async () => {
-  /** Defines the provider fixture for “returns a blocker instead of an unusable ready plan for invalid provider data”. */
+  /** Provides isolated provider state for the scenario. */
   const provider = await preparedProvider();
-  /** Defines the task fixture for “returns a blocker instead of an unusable ready plan for invalid provider data”. */
+  /** Represents the Task state exercised by the scenario. */
   const task = await provider.getTaskSnapshot("task-001");
   provider.seedTask({ ...task, title: "x".repeat(1_001) });
-  /** Defines the preparation fixture for “returns a blocker instead of an unusable ready plan for invalid provider data”. */
+  /** Captures the dispatch inputs prepared for execution. */
   const preparation = await prepareIdentificationTrial(provider, request());
   assert.equal(preparation.state, "blocked");
   if (preparation.state === "blocked")
@@ -285,7 +286,7 @@ test("returns a blocker instead of an unusable ready plan for invalid provider d
 async function preparedProvider(
   providerIdentity = "memory",
 ): Promise<InMemoryProvider> {
-  /** Defines the provider fixture used by prepared provider. */
+  /** Provides isolated provider state for the scenario. */
   const provider = new InMemoryProvider(environment, target, {
     capturedAt: "2026-08-15T00:00:00.000Z",
     digest: sha256("[]"),
@@ -308,7 +309,7 @@ async function preparedProvider(
     ),
   );
   for (let index = 1; index <= 10; index += 1) {
-    /** Defines the suffix fixture used by prepared provider. */
+    /** Builds a unique identifier for isolated test state. */
     const suffix = String(index).padStart(3, "0");
     provider.seedTask({
       archived: false,
@@ -376,9 +377,9 @@ function definition(id: string, name: string, prompt: string): AgentDefinition {
   };
 }
 
-/** Creates the resources test fixture. */
+/** Builds the Resource graph required by the identification trial. */
 function resources(): readonly ResourceMutation[] {
-  /** Defines the schema fixture used by resources. */
+  /** Supplies the workspace schema expected by the scenario. */
   const schema = JSON.stringify({
     additionalProperties: false,
     properties: {},
@@ -415,12 +416,12 @@ function resource(key: string, kind: string, body: string): ResourceMutation {
   };
 }
 
-/** Creates the observation test fixture. */
+/** Builds an observation with configurable trial counters. */
 function observation(
   plan: IdentificationTrialPlan,
   taskId: string,
 ): TrialTaskObservation {
-  /** Defines the task fixture used by observation. */
+  /** Represents the Task state exercised by the scenario. */
   const task = plan.taskBasis.find(({ id }) => id === taskId)!;
   return {
     issue: null,

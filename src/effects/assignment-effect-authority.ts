@@ -15,10 +15,10 @@ import type {
 export class AssignmentEffectAuthority implements ExternalEffectAuthorityVerifier {
   /** Creates assignment effect authority with its required collaborators. */
   public constructor(
-    /** Provides activated to assignment effect authority. */ private readonly activated: ActivatedDefinition,
-    /** Provides activation runtime to assignment effect authority. */ private readonly activationRuntime: ActivationRuntime,
-    /** Provides promotion to assignment effect authority. */ private readonly promotion: AssignmentPromotion,
-    /** Provides provider to assignment effect authority. */ private readonly provider: AgentTaskProvider,
+    /** Activated dependency consumed by assignment effect authority. */ private readonly activated: ActivatedDefinition,
+    /** Activation runtime dependency consumed by assignment effect authority. */ private readonly activationRuntime: ActivationRuntime,
+    /** Promotion dependency consumed by assignment effect authority. */ private readonly promotion: AssignmentPromotion,
+    /** Provider boundary used for durable state reads and writes. */ private readonly provider: AgentTaskProvider,
   ) {}
   /** Verifies live assignment authority for an external-effect request. */
   public async verify(request: ExternalEffectRequest): Promise<void> {

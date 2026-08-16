@@ -17,50 +17,53 @@ import type {
   ReconcilableEffectAdapter,
 } from "./typed-effect-handlers.js";
 
-/** Defines the data and behavior required by workspace locator. */
+/** Workspace locator boundary. */
 export interface WorkspaceLocator {
   /** Resolves an authorized workspace path for the repository. */
   locate(workspaceKey: string, repositoryId: string): Promise<string>;
 }
-/** Defines the data and behavior required by configured command. */
+
+/** Provider-neutral configured command contract. */
 export interface ConfiguredCommand {
-  /** Lists the arguments prefix accepted by this contract. */
+  /** Ordered the arguments prefix used by this contract. */
   readonly argumentsPrefix: readonly string[];
-  /** Stores the SHA-256 digest of executable. */
+  /** SHA-256 digest of canonical executable. */
   readonly executableDigest: string;
-  /** Provides executable path to configured command. */
+  /** Absolute path of the executable to launch. */
   readonly executablePath: string;
-  /** Provides key to configured command. */
+  /** Stable key used by configured command. */
   readonly key: string;
   /** Indicates whether replay safe. */
   readonly replaySafe: true;
-  /** Sets timeout in milliseconds. */
+  /** Timeout in milliseconds. */
   readonly timeoutMilliseconds: number;
 }
-/** Defines the data and behavior required by command process result. */
+
+/** Outcome returned by command process. */
 export interface CommandProcessResult {
-  /** Provides exit code to command process result. */
+  /** Process exit code returned by the child. */
   readonly exitCode: number;
-  /** Provides stderr to command process result. */
+  /** Captured standard-error bytes. */
   readonly stderr: Uint8Array;
-  /** Provides stdout to command process result. */
+  /** Captured standard-output bytes. */
   readonly stdout: Uint8Array;
 }
-/** Defines the data and behavior required by command process runner. */
+
+/** Provider-neutral command process runner contract. */
 export interface CommandProcessRunner {
   /** Runs command process runner within its configured limits. */
   run(input: {
-    /** Lists the arguments accepted by this contract. */
+    /** Ordered the arguments used by this contract. */
     readonly arguments: readonly string[];
-    /** Provides cwd to command process runner. */
+    /** Working directory for the operation. */
     readonly cwd: string;
-    /** Provides executable path to command process runner. */
+    /** Absolute path of the executable to launch. */
     readonly executablePath: string;
-    /** Sets output limit in bytes. */
+    /** Output limit in bytes. */
     readonly outputLimitBytes: number;
-    /** Provides signal to command process runner. */
+    /** Cancellation signal for the operation. */
     readonly signal: AbortSignal;
-    /** Sets timeout in milliseconds. */
+    /** Timeout in milliseconds. */
     readonly timeoutMilliseconds: number;
   }): Promise<CommandProcessResult>;
 }
@@ -69,17 +72,17 @@ export interface CommandProcessRunner {
 export class NodeCommandProcessRunner implements CommandProcessRunner {
   /** Runs node command process runner within its configured limits. */
   public async run(input: {
-    /** Lists the arguments accepted by this contract. */
+    /** Ordered the arguments used by this contract. */
     readonly arguments: readonly string[];
-    /** Provides cwd to run. */
+    /** Working directory for the operation. */
     readonly cwd: string;
-    /** Provides executable path to run. */
+    /** Absolute path of the executable to launch. */
     readonly executablePath: string;
-    /** Sets output limit in bytes. */
+    /** Output limit in bytes. */
     readonly outputLimitBytes: number;
-    /** Provides signal to run. */
+    /** Cancellation signal for the operation. */
     readonly signal: AbortSignal;
-    /** Sets timeout in milliseconds. */
+    /** Timeout in milliseconds. */
     readonly timeoutMilliseconds: number;
   }): Promise<CommandProcessResult> {
     return runBoundedChildProcess({
@@ -96,18 +99,18 @@ export class NodeCommandProcessRunner implements CommandProcessRunner {
 
 /** Implements configured command effects and its boundary checks. */
 export class ConfiguredCommandEffects implements ReconcilableEffectAdapter<CommandRunPayload> {
-  /** Provides id to configured command effects. */
+  /** Stable identifier for configured command effects. */
   public readonly id = "configured-command";
-  /** Records the version used for compatibility checks. */
+  /** Ordered version used by compatibility checks. */
   public readonly version = "1";
-  /** Provides commands to configured command effects. */
+  /** Ordered configured command accepted by configured command effects. */
   readonly #commands: ReadonlyMap<string, ConfiguredCommand>;
   /** Creates configured command effects with its required collaborators. */
   public constructor(
     commands: readonly ConfiguredCommand[],
-    /** Provides workspaces to configured command effects. */ private readonly workspaces: WorkspaceLocator,
-    /** Provides runner to configured command effects. */ private readonly runner: CommandProcessRunner = new NodeCommandProcessRunner(),
-    /** Sets output limit in bytes. */ private readonly outputLimitBytes = 2_000_000,
+    /** Workspaces callback used by configured command effects. */ private readonly workspaces: WorkspaceLocator,
+    /** Runner used to execute the requested workload. */ private readonly runner: CommandProcessRunner = new NodeCommandProcessRunner(),
+    /** Output limit in bytes. */ private readonly outputLimitBytes = 2_000_000,
   ) {
     if (
       commands.length === 0 ||
@@ -126,14 +129,14 @@ export class ConfiguredCommandEffects implements ReconcilableEffectAdapter<Comma
     control,
     payload,
   }: {
-    /** Provides control to apply. */
+    /** Cancellation signal and absolute deadline for the effect. */
     readonly control: ExternalEffectControl;
-    /** Identifies effect. */
+    /** Stable identifier for effect id. */
     readonly effectId: string;
-    /** Provides payload to apply. */
+    /** Validated effect payload. */
     readonly payload: CommandRunPayload;
   }): Promise<ExternalEffectObservation> {
-    /** Stores command used by apply. */
+    /** Command snapshot used consistently during the apply operation. */
     const command = this.#commands.get(payload.commandKey);
     if (command === undefined)
       throw new Error(`Command is not configured: ${payload.commandKey}`);
@@ -142,12 +145,12 @@ export class ConfiguredCommandEffects implements ReconcilableEffectAdapter<Comma
       command.executableDigest
     )
       throw new Error(`Command executable drifted: ${command.key}`);
-    /** Stores cwd used by apply. */
+    /** Result of `this.workspaces.locate`, retained for the apply operation. */
     const cwd = await this.workspaces.locate(
       payload.workspaceKey,
       payload.repositoryId,
     );
-    /** Holds the validated result returned by apply. */
+    /** Validated result returned by apply. */
     const result = await this.runner.run({
       arguments: [...command.argumentsPrefix, ...payload.arguments],
       cwd,
@@ -159,7 +162,7 @@ export class ConfiguredCommandEffects implements ReconcilableEffectAdapter<Comma
         Math.max(1, control.deadlineAt - Date.now()),
       ),
     });
-    /** Stores evidence used by apply. */
+    /** Evidence snapshot used consistently during the apply operation. */
     const evidence = {
       exitCode: result.exitCode,
       stderrDigest: sha256(result.stderr),
@@ -174,50 +177,52 @@ export class ConfiguredCommandEffects implements ReconcilableEffectAdapter<Comma
   }
 }
 
-/** Defines the data and behavior required by draft publication target. */
+/** Provider-neutral draft publication target contract. */
 export interface DraftPublicationTarget {
-  /** Provides id to draft publication target. */
+  /** Ordered id accepted by draft publication target. */
   readonly id: string;
-  /** Lists the repository ids accepted by this contract. */
+  /** Ordered the repository ids used by this contract. */
   readonly repositoryIds: readonly string[];
 }
-/** Defines the data and behavior required by draft publication driver. */
+
+/** Draft publication driver boundary. */
 export interface DraftPublicationDriver {
   /** Creates or refreshes the one authorized Draft PR without changing its draft state. */
   apply(input: {
-    /** Provides control to draft publication driver. */
+    /** Cancellation signal and absolute deadline for the effect. */
     readonly control: ExternalEffectControl;
-    /** Identifies effect. */
+    /** Stable identifier for effect id. */
     readonly effectId: string;
-    /** Provides payload to draft publication driver. */
+    /** Validated effect payload. */
     readonly payload: DraftPrPayload;
-    /** Provides target to draft publication driver. */
+    /** Canonical target workspace schema. */
     readonly target: DraftPublicationTarget;
   }): Promise<ExternalEffectObservation>;
   /** Reconciles the stable target/repository/base/head Draft PR identity. */
   reconcile(input: {
-    /** Provides control to draft publication driver. */
+    /** Cancellation signal and absolute deadline for the effect. */
     readonly control: ExternalEffectControl;
-    /** Identifies effect. */
+    /** Stable identifier for effect id. */
     readonly effectId: string;
-    /** Provides payload to draft publication driver. */
+    /** Validated effect payload. */
     readonly payload: DraftPrPayload;
-    /** Provides target to draft publication driver. */
+    /** Canonical target workspace schema. */
     readonly target: DraftPublicationTarget;
   }): Promise<ExternalEffectObservation>;
 }
+
 /** Implements draft publication effects and its boundary checks. */
 export class DraftPublicationEffects implements ReconcilableEffectAdapter<DraftPrPayload> {
-  /** Provides id to draft publication effects. */
+  /** Stable identifier for draft publication effects. */
   public readonly id = "draft-publication";
-  /** Records the version used for compatibility checks. */
+  /** Ordered version used by compatibility checks. */
   public readonly version = "1";
-  /** Provides targets to draft publication effects. */
+  /** Ordered draft publication target accepted by draft publication effects. */
   readonly #targets: ReadonlyMap<string, DraftPublicationTarget>;
   /** Creates draft publication effects with its required collaborators. */
   public constructor(
     targets: readonly DraftPublicationTarget[],
-    /** Provides driver to draft publication effects. */ private readonly driver: DraftPublicationDriver,
+    /** Driver used to control the underlying runtime. */ private readonly driver: DraftPublicationDriver,
   ) {
     if (
       targets.length === 0 ||
@@ -228,22 +233,22 @@ export class DraftPublicationEffects implements ReconcilableEffectAdapter<DraftP
   }
   /** Applies the requested draft publication. */
   public apply(input: {
-    /** Provides control to apply. */
+    /** Cancellation signal and absolute deadline for the effect. */
     readonly control: ExternalEffectControl;
-    /** Identifies effect. */
+    /** Stable identifier for effect id. */
     readonly effectId: string;
-    /** Provides payload to apply. */
+    /** Validated effect payload. */
     readonly payload: DraftPrPayload;
   }): Promise<ExternalEffectObservation> {
     return this.driver.apply({ ...input, target: this.target(input.payload) });
   }
   /** Reconciles previously observed draft publication state. */
   public reconcile(input: {
-    /** Provides control to reconcile. */
+    /** Cancellation signal and absolute deadline for the effect. */
     readonly control: ExternalEffectControl;
-    /** Identifies effect. */
+    /** Stable identifier for effect id. */
     readonly effectId: string;
-    /** Provides payload to reconcile. */
+    /** Validated effect payload. */
     readonly payload: DraftPrPayload;
   }): Promise<ExternalEffectObservation> {
     return this.driver.reconcile({
@@ -253,7 +258,7 @@ export class DraftPublicationEffects implements ReconcilableEffectAdapter<DraftP
   }
   /** Returns the publication target authorized for the repository. */
   private target(payload: DraftPrPayload): DraftPublicationTarget {
-    /** Stores target used by target. */
+    /** Target snapshot used consistently during the target operation. */
     const target = this.#targets.get(payload.publicationTarget);
     if (
       target === undefined ||
@@ -266,52 +271,54 @@ export class DraftPublicationEffects implements ReconcilableEffectAdapter<DraftP
   }
 }
 
-/** Defines the data and behavior required by disposable browser environment. */
+/** Trusted dependencies available to disposable browser. */
 export interface DisposableBrowserEnvironment {
-  /** Lists network origins allowed for this browser environment. */
+  /** Ordered network origins allowed for this browser environment. */
   readonly allowedOrigins: readonly string[];
-  /** Provides id to disposable browser environment. */
+  /** Stable identifier for disposable browser environment. */
   readonly id: string;
   /** Requires this browser environment to provide isolation. */
   readonly isolated: true;
 }
-/** Defines the data and behavior required by disposable browser driver. */
+
+/** Disposable browser driver boundary. */
 export interface DisposableBrowserDriver {
   /** Applies the requested disposable browser operation. */
   apply(input: {
-    /** Provides control to disposable browser driver. */
+    /** Cancellation signal and absolute deadline for the effect. */
     readonly control: ExternalEffectControl;
-    /** Identifies effect. */
+    /** Stable identifier for effect id. */
     readonly effectId: string;
-    /** Provides environment to disposable browser driver. */
+    /** Environment variables exposed to the operation. */
     readonly environment: DisposableBrowserEnvironment;
-    /** Provides payload to disposable browser driver. */
+    /** Validated effect payload. */
     readonly payload: BrowserRunPayload;
   }): Promise<ExternalEffectObservation>;
   /** Reconciles previously observed disposable browser state. */
   reconcile(input: {
-    /** Provides control to disposable browser driver. */
+    /** Cancellation signal and absolute deadline for the effect. */
     readonly control: ExternalEffectControl;
-    /** Identifies effect. */
+    /** Stable identifier for effect id. */
     readonly effectId: string;
-    /** Provides environment to disposable browser driver. */
+    /** Environment variables exposed to the operation. */
     readonly environment: DisposableBrowserEnvironment;
-    /** Provides payload to disposable browser driver. */
+    /** Validated effect payload. */
     readonly payload: BrowserRunPayload;
   }): Promise<ExternalEffectObservation>;
 }
+
 /** Implements disposable browser effects and its boundary checks. */
 export class DisposableBrowserEffects implements ReconcilableEffectAdapter<BrowserRunPayload> {
-  /** Provides id to disposable browser effects. */
+  /** Stable identifier for disposable browser effects. */
   public readonly id = "disposable-browser";
-  /** Records the version used for compatibility checks. */
+  /** Ordered version used by compatibility checks. */
   public readonly version = "1";
-  /** Provides environments to disposable browser effects. */
+  /** Ordered disposable browser environment accepted by disposable browser effects. */
   readonly #environments: ReadonlyMap<string, DisposableBrowserEnvironment>;
   /** Creates disposable browser effects with its required collaborators. */
   public constructor(
     environments: readonly DisposableBrowserEnvironment[],
-    /** Provides driver to disposable browser effects. */ private readonly driver: DisposableBrowserDriver,
+    /** Driver used to control the underlying runtime. */ private readonly driver: DisposableBrowserDriver,
   ) {
     if (
       environments.length === 0 ||
@@ -326,11 +333,11 @@ export class DisposableBrowserEffects implements ReconcilableEffectAdapter<Brows
   }
   /** Applies the requested local HTTP operation. */
   public apply(input: {
-    /** Provides control to apply. */
+    /** Cancellation signal and absolute deadline for the effect. */
     readonly control: ExternalEffectControl;
-    /** Identifies effect. */
+    /** Stable identifier for effect id. */
     readonly effectId: string;
-    /** Provides payload to apply. */
+    /** Validated effect payload. */
     readonly payload: BrowserRunPayload;
   }): Promise<ExternalEffectObservation> {
     return this.driver.apply({
@@ -340,11 +347,11 @@ export class DisposableBrowserEffects implements ReconcilableEffectAdapter<Brows
   }
   /** Reconciles previously observed local HTTP state. */
   public reconcile(input: {
-    /** Provides control to reconcile. */
+    /** Cancellation signal and absolute deadline for the effect. */
     readonly control: ExternalEffectControl;
-    /** Identifies effect. */
+    /** Stable identifier for effect id. */
     readonly effectId: string;
-    /** Provides payload to reconcile. */
+    /** Validated effect payload. */
     readonly payload: BrowserRunPayload;
   }): Promise<ExternalEffectObservation> {
     return this.driver.reconcile({
@@ -354,7 +361,7 @@ export class DisposableBrowserEffects implements ReconcilableEffectAdapter<Brows
   }
   /** Returns the configured environment or credentials for the requested boundary. */
   private environment(id: string): DisposableBrowserEnvironment {
-    /** Holds the parsed value being validated by environment. */
+    /** Parsed candidate awaiting environment validation. */
     const found = this.#environments.get(id);
     if (found === undefined)
       throw new Error(`Browser environment is not configured: ${id}`);
@@ -380,6 +387,7 @@ function validateCommand(command: ConfiguredCommand): void {
   )
     throw new TypeError("Command executable path is invalid");
 }
+
 /** Rejects invalid browser environment before it crosses the boundary. */
 function validateBrowserEnvironment(
   environment: DisposableBrowserEnvironment,
@@ -393,7 +401,7 @@ function validateBrowserEnvironment(
   )
     throw new TypeError("Disposable browser environment is invalid");
   for (const origin of environment.allowedOrigins) {
-    /** Stores url used by validate browser environment. */
+    /** Result of `URL`, retained for the validate browser environment operation. */
     const url = new URL(origin);
     if (
       !(["http:", "https:"] as string[]).includes(url.protocol) ||
@@ -402,6 +410,7 @@ function validateBrowserEnvironment(
       throw new TypeError("Browser origin must be an exact HTTP(S) origin");
   }
 }
+
 /** Creates the corresponding canonical external-effect observation. */
 function applied(
   externalIdentity: JsonObject,
@@ -409,10 +418,12 @@ function applied(
 ): ExternalEffectObservation {
   return createEffectObservation("applied", evidence, externalIdentity);
 }
+
 /** Creates the corresponding canonical external-effect observation. */
 function failed(evidence: JsonObject): ExternalEffectObservation {
   return createEffectObservation("failed", evidence);
 }
+
 /** Creates the corresponding canonical external-effect observation. */
 function notApplied(evidence: JsonObject): ExternalEffectObservation {
   return createEffectObservation("not_applied", evidence);

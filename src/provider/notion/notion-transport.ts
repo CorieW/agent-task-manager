@@ -1,17 +1,17 @@
-/** Provides the single-attempt, deadline-bound HTTP boundary used by the Notion provider. */
+/** The single-attempt, deadline-bound HTTP boundary used by the Notion provider. */
 import type { JsonObject, JsonValue } from "../../domain/json.js";
 import { toJsonValue } from "../../domain/json.js";
 
-/** Defines the module-level `NOTION_API_VERSION` value. */
+/** Pinned Notion API version sent with every request. */
 export const NOTION_API_VERSION = "2026-03-11";
 
-/** Defines Notion request. */
+/** Inputs accepted by Notion. */
 export interface NotionRequest {
   /** Optionally contains body for Notion request. */
   readonly body?: JsonValue;
-  /** Contains method for Notion request. */
+  /** HTTP method used for the provider request. */
   readonly method: "DELETE" | "GET" | "PATCH" | "POST";
-  /** Contains path for Notion request. */
+  /** Provider-relative request path. */
   readonly path: string;
   /** Optionally contains query for Notion request. */
   readonly query?: Readonly<Record<string, boolean | number | string | null>>;
@@ -19,13 +19,13 @@ export interface NotionRequest {
   readonly signal?: AbortSignal;
 }
 
-/** Defines Notion transport. */
+/** Provider-neutral Notion transport contract. */
 export interface NotionTransport {
   /** Executes one provider request. */
   request(request: NotionRequest): Promise<JsonObject>;
 }
 
-/** Defines Notion HTTP transport options. */
+/** Inputs accepted by Notion HTTP transport. */
 export interface NotionHttpTransportOptions {
   /** Selects the Notion API version. */
   readonly apiVersion?: string;
@@ -33,7 +33,7 @@ export interface NotionHttpTransportOptions {
   readonly baseUrl?: string;
   /** Optionally contains fetch for Notion HTTP transport options. */
   readonly fetch?: typeof fetch;
-  /** Contains token for Notion HTTP transport options. */
+  /** Secret bearer token used for Notion requests. */
   readonly token: string;
   /** Optionally sets timeout in milliseconds for Notion HTTP transport options. */
   readonly timeoutMilliseconds?: number;
@@ -44,10 +44,10 @@ export class NotionApiError extends Error {
   /** Initializes Notion API error. */
   public constructor(
     message: string,
-    /** Records the status for Notion API error. */ public readonly status: number,
-    /** Contains code for Notion API error. */ public readonly code:
+    /** Current workflow status. */ public readonly status: number,
+    /** Machine-readable outcome or failure code. */ public readonly code:
       string | null,
-    /** Contains Retry-After seconds when supplied by Notion. */ public readonly retryAfterSeconds:
+    /** Retry-After seconds when supplied by Notion. */ public readonly retryAfterSeconds:
       number | null,
   ) {
     super(message);
@@ -56,15 +56,15 @@ export class NotionApiError extends Error {
 
 /** Implements Notion HTTP transport. */
 export class NotionHttpTransport implements NotionTransport {
-  /** Contains API version for Notion HTTP transport. */
+  /** Apiversion dependency consumed by Notion HTTP transport. */
   readonly #apiVersion: string;
-  /** Contains base URL for Notion HTTP transport. */
+  /** Base URL of the Notion API. */
   readonly #baseUrl: string;
-  /** Contains fetch for Notion HTTP transport. */
+  /** HTTP implementation used by the Notion transport. */
   readonly #fetch: typeof fetch;
-  /** Contains token for Notion HTTP transport. */
+  /** Secret bearer token used for Notion requests. */
   readonly #token: string;
-  /** Sets timeout in milliseconds for Notion HTTP transport. */
+  /** Request timeout in milliseconds for Notion HTTP transport. */
   readonly #timeoutMilliseconds: number;
 
   /** Initializes Notion HTTP transport. */
@@ -89,13 +89,13 @@ export class NotionHttpTransport implements NotionTransport {
 
   /** Executes one provider request. */
   public async request(request: NotionRequest): Promise<JsonObject> {
-    /** Holds the `url` intermediate used by `request`. */
+    /** Result of `URL`, retained for `request`. */
     const url = new URL(`${this.#baseUrl}${request.path}`);
     for (const [key, value] of Object.entries(request.query ?? {})) {
       if (value !== null) url.searchParams.set(key, String(value));
     }
 
-    /** Holds the `init` intermediate used by `request`. */
+    /** Init snapshot used consistently during `request`. */
     const init: RequestInit = {
       headers: {
         Accept: "application/json",
@@ -113,7 +113,7 @@ export class NotionHttpTransport implements NotionTransport {
             ]),
     };
     if (request.body !== undefined) init.body = JSON.stringify(request.body);
-    /** Captures `response` returned by `request`. */
+    /** Result of `request`, retained for validation and reuse. */
     let response: Response;
     try {
       response = await this.#fetch(url, init);
@@ -132,13 +132,13 @@ export class NotionHttpTransport implements NotionTransport {
       }
       throw error;
     }
-    /** Holds the `raw` intermediate used by `request`. */
+    /** Result of `toJsonValue`, retained for `request`. */
     const raw: unknown = await response
       .json()
       .catch(() => ({ message: "Non-JSON Notion response" }));
-    /** Holds the `value` intermediate used by `request`. */
+    /** Result of `toJsonValue`, retained for `request`. */
     const value = toJsonValue(raw);
-    /** Holds the `object` intermediate used by `request`. */
+    /** Result of `asObject`, retained for `request`. */
     const object = asObject(value, "Notion response");
     if (!response.ok) {
       throw new NotionApiError(
@@ -154,13 +154,13 @@ export class NotionHttpTransport implements NotionTransport {
   }
 }
 
-/** Defines Notion page. */
+/** Provider-neutral Notion page contract. */
 export interface NotionPage<T extends JsonObject> {
   /** Reports whether has more. */
   readonly has_more: boolean;
-  /** Contains next cursor for Notion page. */
+  /** Ordered next cursor used by Notion page. */
   readonly next_cursor: string | null;
-  /** Contains results for Notion page. */
+  /** Results callback invoked by Notion page. */
   readonly results: readonly T[];
 }
 
@@ -169,17 +169,17 @@ export async function collectNotionPages<T extends JsonObject>(
   fetchPage: (cursor: string | null) => Promise<JsonObject>,
   maxResults = Number.POSITIVE_INFINITY,
 ): Promise<readonly T[]> {
-  /** Holds the `results` intermediate used by `collectNotionPages`. */
+  /** Result of `Set`, retained for `collectNotionPages`. */
   const results: T[] = [];
-  /** Tracks unique entries in `seen` for `collectNotionPages`. */
+  /** Seen seen used to reject duplicates in `collectNotionPages`. */
   const seen = new Set<string>();
-  /** Holds the `cursor` intermediate used by `collectNotionPages`. */
+  /** Cursor snapshot used consistently during `collectNotionPages`. */
   let cursor: string | null = null;
   do {
     if (cursor !== null && seen.has(cursor))
       throw new Error("Notion pagination cursor repeated");
     if (cursor !== null) seen.add(cursor);
-    /** Holds the `page` intermediate used by `collectNotionPages`. */
+    /** Result of `parseNotionPage`, retained for `collectNotionPages`. */
     const page: NotionPage<T> = parseNotionPage<T>(await fetchPage(cursor));
     results.push(...page.results);
     if (results.length > maxResults)
@@ -212,7 +212,7 @@ function parseNotionPage<T extends JsonObject>(
     throw new TypeError("Notion list response omitted results");
   if (typeof value.has_more !== "boolean")
     throw new TypeError("Notion list response omitted has_more");
-  /** Holds the `nextCursor` intermediate used by `parseNotionPage`. */
+  /** Next cursor snapshot used consistently during `parseNotionPage`. */
   const nextCursor = value.next_cursor;
   if (nextCursor !== null && typeof nextCursor !== "string") {
     throw new TypeError("Notion list response has invalid next_cursor");
@@ -229,7 +229,7 @@ function parseNotionPage<T extends JsonObject>(
 /** Parses and validates retry after. */
 function parseRetryAfter(value: string | null): number | null {
   if (value === null) return null;
-  /** Holds the `seconds` intermediate used by `parseRetryAfter`. */
+  /** Result of `Number`, retained for `parseRetryAfter`. */
   const seconds = Number(value);
   return Number.isFinite(seconds) && seconds >= 0 ? seconds : null;
 }

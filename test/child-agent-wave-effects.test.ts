@@ -14,14 +14,15 @@ import {
   type WorkspaceSchemaDescriptor,
 } from "../src/index.js";
 
-/** Defines the shared environment fixture for this test module. */
+/** Supplies the provider environment shared by the scenarios. */
 const environment: ProviderEnvironment = {
   bootstrapParent: null,
   connection: {},
   tables: { errors: "e", resources: "r", agents: "a", tasks: "t" },
   type: "memory",
 };
-/** Defines the shared target fixture for this test module. */
+
+/** Supplies the canonical workspace schema target. */
 const target: WorkspaceSchemaDescriptor = {
   digest: "target",
   providerType: "memory",
@@ -30,21 +31,21 @@ const target: WorkspaceSchemaDescriptor = {
 };
 
 test("runs dependency-ordered nodes and persists each receipt in Resources", async () => {
-  /** Defines the provider fixture for “runs dependency-ordered nodes and persists each receipt in Resources”. */
+  /** Provides isolated provider state for the scenario. */
   const provider = new InMemoryProvider(environment, target);
-  /** Defines the context a fixture for “runs dependency-ordered nodes and persists each receipt in Resources”. */
+  /** Creates the first pinned child-agent context Resource. */
   const contextA = await context(provider, "context/a");
-  /** Defines the context b fixture for “runs dependency-ordered nodes and persists each receipt in Resources”. */
+  /** Creates the dependent child-agent context Resource. */
   const contextB = await context(provider, "context/b");
-  /** Defines the order fixture for “runs dependency-ordered nodes and persists each receipt in Resources”. */
+  /** Records dependency-ordered child-agent execution. */
   const order: string[] = [];
-  /** Defines the driver fixture for “runs dependency-ordered nodes and persists each receipt in Resources”. */
+  /** Simulates child-agent execution and records call order. */
   const driver: ChildAgentNodeDriver = {
     /** Simulates effect reconciliation. */
     async reconcile() {
       return notApplied;
     },
-    /** Creates the run test fixture. */
+    /** Records and completes one child-agent node execution. */
     async run(input) {
       order.push(input.node.nodeKey);
       if (input.node.nodeKey === "b")
@@ -59,9 +60,9 @@ test("runs dependency-ordered nodes and persists each receipt in Resources", asy
       };
     },
   };
-  /** Defines the effects fixture for “runs dependency-ordered nodes and persists each receipt in Resources”. */
+  /** Runs the child-agent wave through the effect broker. */
   const effects = new ProviderChildAgentWaveEffects(provider, driver);
-  /** Defines the payload fixture for “runs dependency-ordered nodes and persists each receipt in Resources”. */
+  /** Supplies the child-agent result persisted by the wave. */
   const payload = {
     maxConcurrency: 2,
     nodes: [
@@ -83,12 +84,12 @@ test("runs dependency-ordered nodes and persists each receipt in Resources", asy
       },
     ],
   } as const;
-  /** Defines the control fixture for “runs dependency-ordered nodes and persists each receipt in Resources”. */
+  /** Supplies the deadline and cancellation signal to the wave. */
   const control = {
     deadlineAt: Date.now() + 10_000,
     signal: new AbortController().signal,
   };
-  /** Defines the result fixture for “runs dependency-ordered nodes and persists each receipt in Resources”. */
+  /** Captures the operation outcome used by assertions. */
   const result = await effects.apply({
     control,
     effectId: "c".repeat(64),
@@ -105,13 +106,13 @@ test("runs dependency-ordered nodes and persists each receipt in Resources", asy
 });
 
 test("rejects malformed node receipts and changed context pins", async () => {
-  /** Defines the provider fixture for “rejects malformed node receipts and changed context pins”. */
+  /** Provides isolated provider state for the scenario. */
   const provider = new InMemoryProvider(environment, target);
-  /** Defines the context digest fixture for “rejects malformed node receipts and changed context pins”. */
+  /** Pins the child-agent context expected by the receipt. */
   const contextDigest = await context(provider, "context/a");
-  /** Defines the effect ID fixture for “rejects malformed node receipts and changed context pins”. */
+  /** Identifies the persisted child-agent node intent. */
   const effectId = "d".repeat(64);
-  /** Defines the node fixture for “rejects malformed node receipts and changed context pins”. */
+  /** Describes the child-agent wave node being reconciled. */
   const node = {
     contextDigest,
     contextResource: "context/a",
@@ -120,7 +121,7 @@ test("rejects malformed node receipts and changed context pins", async () => {
     dependsOn: [],
     nodeKey: "a",
   } as const;
-  /** Defines the malformed fixture for “rejects malformed node receipts and changed context pins”. */
+  /** Builds a deliberately invalid child-agent receipt. */
   const malformed = canonicalize(
     toJsonValue({
       contextDigest,
@@ -149,13 +150,13 @@ test("rejects malformed node receipts and changed context pins", async () => {
     state: "active",
     version: "v1",
   });
-  /** Defines the effects fixture for “rejects malformed node receipts and changed context pins”. */
+  /** Runs the child-agent wave through the effect broker. */
   const effects = new ProviderChildAgentWaveEffects(provider, {
     /** Simulates effect reconciliation. */
     async reconcile() {
       return notApplied;
     },
-    /** Creates the run test fixture. */
+    /** Returns a neutral observation when malformed state reaches execution. */
     async run() {
       return notApplied;
     },
@@ -173,14 +174,14 @@ test("rejects malformed node receipts and changed context pins", async () => {
   );
 });
 
-/** Creates the context test fixture. */
+/** Persists and returns the digest of a pinned Agent context Resource. */
 async function context(
   provider: InMemoryProvider,
   key: string,
 ): Promise<string> {
-  /** Defines the body fixture used by context. */
+  /** Decodes the request body consumed by the fake transport. */
   const body = canonicalize(toJsonValue({ input: key }));
-  /** Defines the digest fixture used by context. */
+  /** Pins the canonical content expected by the Resource read. */
   const digest = sha256(body);
   await provider.putResource({
     body,
@@ -194,7 +195,8 @@ async function context(
   });
   return digest;
 }
-/** Defines the shared not applied fixture for this test module. */
+
+/** Represents an effect observation with no external change. */
 const notApplied: ExternalEffectObservation = {
   evidence: {},
   externalIdentity: {},

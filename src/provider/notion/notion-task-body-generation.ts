@@ -1,12 +1,12 @@
-/** Defines the single parser and ordering rule for append-only Notion Task bodies. */
+/** Provider-neutral the single parser and ordering rule for append-only Notion Task bodies contract. */
 import type { JsonObject, JsonValue } from "../../domain/json.js";
 import { NOTION_TASK_MUTATION_CAPTION_PREFIX } from "./notion-schema.js";
 
-/** Defines Notion task body generation. */
+/** Provider-neutral Notion task body generation contract. */
 export interface NotionTaskBodyGeneration {
-  /** Contains block for Notion task body generation. */
+  /** Notion block containing the selected Task body generation. */
   readonly block: JsonObject;
-  /** Contains body for Notion task body generation. */
+  /** Canonical body extracted from the selected generation. */
   readonly body: string;
   /** Binds Notion task body generation to canonical record content. */
   readonly digest: string;
@@ -16,7 +16,7 @@ export interface NotionTaskBodyGeneration {
 export function activeTaskBodyGeneration(
   blocks: readonly JsonObject[],
 ): NotionTaskBodyGeneration | null {
-  /** Holds the `generations` intermediate used by `activeTaskBodyGeneration`. */
+  /** Derived generations value for `activeTaskBodyGeneration`. */
   const generations = blocks
     .map(taskBodyGeneration)
     .filter((value): value is NotionTaskBodyGeneration => value !== null);
@@ -28,13 +28,13 @@ export function taskBodyGeneration(
   block: JsonObject,
 ): NotionTaskBodyGeneration | null {
   if (block.type !== "code") return null;
-  /** Holds the `code` intermediate used by `taskBodyGeneration`. */
+  /** Result of `objectValue`, retained for `taskBodyGeneration`. */
   const code = objectValue(block.code);
   if (code.language !== "markdown") return null;
-  /** Holds the `caption` intermediate used by `taskBodyGeneration`. */
+  /** Result of `richTextValue`, retained for `taskBodyGeneration`. */
   const caption = richTextValue(code.caption);
   if (!caption.startsWith(NOTION_TASK_MUTATION_CAPTION_PREFIX)) return null;
-  /** Holds the `digest` intermediate used by `taskBodyGeneration`. */
+  /** Result of `caption.slice`, retained for `taskBodyGeneration`. */
   const digest = caption.slice(NOTION_TASK_MUTATION_CAPTION_PREFIX.length);
   if (!/^[a-f0-9]{64}$/u.test(digest)) return null;
   return {
@@ -61,10 +61,10 @@ function richTextValue(value: JsonValue | undefined): string {
   if (!Array.isArray(value)) return "";
   return value
     .map((item) => {
-      /** Holds the `object` intermediate used by `richTextValue`. */
+      /** Result of `objectValue`, retained for `richTextValue`. */
       const object = objectValue(item);
       if (typeof object.plain_text === "string") return object.plain_text;
-      /** Holds the `text` intermediate used by `richTextValue`. */
+      /** Result of `objectValue`, retained for `richTextValue`. */
       const text = objectValue(object.text);
       return typeof text.content === "string" ? text.content : "";
     })

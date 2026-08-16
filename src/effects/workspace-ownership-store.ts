@@ -6,45 +6,46 @@ import { toJsonValue } from "../domain/json.js";
 import type { AgentTaskProvider } from "../provider/agent-task-provider.js";
 import type { WorkspaceProvisionPayload } from "./typed-effect-handlers.js";
 
-/** Defines the data and behavior required by workspace ownership record. */
+/** Persisted state for workspace ownership. */
 export interface WorkspaceOwnershipRecord {
-  /** Provides mode to workspace ownership record. */
+  /** Selected operating mode. */
   readonly mode: WorkspaceProvisionPayload["mode"];
-  /** Identifies provision effect. */
+  /** Stable identifier for provision effect id. */
   readonly provisionEffectId: string;
-  /** Identifies release effect. */
+  /** Stable identifier for release effect id. */
   readonly releaseEffectId: string | null;
-  /** Identifies repository. */
+  /** Stable identifier for repository id. */
   readonly repositoryId: string;
   /** Version tag for the workspace ownership record representation. */
   readonly schema: "workspace-ownership-v1";
-  /** Records the current state for workflow decisions. */
+  /** Lifecycle state used for workflow decisions. */
   readonly state: "active" | "released";
-  /** Identifies workspace. */
+  /** Stable key of the target workspace. */
   readonly workspaceKey: string;
 }
-/** Defines the data and behavior required by workspace ownership store. */
+
+/** Workspace ownership store boundary. */
 export interface WorkspaceOwnershipStore {
   /** Claims exclusive workspace ownership when no conflicting live owner exists. */
   claim(input: {
-    /** Provides mode to workspace ownership store. */
+    /** Selected operating mode. */
     readonly mode: WorkspaceProvisionPayload["mode"];
-    /** Identifies provision effect. */
+    /** Stable identifier for provision effect id. */
     readonly provisionEffectId: string;
-    /** Identifies repository. */
+    /** Stable identifier for repository id. */
     readonly repositoryId: string;
-    /** Identifies workspace. */
+    /** Stable key of the target workspace. */
     readonly workspaceKey: string;
   }): Promise<WorkspaceOwnershipRecord>;
   /** Returns the ownership record for an exact workspace path. */
   get(workspaceKey: string): Promise<WorkspaceOwnershipRecord | null>;
   /** Releases workspace ownership held by the matching owner. */
   release(input: {
-    /** Identifies release effect. */
+    /** Stable identifier for release effect id. */
     readonly releaseEffectId: string;
-    /** Identifies repository. */
+    /** Stable identifier for repository id. */
     readonly repositoryId: string;
-    /** Identifies workspace. */
+    /** Stable key of the target workspace. */
     readonly workspaceKey: string;
   }): Promise<WorkspaceOwnershipRecord>;
 }
@@ -53,14 +54,14 @@ export interface WorkspaceOwnershipStore {
 export class ProviderWorkspaceOwnershipStore implements WorkspaceOwnershipStore {
   /** Creates provider workspace ownership store with its required collaborators. */
   public constructor(
-    /** Provides provider to provider workspace ownership store. */ private readonly provider: AgentTaskProvider,
-    /** Sets claim in milliseconds. */ private readonly claimMilliseconds = 60_000,
+    /** Provider boundary used for durable state reads and writes. */ private readonly provider: AgentTaskProvider,
+    /** Claim in milliseconds. */ private readonly claimMilliseconds = 60_000,
   ) {}
   /** Returns the provider-backed ownership record for an exact workspace path. */
   public async get(
     workspaceKey: string,
   ): Promise<WorkspaceOwnershipRecord | null> {
-    /** Stores resource used by get. */
+    /** Result of `this.provider.getOptionalResource`, retained for the get operation. */
     const resource = await this.provider.getOptionalResource(key(workspaceKey));
     if (resource === null) return null;
     if (
@@ -76,17 +77,17 @@ export class ProviderWorkspaceOwnershipStore implements WorkspaceOwnershipStore 
   }
   /** Claims exclusive workspace ownership when no conflicting live owner exists. */
   public async claim(input: {
-    /** Provides mode to claim. */
+    /** Selected operating mode. */
     readonly mode: WorkspaceProvisionPayload["mode"];
-    /** Identifies provision effect. */
+    /** Stable identifier for provision effect id. */
     readonly provisionEffectId: string;
-    /** Identifies repository. */
+    /** Stable identifier for repository id. */
     readonly repositoryId: string;
-    /** Identifies workspace. */
+    /** Workspace key callback invoked by workspace. */
     readonly workspaceKey: string;
   }): Promise<WorkspaceOwnershipRecord> {
     return this.withLock(input.workspaceKey, async () => {
-      /** Stores current used by claim. */
+      /** Result of `this.get`, retained for the claim operation. */
       const current = await this.get(input.workspaceKey);
       if (current !== null && current.state === "active") {
         if (
@@ -97,7 +98,7 @@ export class ProviderWorkspaceOwnershipStore implements WorkspaceOwnershipStore 
           throw new Error("Workspace is owned by another effect");
         return current;
       }
-      /** Holds the durable record processed by claim. */
+      /** Durable child-node record processed by claim. */
       const record: WorkspaceOwnershipRecord = {
         ...input,
         releaseEffectId: null,
@@ -110,15 +111,15 @@ export class ProviderWorkspaceOwnershipStore implements WorkspaceOwnershipStore 
   }
   /** Releases workspace ownership held by the matching owner. */
   public async release(input: {
-    /** Identifies release effect. */
+    /** Stable identifier for release effect id. */
     readonly releaseEffectId: string;
-    /** Identifies repository. */
+    /** Stable identifier for repository id. */
     readonly repositoryId: string;
-    /** Identifies workspace. */
+    /** Workspace key callback invoked by workspace. */
     readonly workspaceKey: string;
   }): Promise<WorkspaceOwnershipRecord> {
     return this.withLock(input.workspaceKey, async () => {
-      /** Stores current used by release. */
+      /** Result of `this.get`, retained for the release operation. */
       const current = await this.get(input.workspaceKey);
       if (current === null || current.repositoryId !== input.repositoryId)
         throw new Error("Workspace ownership cannot be released");
@@ -127,7 +128,7 @@ export class ProviderWorkspaceOwnershipStore implements WorkspaceOwnershipStore 
           throw new Error("Workspace was released by another effect");
         return current;
       }
-      /** Holds the durable record processed by release. */
+      /** Durable child-node record processed by release. */
       const record: WorkspaceOwnershipRecord = {
         ...current,
         releaseEffectId: input.releaseEffectId,
@@ -139,7 +140,7 @@ export class ProviderWorkspaceOwnershipStore implements WorkspaceOwnershipStore 
   }
   /** Persists and verifies the durable provider workspace ownership store record. */
   private async write(record: WorkspaceOwnershipRecord): Promise<void> {
-    /** Stores body used by write. */
+    /** Result of `canonicalize`, retained for the write operation. */
     const body = canonicalize(toJsonValue(record));
     await this.provider.putResource({
       body,
@@ -151,7 +152,7 @@ export class ProviderWorkspaceOwnershipStore implements WorkspaceOwnershipStore 
       state: "active",
       version: "v1",
     });
-    /** Stores verified used by write. */
+    /** Result of `this.get`, retained for the write operation. */
     const verified = await this.get(record.workspaceKey);
     if (verified === null || canonicalize(toJsonValue(verified)) !== body)
       throw new Error("Workspace ownership write did not verify");
@@ -161,9 +162,9 @@ export class ProviderWorkspaceOwnershipStore implements WorkspaceOwnershipStore 
     workspaceKey: string,
     operation: () => Promise<T>,
   ): Promise<T> {
-    /** Stores owner id used by with lock. */
+    /** Result of `this.provider.acquireLease`, retained for the with lock operation. */
     const ownerId = `workspace-ownership:${randomUUID()}`;
-    /** Stores acquired used by with lock. */
+    /** Result of `this.provider.acquireLease`, retained for the with lock operation. */
     const acquired = await this.provider.acquireLease({
       expiresAt: new Date(Date.now() + this.claimMilliseconds).toISOString(),
       idempotencyKey: `workspace-ownership-claim:${sha256(workspaceKey)}:${ownerId}`,
@@ -187,11 +188,13 @@ export class ProviderWorkspaceOwnershipStore implements WorkspaceOwnershipStore 
     }
   }
 }
+
 /** Validates and returns a bounded provider key. */
 function key(workspaceKey: string): string {
   return `workspace-ownership/${sha256(workspaceKey)}`;
 }
-/** Stores ownership keys used by the current operation. */
+
+/** Ownership keys snapshot used consistently during the the current operation operation. */
 const OWNERSHIP_KEYS = [
   "mode",
   "provisionEffectId",
@@ -201,23 +204,24 @@ const OWNERSHIP_KEYS = [
   "state",
   "workspaceKey",
 ] as const;
+
 /** Parses and validates a durable workspace ownership record. */
 function parse(value: unknown, workspaceKey: string): WorkspaceOwnershipRecord {
   if (value === null || typeof value !== "object" || Array.isArray(value))
     throw new TypeError("Workspace ownership must be an object");
-  /** Holds the parsed value being validated by parse. */
+  /** Parsed candidate awaiting parse validation. */
   const found = value as Record<string, unknown>;
   requireClosedKeys(found);
-  /** Stores mode used by parse. */
+  /** Result of `requireMode`, retained for the parse operation. */
   const mode = requireMode(found.mode);
-  /** Tracks mutable state shared by parse. */
+  /** Mutable state shared across parse. */
   const state = requireState(found.state);
-  /** Stores provision effect id used by parse. */
+  /** Result of `requireDigest`, retained for the parse operation. */
   const provisionEffectId = requireDigest(
     found.provisionEffectId,
     "provisionEffectId",
   );
-  /** Stores release effect id used by parse. */
+  /** Release effect id snapshot used consistently during the parse operation. */
   const releaseEffectId =
     found.releaseEffectId === null
       ? null
@@ -244,6 +248,7 @@ function parse(value: unknown, workspaceKey: string): WorkspaceOwnershipRecord {
     workspaceKey,
   };
 }
+
 /** Returns closed keys or throws when invalid or absent. */
 function requireClosedKeys(value: Record<string, unknown>): void {
   if (
@@ -252,18 +257,21 @@ function requireClosedKeys(value: Record<string, unknown>): void {
   )
     throw new TypeError("Workspace ownership fields are malformed");
 }
+
 /** Returns digest or throws when invalid or absent. */
 function requireDigest(value: unknown, field: string): string {
   if (typeof value !== "string" || !/^[a-f0-9]{64}$/u.test(value))
     throw new TypeError(`Workspace ownership ${field} is malformed`);
   return value;
 }
+
 /** Returns mode or throws when invalid or absent. */
 function requireMode(value: unknown): WorkspaceOwnershipRecord["mode"] {
   if (value !== "mirror" && value !== "worktree")
     throw new TypeError("Workspace ownership mode is malformed");
   return value;
 }
+
 /** Returns state or throws when invalid or absent. */
 function requireState(value: unknown): WorkspaceOwnershipRecord["state"] {
   if (value !== "active" && value !== "released")

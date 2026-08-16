@@ -1,4 +1,4 @@
-/** Stores complete external-effect intents and receipts in provider Resources. */
+/** Complete external-effect intents and receipts in provider Resources. */
 import { canonicalize } from "../core/canonical-json.js";
 import { randomUUID } from "node:crypto";
 import { sha256 } from "../core/digest.js";
@@ -7,21 +7,21 @@ import type { ResourceRecord } from "../domain/records.js";
 import type { AgentTaskProvider } from "../provider/agent-task-provider.js";
 import type { ExternalEffectIntentRecord } from "./contracts.js";
 
-/** Stores effect resource version used by the current operation. */
+/** Effect resource version snapshot used consistently during the the current operation operation. */
 const EFFECT_RESOURCE_VERSION = "v2";
 
 /** Implements provider effect journal and its boundary checks. */
 export class ProviderEffectJournal {
   /** Creates provider effect journal with its required collaborators. */
   public constructor(
-    /** Provides provider to provider effect journal. */ private readonly provider: AgentTaskProvider,
+    /** Provider boundary used for durable state reads and writes. */ private readonly provider: AgentTaskProvider,
   ) {}
 
   /** Reads the durable intent record for an effect identity. */
   public async read(
     effectId: string,
   ): Promise<ExternalEffectIntentRecord | null> {
-    /** Stores resource used by read. */
+    /** Result of `this.provider.getOptionalResource`, retained for the read operation. */
     const resource = await this.provider.getOptionalResource(
       effectResourceKey(effectId),
     );
@@ -33,7 +33,7 @@ export class ProviderEffectJournal {
   /** Persists and verifies the durable provider effect journal record. */
   public async write(record: ExternalEffectIntentRecord): Promise<void> {
     validateIntent(record);
-    /** Stores body used by write. */
+    /** Result of `canonicalize`, retained for the write operation. */
     const body = canonicalize(toJsonValue(record));
     await this.provider.putResource({
       body,
@@ -61,7 +61,7 @@ export class ProviderEffectJournal {
   ): Promise<T> {
     /** Uses a fresh owner identity so competing broker attempts cannot share a lease. */
     const ownerId = `external-effect:${randomUUID()}`;
-    /** Records the provider's exclusive-lease decision. */
+    /** The provider's exclusive-lease decision. */
     const acquired = await this.provider.acquireLease({
       expiresAt: new Date(claimExpiresAt).toISOString(),
       idempotencyKey: `external-effect-claim:${effectId}:${ownerId}`,
@@ -110,7 +110,7 @@ function validateResource(resource: ResourceRecord, effectId: string): void {
 
 /** Parses and validates intent. */
 function parseIntent(body: string): ExternalEffectIntentRecord {
-  /** Contains the parsed durable intent value. */
+  /** The parsed durable intent value. */
   const value = JSON.parse(body) as unknown;
   if (value === null || typeof value !== "object" || Array.isArray(value))
     throw new TypeError("External-effect intent must be an object");
@@ -171,6 +171,7 @@ function validateIntent(value: ExternalEffectIntentRecord): void {
 function isSha256Digest(value: string): boolean {
   return /^[a-f0-9]{64}$/u.test(value);
 }
+
 /** Returns whether an error requests retained effect ownership. */
 function hasRetainedClaim(error: unknown): boolean {
   return (
@@ -179,7 +180,7 @@ function hasRetainedClaim(error: unknown): boolean {
     "retainClaimUntilExpiry" in error &&
     (
       error as {
-        /** Provides retain claim until expiry to has retained claim. */ readonly retainClaimUntilExpiry?: unknown;
+        /** Retain claim until expiry dependency consumed by has retained claim. */ readonly retainClaimUntilExpiry?: unknown;
       }
     ).retainClaimUntilExpiry === true
   );
