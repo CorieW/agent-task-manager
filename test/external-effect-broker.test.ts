@@ -22,7 +22,7 @@ import {
 const environment: ProviderEnvironment = {
   bootstrapParent: null,
   connection: {},
-  tables: { errors: "e", resources: "r", subAgents: "a", tasks: "t" },
+  tables: { errors: "e", resources: "r", agents: "a", tasks: "t" },
   type: "memory",
 };
 /** Defines the shared target fixture for this test module. */

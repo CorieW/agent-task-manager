@@ -43,7 +43,7 @@ function environment(): ProviderEnvironment {
   return {
     bootstrapParent: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
     connection: { authEnvironmentVariable: "NOTION_TOKEN" },
-    tables: { errors: null, resources: null, subAgents: null, tasks: null },
+    tables: { errors: null, resources: null, agents: null, tasks: null },
     type: "notion",
   };
 }

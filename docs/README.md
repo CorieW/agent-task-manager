@@ -1,7 +1,7 @@
 # Documentation
 
 Agent Task Manager separates deterministic orchestration from provider-defined
-workflow and sub-agent behavior.
+workflow and agent behavior.
 
 ## Guides
 
@@ -9,7 +9,7 @@ workflow and sub-agent behavior.
   onboarding, workspace planning, inspection, and reconciliation commands.
 - [Notion provider](notion-provider.md) — managed tables, page ranges, activity
   projection, and single-host constraints.
-- [Sub-agent definitions](sub-agent-definitions.md) — provider-owned role
+- [Agent definitions](agent-definitions.md) — provider-owned role
   manifests, Resources, queries, schemas, and activation rules.
 - [Runtime security](runtime-security.md) — adapter boundaries, capability
   grants, dispatch, wire contracts, and failure handling.

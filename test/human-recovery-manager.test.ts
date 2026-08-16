@@ -7,7 +7,7 @@ import {
   InMemoryProvider,
   inspectHumanRecovery,
   parseHumanInteractionSlots,
-  parseSubAgentDefinitionManifest,
+  parseAgentDefinitionManifest,
   reconcileActivity,
   renderHumanInteractionSlot,
   type ConditionalTaskMutation,
@@ -21,7 +21,7 @@ import {
 const environment: ProviderEnvironment = {
   bootstrapParent: null,
   connection: {},
-  tables: { errors: "e", resources: "r", subAgents: "a", tasks: "t" },
+  tables: { errors: "e", resources: "r", agents: "a", tasks: "t" },
   type: "memory",
 };
 /** Defines the shared target fixture for this test module. */
@@ -44,7 +44,7 @@ test("creates a stable Error and resolution slot before Needs Human Resolution",
       description: "Publication is not configured.",
       errorKey: "publication/missing",
       relatedRunId: "run-1",
-      relatedSubAgentId: "coder",
+      relatedAgentId: "coder",
       resolution: "Configure a draft publication target, then choose resume.",
       severity: "high",
       status: "Not Fixed",
@@ -333,7 +333,7 @@ test("reconciles stale Status and Working On from provider-backed leases", async
     () => now,
   );
   /** Defines the definition fixture for “reconciles stale Status and Working On from provider-backed leases”. */
-  const definition = parseSubAgentDefinitionManifest(definitionManifest());
+  const definition = parseAgentDefinitionManifest(definitionManifest());
   provider.seedDefinition(definition);
   provider.seedTask({
     archived: false,
@@ -352,7 +352,7 @@ test("reconciles stale Status and Working On from provider-backed leases", async
     idempotencyKey: "run",
     ownerId: "owner",
     scope: "agent_run",
-    subAgentId: definition.id,
+    agentId: definition.id,
     taskId: null,
   });
   /** Defines the task fixture for “reconciles stale Status and Working On from provider-backed leases”. */
@@ -361,23 +361,23 @@ test("reconciles stale Status and Working On from provider-backed leases", async
     idempotencyKey: "task",
     ownerId: "owner",
     scope: "task_assignment",
-    subAgentId: definition.id,
+    agentId: definition.id,
     taskId: "task-1",
   });
-  await provider.updateSubAgentActivity({
+  await provider.updateAgentActivity({
     expectedRunLeaseIds: [],
     expectedTaskIds: [],
     idempotencyKey: "online",
     nextRunLeaseIds: [run.leaseId!],
     nextTaskIds: ["task-1"],
-    subAgentId: definition.id,
+    agentId: definition.id,
   });
   now = new Date("2026-08-15T10:10:00.000Z");
   assert.equal(
     (await reconcileActivity(provider, definition.id)).state,
     "applied",
   );
-  assert.deepEqual(await provider.getSubAgentActivity(definition.id), {
+  assert.deepEqual(await provider.getAgentActivity(definition.id), {
     status: "Offline",
     taskIds: [],
     version: "2",
@@ -480,7 +480,7 @@ function definitionManifest(): JsonObject {
     retry: { maxAttempts: 1, noVerdict: "block" },
     revision: 1,
     runnerProfile: "runner",
-    schema: "sub-agent-definition-v1",
+    schema: "agent-definition-v1",
     selection: {
       acceptsAssignmentsFrom: ["explicit"],
       maxCandidateSummaries: 1,

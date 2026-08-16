@@ -7,7 +7,7 @@ import {
   activateDefinitions,
   finalizeCandidateSet,
   InMemoryProvider,
-  parseSubAgentDefinitionManifest,
+  parseAgentDefinitionManifest,
   parseTaskQueryContract,
   resolveDefinition,
   routeOutcome,
@@ -26,7 +26,7 @@ const environment: ProviderEnvironment = {
   tables: {
     errors: "errors",
     resources: "resources",
-    subAgents: "agents",
+    agents: "agents",
     tasks: "tasks",
   },
   type: "memory",
@@ -41,12 +41,12 @@ const target: WorkspaceSchemaDescriptor = {
 
 test("parses a complete role contract and rejects semantic capability conflicts", () => {
   /** Defines the parsed fixture for “parses a complete role contract and rejects semantic capability conflicts”. */
-  const parsed = parseSubAgentDefinitionManifest(manifest());
+  const parsed = parseAgentDefinitionManifest(manifest());
   assert.equal(parsed.name, "Security Auditor");
   assert.equal(parsed.invocation.mode, "manual");
   assert.throws(
     () =>
-      parseSubAgentDefinitionManifest({
+      parseAgentDefinitionManifest({
         ...manifest(),
         prohibitedCapabilities: ["repository.read"],
       }),
@@ -58,7 +58,7 @@ test("resolves an active immutable Resource graph and closed output schemas", as
   /** Defines the provider fixture for “resolves an active immutable Resource graph and closed output schemas”. */
   const provider = new InMemoryProvider(environment, target);
   /** Defines the definition fixture for “resolves an active immutable Resource graph and closed output schemas”. */
-  const definition = parseSubAgentDefinitionManifest(manifest());
+  const definition = parseAgentDefinitionManifest(manifest());
   provider.seedDefinition(definition);
   for (const resource of resources()) await provider.putResource(resource);
   provider.seedTaskStatusOptions(["Testing", "Needs Human Resolution"]);
@@ -91,7 +91,7 @@ test("blocks activation when a provider-defined route has no Task status", async
   /** Defines the provider fixture for “blocks activation when a provider-defined route has no Task status”. */
   const provider = new InMemoryProvider(environment, target);
   /** Defines the definition fixture for “blocks activation when a provider-defined route has no Task status”. */
-  const definition = parseSubAgentDefinitionManifest(manifest());
+  const definition = parseAgentDefinitionManifest(manifest());
   provider.seedDefinition(definition);
   for (const resource of resources()) await provider.putResource(resource);
   provider.seedTaskStatusOptions(["Testing"]);
@@ -109,7 +109,7 @@ test("blocks activation when a provider-defined route has no Task status", async
 
 test("builds bounded candidate sets, least-privilege grants, and data-defined routes", () => {
   /** Defines the definition fixture for “builds bounded candidate sets, least-privilege grants, and data-defined routes”. */
-  const definition = parseSubAgentDefinitionManifest(manifest());
+  const definition = parseAgentDefinitionManifest(manifest());
   /** Defines the query fixture for “builds bounded candidate sets, least-privilege grants, and data-defined routes”. */
   const query = parseTaskQueryContract(taskQueryBody());
   assert.deepEqual(taskQueryForDefinition(query, definition), {
@@ -181,9 +181,9 @@ test("builds bounded candidate sets, least-privilege grants, and data-defined ro
 
 test("supports arbitrary provider-defined role names without core changes", () => {
   /** Defines the security fixture for “supports arbitrary provider-defined role names without core changes”. */
-  const security = parseSubAgentDefinitionManifest(manifest());
+  const security = parseAgentDefinitionManifest(manifest());
   /** Defines the localization fixture for “supports arbitrary provider-defined role names without core changes”. */
-  const localization = parseSubAgentDefinitionManifest({
+  const localization = parseAgentDefinitionManifest({
     ...manifest(),
     humanResolutionOutcomes: [],
     id: "localization-curator",
@@ -225,7 +225,7 @@ function manifest(): JsonObject {
     retry: { maxAttempts: 2, noVerdict: "retry" },
     revision: 3,
     runnerProfile: "codex-readonly",
-    schema: "sub-agent-definition-v1",
+    schema: "agent-definition-v1",
     selection: {
       acceptsAssignmentsFrom: ["self", "coordinator", "explicit"],
       maxCandidateSummaries: 25,

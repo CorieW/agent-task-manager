@@ -21,8 +21,8 @@ import type {
   ResourceMutation,
   ResourceRecord,
   ResourceRef,
-  SubAgentActivity,
-  SubAgentDefinition,
+  AgentActivity,
+  AgentDefinition,
   TaskQuery,
   TaskSnapshot,
   TaskSummary,
@@ -74,7 +74,7 @@ function requiredLeaseTask(lease: MemoryLease): string {
 function sameLeaseSlot(left: MemoryLease, right: LeaseRequest): boolean {
   if (left.scope !== right.scope) return false;
   return left.scope === "agent_run"
-    ? left.subAgentId === right.subAgentId && left.ownerId === right.ownerId
+    ? left.agentId === right.agentId && left.ownerId === right.ownerId
     : left.taskId === right.taskId;
 }
 
@@ -83,7 +83,7 @@ const TABLE_ORDER: readonly TableKind[] = [
   "resources",
   "errors",
   "tasks",
-  "subAgents",
+  "agents",
 ];
 /** Defines the module-level `TASK_SUMMARY_KEYS` value. */
 const TASK_SUMMARY_KEYS = new Set([
@@ -246,7 +246,7 @@ export class InMemoryProvider implements AgentTaskProvider {
   /** Contains activities for in-memory provider. */
   readonly #activities = new Map<string, MemoryActivity>();
   /** Contains definitions for in-memory provider. */
-  readonly #definitions = new Map<string, SubAgentDefinition>();
+  readonly #definitions = new Map<string, AgentDefinition>();
   /** Contains entity versions for in-memory provider. */
   readonly #entityVersions = new Map<string, number>();
   /** Contains errors for in-memory provider. */
@@ -289,7 +289,7 @@ export class InMemoryProvider implements AgentTaskProvider {
   }
 
   /** Seeds definition. */
-  public seedDefinition(definition: SubAgentDefinition): void {
+  public seedDefinition(definition: AgentDefinition): void {
     this.#definitions.set(definition.id, clone(definition));
     if (!this.#activities.has(definition.id)) {
       this.#activities.set(definition.id, { runLeaseIds: [], taskIds: [] });
@@ -523,29 +523,27 @@ export class InMemoryProvider implements AgentTaskProvider {
     );
   }
 
-  /** Lists Sub agent definitions. */
-  public async listSubAgentDefinitions(): Promise<
-    readonly SubAgentDefinition[]
-  > {
+  /** Lists Agent definitions. */
+  public async listAgentDefinitions(): Promise<readonly AgentDefinition[]> {
     return [...this.#definitions.values()]
       .sort((left, right) => left.id.localeCompare(right.id))
       .map((definition) => clone(definition));
   }
 
-  /** Returns Sub agent definition. */
-  public async getSubAgentDefinition(id: string): Promise<SubAgentDefinition> {
-    /** Holds the `definition` intermediate used by `getSubAgentDefinition`. */
+  /** Returns Agent definition. */
+  public async getAgentDefinition(id: string): Promise<AgentDefinition> {
+    /** Holds the `definition` intermediate used by `getAgentDefinition`. */
     const definition = this.#definitions.get(id);
     if (definition === undefined)
-      throw new Error(`Unknown Sub-agent definition: ${id}`);
+      throw new Error(`Unknown Agent definition: ${id}`);
     return clone(definition);
   }
 
-  /** Returns Sub agent activity. */
-  public async getSubAgentActivity(id: string): Promise<SubAgentActivity> {
+  /** Returns Agent activity. */
+  public async getAgentActivity(id: string): Promise<AgentActivity> {
     if (!this.#definitions.has(id))
-      throw new Error(`Unknown Sub-agent definition: ${id}`);
-    /** Holds the `activity` intermediate used by `getSubAgentActivity`. */
+      throw new Error(`Unknown Agent definition: ${id}`);
+    /** Holds the `activity` intermediate used by `getAgentActivity`. */
     const activity = this.#activities.get(id) ?? {
       runLeaseIds: [],
       taskIds: [],
@@ -553,7 +551,7 @@ export class InMemoryProvider implements AgentTaskProvider {
     return {
       status: activity.runLeaseIds.length === 0 ? "Offline" : "Online",
       taskIds: clone(activity.taskIds),
-      version: String(this.#entityVersions.get(`subAgents:${id}`) ?? 0),
+      version: String(this.#entityVersions.get(`agents:${id}`) ?? 0),
     };
   }
 
@@ -562,7 +560,7 @@ export class InMemoryProvider implements AgentTaskProvider {
     this.pruneExpiredLeases();
     /** Holds the `leases` intermediate used by `getLeaseProjection`. */
     const leases = [...this.#leases.values()].filter(
-      (lease) => lease.subAgentId === id,
+      (lease) => lease.agentId === id,
     );
     return {
       runLeaseIds: leases
@@ -600,7 +598,7 @@ export class InMemoryProvider implements AgentTaskProvider {
       ownerId: lease.ownerId,
       released,
       scope: lease.scope,
-      subAgentId: lease.subAgentId,
+      agentId: lease.agentId,
       taskId: lease.taskId,
       version: digestJson(toJsonValue({ ...lease, released })),
     };
@@ -611,15 +609,15 @@ export class InMemoryProvider implements AgentTaskProvider {
     return [...this.#taskStatusOptions].sort();
   }
 
-  /** Reconciles Sub agent activity against provider state. */
-  public async reconcileSubAgentActivity(
-    subAgentId: string,
+  /** Reconciles Agent activity against provider state. */
+  public async reconcileAgentActivity(
+    agentId: string,
     idempotencyKey: string,
   ): Promise<ReconciliationResult> {
-    /** Holds the `projection` intermediate used by `reconcileSubAgentActivity`. */
-    const projection = await this.getLeaseProjection(subAgentId);
-    /** Holds the `current` intermediate used by `reconcileSubAgentActivity`. */
-    const current = this.#activities.get(subAgentId) ?? {
+    /** Holds the `projection` intermediate used by `reconcileAgentActivity`. */
+    const projection = await this.getLeaseProjection(agentId);
+    /** Holds the `current` intermediate used by `reconcileAgentActivity`. */
+    const current = this.#activities.get(agentId) ?? {
       runLeaseIds: [],
       taskIds: [],
     };
@@ -635,14 +633,14 @@ export class InMemoryProvider implements AgentTaskProvider {
         state: "not_applied",
       };
     }
-    /** Captures `receipt` returned by `reconcileSubAgentActivity`. */
-    const receipt = await this.updateSubAgentActivity({
+    /** Captures `receipt` returned by `reconcileAgentActivity`. */
+    const receipt = await this.updateAgentActivity({
       expectedRunLeaseIds: current.runLeaseIds,
       expectedTaskIds: current.taskIds,
       idempotencyKey,
       nextRunLeaseIds: projection.runLeaseIds,
       nextTaskIds: projection.taskIds,
-      subAgentId,
+      agentId,
     });
     return {
       evidence: {
@@ -654,22 +652,22 @@ export class InMemoryProvider implements AgentTaskProvider {
     };
   }
 
-  /** Updates Sub agent activity. */
-  public async updateSubAgentActivity(
+  /** Updates Agent activity. */
+  public async updateAgentActivity(
     change: ActivityMutation,
   ): Promise<WriteReceipt> {
-    /** Holds the `prior` intermediate used by `updateSubAgentActivity`. */
+    /** Holds the `prior` intermediate used by `updateAgentActivity`. */
     const prior = this.lookupIdempotent<WriteReceipt>(
       change.idempotencyKey,
       "agent_activity",
       change,
     );
     if (prior !== undefined) return prior;
-    if (!this.#definitions.has(change.subAgentId)) {
-      throw new Error(`Unknown Sub-agent definition: ${change.subAgentId}`);
+    if (!this.#definitions.has(change.agentId)) {
+      throw new Error(`Unknown Agent definition: ${change.agentId}`);
     }
-    /** Holds the `current` intermediate used by `updateSubAgentActivity`. */
-    const current = this.#activities.get(change.subAgentId) ?? {
+    /** Holds the `current` intermediate used by `updateAgentActivity`. */
+    const current = this.#activities.get(change.agentId) ?? {
       runLeaseIds: [],
       taskIds: [],
     };
@@ -677,28 +675,28 @@ export class InMemoryProvider implements AgentTaskProvider {
       !this.sameSet(current.runLeaseIds, change.expectedRunLeaseIds) ||
       !this.sameSet(current.taskIds, change.expectedTaskIds)
     ) {
-      throw new Error("Sub-agent activity version conflict");
+      throw new Error("Agent activity version conflict");
     }
-    /** Holds the `projection` intermediate used by `updateSubAgentActivity`. */
-    const projection = await this.getLeaseProjection(change.subAgentId);
+    /** Holds the `projection` intermediate used by `updateAgentActivity`. */
+    const projection = await this.getLeaseProjection(change.agentId);
     if (
       !this.sameSet(projection.runLeaseIds, change.nextRunLeaseIds) ||
       !this.sameSet(projection.taskIds, change.nextTaskIds)
     ) {
       throw new Error(
-        "Sub-agent activity must equal the provider's active lease projection",
+        "Agent activity must equal the provider's active lease projection",
       );
     }
-    this.#activities.set(change.subAgentId, {
+    this.#activities.set(change.agentId, {
       runLeaseIds: this.normalizedSet(change.nextRunLeaseIds),
       taskIds: this.normalizedSet(change.nextTaskIds),
     });
-    /** Holds the `version` intermediate used by `updateSubAgentActivity`. */
-    const version = this.nextEntityVersion("subAgents", change.subAgentId);
-    /** Captures `receipt` returned by `updateSubAgentActivity`. */
+    /** Holds the `version` intermediate used by `updateAgentActivity`. */
+    const version = this.nextEntityVersion("agents", change.agentId);
+    /** Captures `receipt` returned by `updateAgentActivity`. */
     const receipt = this.receipt(
-      "subAgents",
-      change.subAgentId,
+      "agents",
+      change.agentId,
       change.idempotencyKey,
       version,
     );
@@ -860,7 +858,7 @@ export class InMemoryProvider implements AgentTaskProvider {
         ? lease.scope === request.scope && lease.taskId === request.taskId
         : lease.scope === request.scope &&
           lease.ownerId === request.ownerId &&
-          lease.subAgentId === request.subAgentId,
+          lease.agentId === request.agentId,
     );
     /** Captures `result` returned by `acquireLease`. */
     const result: LeaseResult =

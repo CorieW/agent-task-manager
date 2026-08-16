@@ -34,7 +34,7 @@ export interface ExternalEffectEnvironmentConfig {
 
 /** Validated configuration for runtime adapter. */
 export interface RuntimeAdapterConfig {
-  /** Adapter used to start sub-agent processes. */
+  /** Adapter used to start agent processes. */
   readonly agentRunner: string;
   /** Adapter used to invoke model providers. */
   readonly modelTransport: string;

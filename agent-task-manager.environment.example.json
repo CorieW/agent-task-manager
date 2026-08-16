@@ -30,7 +30,7 @@
     "bootstrapParent": "https://www.notion.so/00000000000000000000000000000000",
     "tables": {
       "tasks": null,
-      "subAgents": null,
+      "agents": null,
       "errors": null,
       "resources": null
     }

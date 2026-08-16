@@ -169,7 +169,7 @@ export class ProviderWorkspaceOwnershipStore implements WorkspaceOwnershipStore 
       idempotencyKey: `workspace-ownership-claim:${sha256(workspaceKey)}:${ownerId}`,
       ownerId,
       scope: "task_assignment",
-      subAgentId: "system/workspace-ownership",
+      agentId: "system/workspace-ownership",
       taskId: `system/workspace/${sha256(workspaceKey)}`,
     });
     if (!acquired.acquired || acquired.leaseId === null)

@@ -4,7 +4,7 @@ import { toJsonValue, type JsonObject } from "../domain/json.js";
 import type {
   ResourceRecord,
   ResourceRef,
-  SubAgentDefinition,
+  AgentDefinition,
 } from "../domain/records.js";
 import type { AgentTaskProvider } from "../provider/agent-task-provider.js";
 import {
@@ -16,7 +16,7 @@ import { assertSupportedJsonSchema } from "./json-schema.js";
 /** Canonical fields for resolved definition. */
 export interface ResolvedDefinition {
   /** Definition for resolved definition. */
-  readonly definition: SubAgentDefinition;
+  readonly definition: AgentDefinition;
   /** SHA-256 digest of the definition and pinned Resource graph. */
   readonly digest: string;
   /** Resources included in resolved definition. */
@@ -35,23 +35,23 @@ export interface InvocationScheduleContract {
   readonly schema: "invocation-schedule-v1";
 }
 
-/** Loads a sub-agent definition and resolves its complete Resource graph. */
+/** Loads a agent definition and resolves its complete Resource graph. */
 export async function resolveDefinition(
   provider: AgentTaskProvider,
   definitionId: string,
 ): Promise<ResolvedDefinition> {
   /** Definition loaded during resolve definition. */
-  const definition = await provider.getSubAgentDefinition(definitionId);
+  const definition = await provider.getAgentDefinition(definitionId);
   return resolveLoadedDefinition(provider, definition);
 }
 
 /** Validates a loaded definition's Resources, schemas, and context budget. */
 export async function resolveLoadedDefinition(
   provider: AgentTaskProvider,
-  definition: SubAgentDefinition,
+  definition: AgentDefinition,
 ): Promise<ResolvedDefinition> {
   if (!definition.enabled)
-    throw new Error(`Sub-agent definition is disabled: ${definition.id}`);
+    throw new Error(`Agent definition is disabled: ${definition.id}`);
   /** Roots used during resolve loaded definition. */
   const roots = definitionResourceKeys(definition).map(resourceRef);
   /** Resources loaded during resolve loaded definition. */
@@ -184,9 +184,9 @@ async function resolveResourceGraph(
   );
 }
 
-/** Collects the distinct Resource keys referenced by a sub-agent definition. */
+/** Collects the distinct Resource keys referenced by a agent definition. */
 function definitionResourceKeys(
-  definition: SubAgentDefinition,
+  definition: AgentDefinition,
 ): readonly string[] {
   return [
     ...new Set(

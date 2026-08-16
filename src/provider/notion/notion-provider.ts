@@ -12,8 +12,8 @@ import type {
   ResourceMutation,
   ResourceRecord,
   ResourceRef,
-  SubAgentDefinition,
-  SubAgentActivity,
+  AgentDefinition,
+  AgentActivity,
   TaskQuery,
   TaskSnapshot,
   TaskSummary,
@@ -175,30 +175,26 @@ export class NotionProvider implements AgentTaskProvider {
     return this.#manager.reconcileWorkspaceStep(stepId);
   }
 
-  /** Lists Sub agent definitions. */
-  public async listSubAgentDefinitions(): Promise<
-    readonly SubAgentDefinition[]
-  > {
-    return (await this.runtime()).reader.listSubAgentDefinitions();
+  /** Lists Agent definitions. */
+  public async listAgentDefinitions(): Promise<readonly AgentDefinition[]> {
+    return (await this.runtime()).reader.listAgentDefinitions();
   }
 
-  /** Returns Sub agent definition. */
-  public async getSubAgentDefinition(id: string): Promise<SubAgentDefinition> {
-    return (await this.runtime()).reader.getSubAgentDefinition(id);
+  /** Returns Agent definition. */
+  public async getAgentDefinition(id: string): Promise<AgentDefinition> {
+    return (await this.runtime()).reader.getAgentDefinition(id);
   }
 
-  /** Returns Sub agent activity. */
-  public async getSubAgentActivity(id: string): Promise<SubAgentActivity> {
-    /** Holds the `runtime` intermediate used by `getSubAgentActivity`. */
+  /** Returns Agent activity. */
+  public async getAgentActivity(id: string): Promise<AgentActivity> {
+    /** Holds the `runtime` intermediate used by `getAgentActivity`. */
     const runtime = await this.runtime();
-    /** Defines `observed` for comparison in `getSubAgentActivity`. */
-    const observed = await runtime.pages.getSubAgentActivity(
-      await runtime.reader.getSubAgentPageId(id),
+    /** Defines `observed` for comparison in `getAgentActivity`. */
+    const observed = await runtime.pages.getAgentActivity(
+      await runtime.reader.getAgentPageId(id),
     );
     if (observed.status !== "Online" && observed.status !== "Offline")
-      throw new Error(
-        `Sub-agent activity Status is invalid: ${observed.status}`,
-      );
+      throw new Error(`Agent activity Status is invalid: ${observed.status}`);
     return {
       status: observed.status,
       taskIds: observed.taskIds,
@@ -223,40 +219,38 @@ export class NotionProvider implements AgentTaskProvider {
     return (await this.runtime()).reader.listTaskStatusOptions();
   }
 
-  /** Updates Sub agent activity. */
-  public async updateSubAgentActivity(
+  /** Updates Agent activity. */
+  public async updateAgentActivity(
     change: ActivityMutation,
   ): Promise<WriteReceipt> {
-    /** Holds the `runtime` intermediate used by `updateSubAgentActivity`. */
+    /** Holds the `runtime` intermediate used by `updateAgentActivity`. */
     const runtime = await this.runtime();
     return runtime.state.runExclusive(async () => {
-      /** Holds the `prior` intermediate used by `updateSubAgentActivity`. */
+      /** Holds the `prior` intermediate used by `updateAgentActivity`. */
       const prior = await runtime.state.beginIntent(
         change.idempotencyKey,
         "agent_activity",
         change,
       );
       if (prior !== undefined) return parseWriteReceipt(prior);
-      /** Holds the `projection` intermediate used by `updateSubAgentActivity`. */
-      const projection = await runtime.state.activeProjection(
-        change.subAgentId,
-      );
-      /** Holds the `activeRuns` intermediate used by `updateSubAgentActivity`. */
+      /** Holds the `projection` intermediate used by `updateAgentActivity`. */
+      const projection = await runtime.state.activeProjection(change.agentId);
+      /** Holds the `activeRuns` intermediate used by `updateAgentActivity`. */
       const activeRuns = projection.runLeaseIds;
-      /** Holds the `activeTasks` intermediate used by `updateSubAgentActivity`. */
+      /** Holds the `activeTasks` intermediate used by `updateAgentActivity`. */
       const activeTasks = projection.taskIds;
       if (
         !sameSet(activeRuns, change.nextRunLeaseIds) ||
         !sameSet(activeTasks, change.nextTaskIds)
       ) {
         throw new Error(
-          "Sub-agent activity must equal the provider's active lease projection",
+          "Agent activity must equal the provider's active lease projection",
         );
       }
-      /** Captures `receipt` returned by `updateSubAgentActivity`. */
-      const receipt = await runtime.pages.updateSubAgentActivity({
+      /** Captures `receipt` returned by `updateAgentActivity`. */
+      const receipt = await runtime.pages.updateAgentActivity({
         ...change,
-        subAgentId: await runtime.reader.getSubAgentPageId(change.subAgentId),
+        agentId: await runtime.reader.getAgentPageId(change.agentId),
       });
       await runtime.state.completeIntent(
         change.idempotencyKey,
@@ -371,44 +365,44 @@ export class NotionProvider implements AgentTaskProvider {
     return this.#manager;
   }
 
-  /** Reconciles Sub agent activity against provider state. */
-  public async reconcileSubAgentActivity(
-    subAgentId: string,
+  /** Reconciles Agent activity against provider state. */
+  public async reconcileAgentActivity(
+    agentId: string,
     idempotencyKey: string,
   ): Promise<ReconciliationResult> {
-    /** Holds the `runtime` intermediate used by `reconcileSubAgentActivity`. */
+    /** Holds the `runtime` intermediate used by `reconcileAgentActivity`. */
     const runtime = await this.runtime();
-    /** Captures `result` returned by `reconcileSubAgentActivity`. */
+    /** Captures `result` returned by `reconcileAgentActivity`. */
     const result = await runtime.state.runExclusive(async () => {
-      /** Holds the `projection` intermediate used by `reconcileSubAgentActivity`. */
-      const projection = await runtime.state.activeProjection(subAgentId);
-      /** Holds the `activeRunLeaseIds` intermediate used by `reconcileSubAgentActivity`. */
+      /** Holds the `projection` intermediate used by `reconcileAgentActivity`. */
+      const projection = await runtime.state.activeProjection(agentId);
+      /** Holds the `activeRunLeaseIds` intermediate used by `reconcileAgentActivity`. */
       const activeRunLeaseIds = projection.runLeaseIds;
-      /** Holds the `activeTaskIds` intermediate used by `reconcileSubAgentActivity`. */
+      /** Holds the `activeTaskIds` intermediate used by `reconcileAgentActivity`. */
       const activeTaskIds = projection.taskIds;
-      /** Holds the `subAgentPageId` intermediate used by `reconcileSubAgentActivity`. */
-      const subAgentPageId = await runtime.reader.getSubAgentPageId(subAgentId);
-      /** Defines `observed` for comparison in `reconcileSubAgentActivity`. */
-      const observed = await runtime.pages.getSubAgentActivity(subAgentPageId);
-      /** Defines `expectedStatus` for comparison in `reconcileSubAgentActivity`. */
+      /** Holds the `agentPageId` intermediate used by `reconcileAgentActivity`. */
+      const agentPageId = await runtime.reader.getAgentPageId(agentId);
+      /** Defines `observed` for comparison in `reconcileAgentActivity`. */
+      const observed = await runtime.pages.getAgentActivity(agentPageId);
+      /** Defines `expectedStatus` for comparison in `reconcileAgentActivity`. */
       const expectedStatus =
         activeRunLeaseIds.length === 0 ? "Offline" : "Online";
-      /** Holds the `basis` intermediate used by `reconcileSubAgentActivity`. */
+      /** Holds the `basis` intermediate used by `reconcileAgentActivity`. */
       const basis = {
         activeRunLeaseIds,
         activeTaskIds,
         expectedStatus,
         observed,
-        subAgentId,
+        agentId,
       };
       if (
         observed.status === expectedStatus &&
         sameSet(observed.taskIds, activeTaskIds)
       )
         return { basis, receipt: null };
-      /** Captures `receipt` returned by `reconcileSubAgentActivity`. */
-      const receipt = await runtime.pages.setSubAgentActivity(
-        subAgentPageId,
+      /** Captures `receipt` returned by `reconcileAgentActivity`. */
+      const receipt = await runtime.pages.setAgentActivity(
+        agentPageId,
         observed.status,
         observed.taskIds,
         expectedStatus,
@@ -425,16 +419,16 @@ export class NotionProvider implements AgentTaskProvider {
     }
     await this.createOrUpdateError({
       description: `Observed activity ${JSON.stringify({ status: result.basis.observed.status, taskIds: result.basis.observed.taskIds })}; expected ${JSON.stringify({ status: result.basis.expectedStatus, taskIds: result.basis.activeTaskIds })}.`,
-      errorKey: `stale-sub-agent-activity:${subAgentId}`,
-      idempotencyKey: `error:stale-sub-agent-activity:${digestJson(toJsonValue(result.basis))}`,
+      errorKey: `stale-agent-activity:${agentId}`,
+      idempotencyKey: `error:stale-agent-activity:${digestJson(toJsonValue(result.basis))}`,
       relatedRunId: null,
-      relatedSubAgentId: subAgentId,
+      relatedAgentId: agentId,
       relatedTaskId: null,
       resolution:
         "The manager reconciled Status and Working On from active provider-backed leases. Investigate the interrupted run or partial provider write.",
       severity: "high",
       status: "Not Fixed",
-      title: "Stale sub-agent activity",
+      title: "Stale agent activity",
     });
     return {
       evidence: {
@@ -621,10 +615,10 @@ export class NotionProvider implements AgentTaskProvider {
   ): Promise<ErrorMutation> {
     return {
       ...error,
-      relatedSubAgentId:
-        error.relatedSubAgentId === null
+      relatedAgentId:
+        error.relatedAgentId === null
           ? null
-          : await runtime.reader.getSubAgentPageId(error.relatedSubAgentId),
+          : await runtime.reader.getAgentPageId(error.relatedAgentId),
     };
   }
 }

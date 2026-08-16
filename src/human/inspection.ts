@@ -44,20 +44,18 @@ export interface HumanRecoveryInspection {
   readonly taskVersion: string;
 }
 
-/** Defines the data and behavior required by sub agent activity inspection. */
-export interface SubAgentActivityInspection {
-  /** Provides activity to sub agent activity inspection. */
-  readonly activity: Awaited<
-    ReturnType<AgentTaskProvider["getSubAgentActivity"]>
-  >;
-  /** Provides lease projection to sub agent activity inspection. */
+/** Defines the data and behavior required by agent activity inspection. */
+export interface AgentActivityInspection {
+  /** Provides activity to agent activity inspection. */
+  readonly activity: Awaited<ReturnType<AgentTaskProvider["getAgentActivity"]>>;
+  /** Provides lease projection to agent activity inspection. */
   readonly leaseProjection: Awaited<
     ReturnType<AgentTaskProvider["getLeaseProjection"]>
   >;
   /** Lists the leases accepted by this contract. */
   readonly leases: readonly LeaseSnapshot[];
-  /** Identifies sub agent. */
-  readonly subAgentId: string;
+  /** Identifies agent. */
+  readonly agentId: string;
 }
 
 /** Builds a read-only inspection of human recovery. */
@@ -129,37 +127,37 @@ export async function reconcileHumanResponse(
 /** Reconciles activity from observed state without blind replay. */
 export async function reconcileActivity(
   provider: AgentTaskProvider,
-  subAgentId: string,
+  agentId: string,
 ): Promise<ReconciliationResult> {
   /** Stores basis used by reconcile activity. */
   const basis = {
-    activity: await provider.getSubAgentActivity(subAgentId),
-    projection: await provider.getLeaseProjection(subAgentId),
-    subAgentId,
+    activity: await provider.getAgentActivity(agentId),
+    projection: await provider.getLeaseProjection(agentId),
+    agentId,
   };
-  return provider.reconcileSubAgentActivity(
-    subAgentId,
+  return provider.reconcileAgentActivity(
+    agentId,
     `manual-activity:${digestJson(toJsonValue(basis))}`,
   );
 }
 
-/** Builds a read-only inspection of sub agent activity. */
-export async function inspectSubAgentActivity(
+/** Builds a read-only inspection of agent activity. */
+export async function inspectAgentActivity(
   provider: AgentTaskProvider,
-  subAgentId: string,
-): Promise<SubAgentActivityInspection> {
-  /** Stores activity used by inspect sub agent activity. */
-  const activity = await provider.getSubAgentActivity(subAgentId);
-  /** Stores lease projection used by inspect sub agent activity. */
-  const leaseProjection = await provider.getLeaseProjection(subAgentId);
-  /** Stores ids used by inspect sub agent activity. */
+  agentId: string,
+): Promise<AgentActivityInspection> {
+  /** Stores activity used by inspect agent activity. */
+  const activity = await provider.getAgentActivity(agentId);
+  /** Stores lease projection used by inspect agent activity. */
+  const leaseProjection = await provider.getLeaseProjection(agentId);
+  /** Stores ids used by inspect agent activity. */
   const ids = [
     ...new Set([
       ...leaseProjection.runLeaseIds,
       ...leaseProjection.taskLeaseIds,
     ]),
   ].sort();
-  /** Stores leases used by inspect sub agent activity. */
+  /** Stores leases used by inspect agent activity. */
   const leases = await Promise.all(
     ids.map((leaseId) => provider.getLeaseSnapshot(leaseId)),
   );
@@ -169,7 +167,7 @@ export async function inspectSubAgentActivity(
     activity,
     leaseProjection,
     leases: leases as LeaseSnapshot[],
-    subAgentId,
+    agentId,
   };
 }
 

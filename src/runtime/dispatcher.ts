@@ -1,4 +1,4 @@
-/** Launches one currently assigned Sub-agent through environment-bound trusted adapters. */
+/** Launches one currently assigned Agent through environment-bound trusted adapters. */
 import { digestJson } from "../core/digest.js";
 import {
   activateDefinitions,
@@ -325,10 +325,10 @@ export async function verifyLiveAssignment(input: {
 }): Promise<ActivatedDefinition> {
   /** Stores definition id used by verify live assignment. */
   const definitionId = input.activated.resolved.definition.id;
-  if (input.promotion.targetSubAgentId !== definitionId)
+  if (input.promotion.targetAgentId !== definitionId)
     throw new RuntimeDispatchError(
       "assignment_mismatch",
-      "Assignment targets a different Sub-agent",
+      "Assignment targets a different Agent",
     );
   /** Stores fresh used by verify live assignment. */
   const fresh = await activateDefinitions({
@@ -346,7 +346,7 @@ export async function verifyLiveAssignment(input: {
   )
     throw new RuntimeDispatchError(
       "activation_changed",
-      "Sub-agent definition, Resources, or capability grant changed before dispatch",
+      "Agent definition, Resources, or capability grant changed before dispatch",
     );
   try {
     await verifyAssignmentPromotion(input.provider, input.promotion);
@@ -369,14 +369,14 @@ export async function verifyLiveAssignment(input: {
       "Assignment leases are not active",
     );
   /** Stores activity used by verify live assignment. */
-  const activity = await input.provider.getSubAgentActivity(definitionId);
+  const activity = await input.provider.getAgentActivity(definitionId);
   if (
     activity.status !== "Online" ||
     !sameSet(activity.taskIds, projection.taskIds)
   )
     throw new RuntimeDispatchError(
       "activity_mismatch",
-      "Sub-agent Status or Working On does not match active leases",
+      "Agent Status or Working On does not match active leases",
     );
   /** Stores task used by verify live assignment. */
   const task = await input.provider.getTaskSnapshot(input.promotion.taskId);
@@ -516,7 +516,7 @@ async function closeSessions(
   );
 }
 
-/** Persists a bounded runtime failure linked to the Task and Sub-agent. */
+/** Persists a bounded runtime failure linked to the Task and Agent. */
 async function recordRuntimeError(
   input: {
     /** Provides activated to record runtime error. */
@@ -545,17 +545,17 @@ async function recordRuntimeError(
   /** Binds record runtime error to canonical operation content. */
   const operationDigest = digestJson(toJsonValue(basis));
   await input.provider.createOrUpdateError({
-    description: `Sub-agent runtime failed closed with code ${code}. No exception text or credential-bearing adapter output was persisted.`,
+    description: `Agent runtime failed closed with code ${code}. No exception text or credential-bearing adapter output was persisted.`,
     errorKey: `agent-runtime:${input.promotion.ownerId}`,
     idempotencyKey: `agent-runtime:${operationDigest}`,
     relatedRunId: input.promotion.ownerId,
-    relatedSubAgentId: definition.id,
+    relatedAgentId: definition.id,
     relatedTaskId: input.promotion.taskId,
     resolution:
       "Inspect trusted runtime telemetry and receipts outside the provider. Correct the assignment, adapter, policy, or result contract, then start a new verified attempt.",
     severity: "high",
     status: "Not Fixed",
-    title: `Sub-agent runtime ${code}`,
+    title: `Agent runtime ${code}`,
   });
 }
 

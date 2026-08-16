@@ -13,7 +13,7 @@ import {
   resolveDefinition,
   type ProviderEnvironment,
   type ResourceMutation,
-  type SubAgentDefinition,
+  type AgentDefinition,
   type TaskSnapshot,
   type WorkspaceSchemaDescriptor,
 } from "../src/index.js";
@@ -23,7 +23,7 @@ import { sha256 } from "../src/core/digest.js";
 const environment: ProviderEnvironment = {
   bootstrapParent: null,
   connection: {},
-  tables: { errors: "e", resources: "r", subAgents: "a", tasks: "t" },
+  tables: { errors: "e", resources: "r", agents: "a", tasks: "t" },
   type: "memory",
 };
 /** Defines the shared target fixture for this test module. */
@@ -74,17 +74,17 @@ test("promotes a coordinator assignment into worker run and task leases", async 
     idempotencyKey: "selector-run",
     ownerId: "run-1",
     scope: "agent_run",
-    subAgentId: coordinator.id,
+    agentId: coordinator.id,
     taskId: null,
   });
   assert.equal(selectorRun.acquired, true);
-  await provider.updateSubAgentActivity({
+  await provider.updateAgentActivity({
     expectedRunLeaseIds: [],
     expectedTaskIds: [],
     idempotencyKey: "selector-online",
     nextRunLeaseIds: [selectorRun.leaseId!],
     nextTaskIds: [],
-    subAgentId: coordinator.id,
+    agentId: coordinator.id,
   });
   /** Defines the resolved fixture for “promotes a coordinator assignment into worker run and task leases”. */
   const resolved = await resolveDefinition(provider, coordinator.id);
@@ -106,9 +106,9 @@ test("promotes a coordinator assignment into worker run and task leases", async 
     selectionBasisDigest: context.basisDigest,
     selectorRevision: coordinator.revision,
     selectorRunId: "run-1",
-    selectorSubAgentId: coordinator.id,
-    targetSubAgentId: worker.id,
-    targetSubAgentRevision: worker.revision,
+    selectorAgentId: coordinator.id,
+    targetAgentId: worker.id,
+    targetAgentRevision: worker.revision,
     taskId: "task-1",
   });
   /** Defines the promotion fixture for “promotes a coordinator assignment into worker run and task leases”. */
@@ -123,20 +123,17 @@ test("promotes a coordinator assignment into worker run and task leases", async 
     selectionContext: context,
     selectorRunLeaseId: selectorRun.leaseId!,
   });
-  assert.equal(promotion?.targetSubAgentId, worker.id);
-  assert.deepEqual((await provider.getSubAgentActivity(worker.id)).taskIds, [
+  assert.equal(promotion?.targetAgentId, worker.id);
+  assert.deepEqual((await provider.getAgentActivity(worker.id)).taskIds, [
     "task-1",
   ]);
-  assert.equal(
-    (await provider.getSubAgentActivity(worker.id)).status,
-    "Online",
-  );
+  assert.equal((await provider.getAgentActivity(worker.id)).status, "Online");
   assert.equal(
     (await provider.getLeaseProjection(worker.id)).runLeaseIds.length,
     1,
   );
   assert.equal(
-    (await provider.getSubAgentActivity(coordinator.id)).status,
+    (await provider.getAgentActivity(coordinator.id)).status,
     "Offline",
   );
 });
@@ -161,16 +158,16 @@ test("finalizes the selector run when a coordinator reports no work", async () =
     idempotencyKey: "no-work-run",
     ownerId: "run-no-work",
     scope: "agent_run",
-    subAgentId: coordinator.id,
+    agentId: coordinator.id,
     taskId: null,
   });
-  await provider.updateSubAgentActivity({
+  await provider.updateAgentActivity({
     expectedRunLeaseIds: [],
     expectedTaskIds: [],
     idempotencyKey: "no-work-online",
     nextRunLeaseIds: [run.leaseId!],
     nextTaskIds: [],
-    subAgentId: coordinator.id,
+    agentId: coordinator.id,
   });
   /** Defines the resolved fixture for “finalizes the selector run when a coordinator reports no work”. */
   const resolved = await resolveDefinition(provider, coordinator.id);
@@ -192,9 +189,9 @@ test("finalizes the selector run when a coordinator reports no work", async () =
     selectionBasisDigest: context.basisDigest,
     selectorRevision: 1,
     selectorRunId: "run-no-work",
-    selectorSubAgentId: coordinator.id,
-    targetSubAgentId: null,
-    targetSubAgentRevision: null,
+    selectorAgentId: coordinator.id,
+    targetAgentId: null,
+    targetAgentRevision: null,
     taskId: null,
   });
   assert.equal(
@@ -212,7 +209,7 @@ test("finalizes the selector run when a coordinator reports no work", async () =
     null,
   );
   assert.equal(
-    (await provider.getSubAgentActivity(coordinator.id)).status,
+    (await provider.getAgentActivity(coordinator.id)).status,
     "Offline",
   );
   assert.deepEqual(
@@ -242,16 +239,16 @@ test("rejects stale/out-of-scope selections before leases", async () => {
     idempotencyKey: "run",
     ownerId: "run-2",
     scope: "agent_run",
-    subAgentId: worker.id,
+    agentId: worker.id,
     taskId: null,
   });
-  await provider.updateSubAgentActivity({
+  await provider.updateAgentActivity({
     expectedRunLeaseIds: [],
     expectedTaskIds: [],
     idempotencyKey: "online",
     nextRunLeaseIds: [run.leaseId!],
     nextTaskIds: [],
-    subAgentId: worker.id,
+    agentId: worker.id,
   });
   /** Defines the resolved fixture for “rejects stale/out-of-scope selections before leases”. */
   const resolved = await resolveDefinition(provider, worker.id);
@@ -273,9 +270,9 @@ test("rejects stale/out-of-scope selections before leases", async () => {
     selectionBasisDigest: context.basisDigest,
     selectorRevision: 1,
     selectorRunId: "run-2",
-    selectorSubAgentId: worker.id,
-    targetSubAgentId: worker.id,
-    targetSubAgentRevision: 1,
+    selectorAgentId: worker.id,
+    targetAgentId: worker.id,
+    targetAgentRevision: 1,
     taskId: "not-in-candidates",
   });
   await assert.rejects(
@@ -325,8 +322,8 @@ test("promotes a trusted explicit assignment without an AI selector role", async
     idempotencyKey: "explicit-1",
     schema: "explicit-assignment-v1",
     selectionBasisDigest: context.basisDigest,
-    targetSubAgentId: worker.id,
-    targetSubAgentRevision: worker.revision,
+    targetAgentId: worker.id,
+    targetAgentRevision: worker.revision,
     taskId: "task-1",
   });
   /** Defines the promoted fixture for “promotes a trusted explicit assignment without an AI selector role”. */
@@ -341,20 +338,17 @@ test("promotes a trusted explicit assignment without an AI selector role", async
     selectionContext: context,
   });
   assert.equal(promoted.taskId, "task-1");
-  assert.equal(
-    (await provider.getSubAgentActivity(worker.id)).status,
-    "Online",
-  );
+  assert.equal((await provider.getAgentActivity(worker.id)).status, "Online");
 });
 
-/** Creates a Sub-agent definition fixture. */
+/** Creates an Agent definition fixture. */
 function definition(
   id: string,
   name: string,
   mode: "coordinator" | "self",
-  accepts: SubAgentDefinition["selection"]["acceptsAssignmentsFrom"],
+  accepts: AgentDefinition["selection"]["acceptsAssignmentsFrom"],
   capabilities: string[],
-): SubAgentDefinition {
+): AgentDefinition {
   return {
     allowedIntents: ["task.assignment.request"],
     capabilities,
@@ -378,7 +372,7 @@ function definition(
     retry: { maxAttempts: 1, noVerdict: "block" },
     revision: 1,
     runnerProfile: "readonly",
-    schema: "sub-agent-definition-v1",
+    schema: "agent-definition-v1",
     selection: {
       acceptsAssignmentsFrom: accepts,
       maxCandidateSummaries: 10,
@@ -413,7 +407,7 @@ function task(
 /** Seeds resources. */
 async function seedResources(
   provider: InMemoryProvider,
-  definitions: SubAgentDefinition[],
+  definitions: AgentDefinition[],
 ): Promise<void> {
   /** Defines the records fixture used by seed resources. */
   const records = new Map<string, ResourceMutation>();

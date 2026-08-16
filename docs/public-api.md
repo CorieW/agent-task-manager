@@ -16,7 +16,7 @@ helpers, and trial contracts.
 
 ## Definitions and selection
 
-- `parseSubAgentDefinitionManifest`, `validateSubAgentDefinition`, and
+- `parseAgentDefinitionManifest`, `validateAgentDefinition`, and
   `validateDefinitionSet`
 - `resolveDefinition`, `activateDefinitions`, and `compileCapabilityGrant`
 - task-query/candidate helpers, `prepareSelection`, `promoteSelection`,
@@ -44,7 +44,7 @@ helpers, and trial contracts.
 
 - `OutcomeTransitionBroker` and `HumanRecoveryManager`
 - slot creation, parsing, rendering, and allowed-delta verification
-- `inspectHumanRecovery`, `inspectSubAgentActivity`, and `inspectLease`
+- `inspectHumanRecovery`, `inspectAgentActivity`, and `inspectLease`
 - `reconcileHumanResponse`, `reconcileActivity`, and `reconcileLease`
 
 Exact lease inspection uses `AgentTaskProvider.getLeaseSnapshot`.

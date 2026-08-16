@@ -1,11 +1,11 @@
 # Agent Task Manager
 
-Provider-neutral infrastructure for task-driven AI sub-agents. Deterministic
+Provider-neutral infrastructure for task-driven AI agents. Deterministic
 code owns provider access, leases, validation, side effects, and recovery;
-sub-agents receive bounded context and return typed proposals.
+agents receive bounded context and return typed proposals.
 
 Authoritative workflow data is restricted to four provider table types:
-Tasks, Sub-agents, Errors, and Resources. Configuration describes only the
+Tasks, Agents, Errors, and Resources. Configuration describes only the
 environment, and local runtime artifacts are disposable. Notion is the first
 concrete provider.
 
@@ -27,7 +27,7 @@ node dist/src/cli.js --help
 
 - [Getting started and CLI](docs/getting-started.md)
 - [Notion provider](docs/notion-provider.md)
-- [Sub-agent definitions](docs/sub-agent-definitions.md)
+- [Agent definitions](docs/agent-definitions.md)
 - [Runtime security](docs/runtime-security.md)
 - [External-effect brokers](docs/external-effects.md)
 - [Human interaction and recovery](docs/human-recovery.md)

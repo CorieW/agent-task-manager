@@ -5,7 +5,7 @@ import {
   type JsonObject,
   type JsonValue,
 } from "../domain/json.js";
-import type { SubAgentDefinition } from "../domain/records.js";
+import type { AgentDefinition } from "../domain/records.js";
 
 /** Exact fields allowed in a Task selection result. */
 const SELECTION_KEYS = [
@@ -19,9 +19,9 @@ const SELECTION_KEYS = [
   "selectionBasisDigest",
   "selectorRevision",
   "selectorRunId",
-  "selectorSubAgentId",
-  "targetSubAgentId",
-  "targetSubAgentRevision",
+  "selectorAgentId",
+  "targetAgentId",
+  "targetAgentRevision",
   "taskId",
 ] as const;
 
@@ -45,12 +45,12 @@ export interface TaskSelectionResultCore {
   readonly selectorRevision: number;
   /** Stable identifier for selector run. */
   readonly selectorRunId: string;
-  /** Stable identifier for selector sub-agent. */
-  readonly selectorSubAgentId: string;
-  /** Stable identifier for target sub-agent. */
-  readonly targetSubAgentId: string | null;
-  /** Target sub-agent revision for task selection result core. */
-  readonly targetSubAgentRevision: number | null;
+  /** Stable identifier for selector agent. */
+  readonly selectorAgentId: string;
+  /** Stable identifier for target agent. */
+  readonly targetAgentId: string | null;
+  /** Target agent revision for task selection result core. */
+  readonly targetAgentRevision: number | null;
   /** Stable identifier for task. */
   readonly taskId: string | null;
 }
@@ -100,7 +100,7 @@ export function parseTaskSelectionResult(
     "idempotencyKey",
     "selectionBasisDigest",
     "selectorRunId",
-    "selectorSubAgentId",
+    "selectorAgentId",
   ] as const) {
     if (typeof record[key] !== "string" || record[key].length === 0) {
       throw new TypeError(`${key} must be a non-empty string`);
@@ -114,11 +114,7 @@ export function parseTaskSelectionResult(
   }
   /** Assigned used during parse task selection result. */
   const assigned = record.outcome === "assignment";
-  for (const key of [
-    "targetSubAgentId",
-    "taskId",
-    "rationaleDigest",
-  ] as const) {
+  for (const key of ["targetAgentId", "taskId", "rationaleDigest"] as const) {
     if (
       assigned
         ? typeof record[key] !== "string" || record[key] === ""
@@ -129,12 +125,12 @@ export function parseTaskSelectionResult(
   }
   if (
     assigned
-      ? !Number.isInteger(record.targetSubAgentRevision) ||
-        (record.targetSubAgentRevision as number) < 1
-      : record.targetSubAgentRevision !== null
+      ? !Number.isInteger(record.targetAgentRevision) ||
+        (record.targetAgentRevision as number) < 1
+      : record.targetAgentRevision !== null
   ) {
     throw new TypeError(
-      "targetSubAgentRevision does not match the selection outcome",
+      "targetAgentRevision does not match the selection outcome",
     );
   }
   /** Result produced by parse task selection result. */
@@ -149,7 +145,7 @@ export function parseTaskSelectionResult(
   if (
     result.mode === "self" &&
     result.outcome === "assignment" &&
-    result.targetSubAgentId !== result.selectorSubAgentId
+    result.targetAgentId !== result.selectorAgentId
   ) {
     throw new TypeError("Self-selection must target the selecting definition");
   }
@@ -159,11 +155,11 @@ export function parseTaskSelectionResult(
 /** Rejects selections that exceed the selector or target definition authority. */
 export function assertSelectionAuthority(
   result: TaskSelectionResult,
-  selector: SubAgentDefinition,
-  target: SubAgentDefinition | null,
+  selector: AgentDefinition,
+  target: AgentDefinition | null,
 ): void {
   if (
-    result.selectorSubAgentId !== selector.id ||
+    result.selectorAgentId !== selector.id ||
     result.selectorRevision !== selector.revision
   ) {
     throw new Error(
@@ -184,8 +180,8 @@ export function assertSelectionAuthority(
   if (result.outcome === "no_work") return;
   if (
     target === null ||
-    result.targetSubAgentId !== target.id ||
-    result.targetSubAgentRevision !== target.revision
+    result.targetAgentId !== target.id ||
+    result.targetAgentRevision !== target.revision
   ) {
     throw new Error(
       "Selection result does not match the target definition revision",

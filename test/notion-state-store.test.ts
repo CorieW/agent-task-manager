@@ -20,14 +20,14 @@ import { SingleHostMutex } from "../src/provider/notion/single-host-mutex.js";
 const TABLES = {
   errors: "errors",
   resources: "resources",
-  subAgents: "agents",
+  agents: "agents",
   tasks: "tasks",
 };
 /** Defines the shared Notion tables fixture for this test module. */
 const NOTION_TABLES = {
   errors: "11111111-1111-1111-1111-111111111111",
   resources: "22222222-2222-2222-2222-222222222222",
-  subAgents: "33333333-3333-3333-3333-333333333333",
+  agents: "33333333-3333-3333-3333-333333333333",
   tasks: "44444444-4444-4444-4444-444444444444",
 };
 
@@ -50,7 +50,7 @@ test("persists replayable leases and restart-visible intent outcomes", async () 
     idempotencyKey: "acquire-one",
     ownerId: "run-1",
     scope: "agent_run" as const,
-    subAgentId: "agent-1",
+    agentId: "agent-1",
     taskId: null,
   };
   /** Defines the acquired fixture for “persists replayable leases and restart-visible intent outcomes”. */
@@ -110,7 +110,7 @@ test("does not strand stale lease release preconditions in a pending intent", as
     idempotencyKey: "release-acquire",
     ownerId: "owner",
     scope: "agent_run",
-    subAgentId: "agent-1",
+    agentId: "agent-1",
     taskId: null,
   });
   /** Defines the before fixture for “does not strand stale lease release preconditions in a pending intent”. */
@@ -413,7 +413,7 @@ test("repairs a pending Notion Error intent from its exact target state", async 
     errorKey: "publication/missing",
     idempotencyKey: "error-interrupted",
     relatedRunId: "run-1",
-    relatedSubAgentId: null,
+    relatedAgentId: null,
     relatedTaskId: null,
     resolution: "Configure publication.",
     severity: "high" as const,

@@ -52,9 +52,7 @@ export async function compileRunContext(input: {
   /** Tracks bytes in bytes. */
   const bytes = Buffer.byteLength(JSON.stringify(toJsonValue(core)), "utf8");
   if (bytes > resolved.definition.contextBudgetBytes)
-    throw new Error(
-      "Compiled run context exceeds the Sub-agent context budget",
-    );
+    throw new Error("Compiled run context exceeds the Agent context budget");
   return finalizeRunContext(core);
 }
 

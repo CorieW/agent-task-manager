@@ -40,7 +40,7 @@ const TABLE_ORDER: readonly TableKind[] = [
   "resources",
   "errors",
   "tasks",
-  "subAgents",
+  "agents",
 ];
 
 /** Defines workspace step record. */
@@ -840,7 +840,7 @@ export class NotionWorkspaceManager {
       {
         errors: this.#resolved.get("errors") ?? fallback,
         resources: requiredResolved(this.#resolved, "resources"),
-        subAgents: this.#resolved.get("subAgents") ?? fallback,
+        agents: this.#resolved.get("agents") ?? fallback,
         tasks: this.#resolved.get("tasks") ?? fallback,
       },
       this.transport,
@@ -1021,8 +1021,7 @@ function selectOptions(table: TableKind, property: string): readonly string[] {
     return ["critical", "high", "medium", "low"];
   if (table === "errors" && property === "Status")
     return ["Not Fixed", "Fixing", "Fixed"];
-  if (table === "subAgents" && property === "Status")
-    return ["Online", "Offline"];
+  if (table === "agents" && property === "Status") return ["Online", "Offline"];
   return [];
 }
 

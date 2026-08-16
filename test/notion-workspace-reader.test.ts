@@ -21,7 +21,7 @@ import {
 const IDS = {
   errors: "22222222-2222-2222-2222-222222222222",
   resources: "11111111-1111-1111-1111-111111111111",
-  subAgents: "44444444-4444-4444-4444-444444444444",
+  agents: "44444444-4444-4444-4444-444444444444",
   tasks: "33333333-3333-3333-3333-333333333333",
 } as const;
 
@@ -128,13 +128,13 @@ test("inspects all configured tables into a canonical snapshot", async () => {
   assert.equal(snapshot.tables.length, 4);
   assert.equal(
     snapshot.tables
-      .find((table) => table.kind === "subAgents")
+      .find((table) => table.kind === "agents")
       ?.properties.find((property) => property.name === "Last Run")?.writable,
     false,
   );
   assert.equal(
     snapshot.tables
-      .find((table) => table.kind === "subAgents")
+      .find((table) => table.kind === "agents")
       ?.properties.find((property) => property.name === "Working On")
       ?.targetTableId,
     IDS.tasks,
@@ -151,7 +151,7 @@ test("rejects logical tables that alias one physical data source", async () => {
     tables: {
       errors: IDS.resources,
       resources: IDS.resources,
-      subAgents: IDS.resources,
+      agents: IDS.resources,
       tasks: IDS.resources,
     },
   };
@@ -209,7 +209,7 @@ function source(id: string, kind: string): JsonObject {
     object: "data_source",
     title: [{ plain_text: kind }],
   };
-  if (kind === "subAgents") {
+  if (kind === "agents") {
     return {
       ...common,
       properties: {

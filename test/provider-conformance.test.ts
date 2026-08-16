@@ -18,7 +18,7 @@ import {
 const environment: ProviderEnvironment = {
   bootstrapParent: null,
   connection: {},
-  tables: { errors: null, resources: null, subAgents: null, tasks: null },
+  tables: { errors: null, resources: null, agents: null, tasks: null },
   type: "memory",
 };
 
@@ -228,7 +228,7 @@ for (const providerCase of providerCases) {
         idempotencyKey: "lease-1",
         ownerId: "run-1",
         scope: "task_assignment" as const,
-        subAgentId: "agent-1",
+        agentId: "agent-1",
         taskId: "task-1",
       };
       /** Defines the acquired fixture for “leases are exclusive, expiry-aware, and replayable”. */
@@ -241,7 +241,7 @@ for (const providerCase of providerCases) {
             ...request,
             idempotencyKey: "lease-2",
             ownerId: "run-2",
-            subAgentId: "agent-2",
+            agentId: "agent-2",
           })
         ).acquired,
         false,
@@ -254,7 +254,7 @@ for (const providerCase of providerCases) {
             expiresAt: "2026-01-01T00:03:00.000Z",
             idempotencyKey: "lease-3",
             ownerId: "run-3",
-            subAgentId: "agent-3",
+            agentId: "agent-3",
           })
         ).acquired,
         true,
@@ -275,7 +275,7 @@ for (const providerCase of providerCases) {
         idempotencyKey: "lease-acquire",
         ownerId: "run",
         scope: "agent_run",
-        subAgentId: "agent",
+        agentId: "agent",
         taskId: null,
       });
       /** Defines the renewal fixture for “lease renewals replay their original result”. */
@@ -311,7 +311,7 @@ for (const providerCase of providerCases) {
         idempotencyKey: "manual-acquire",
         ownerId: "owner",
         scope: "agent_run",
-        subAgentId: "worker",
+        agentId: "worker",
         taskId: null,
       });
       /** Defines the before fixture for “manual lease release requires the exact inspected lease version”. */
@@ -350,15 +350,15 @@ for (const providerCase of providerCases) {
         idempotencyKey: "manual-reacquire",
         ownerId: "owner",
         scope: "agent_run",
-        subAgentId: "worker",
+        agentId: "worker",
         taskId: null,
       });
       assert.equal(reacquired.acquired, true);
       assert.equal(await provider.getLeaseSnapshot(acquired.leaseId!), null);
     });
 
-    test("sub-agent activity is conditionally replaced", async () => {
-      /** Defines the provider fixture for “sub-agent activity is conditionally replaced”. */
+    test("agent activity is conditionally replaced", async () => {
+      /** Defines the provider fixture for “agent activity is conditionally replaced”. */
       const provider = createProvider(environment, target);
       provider.seedDefinition({
         allowedIntents: [],
@@ -383,7 +383,7 @@ for (const providerCase of providerCases) {
         revision: 1,
         retry: { maxAttempts: 1, noVerdict: "block" },
         runnerProfile: "default",
-        schema: "sub-agent-definition-v1",
+        schema: "agent-definition-v1",
         selection: {
           acceptsAssignmentsFrom: ["self"],
           maxCandidateSummaries: 1,
@@ -394,13 +394,13 @@ for (const providerCase of providerCases) {
         transitions: { succeeded: "$current" },
         outputSchema: "result",
       });
-      /** Defines the run fixture for “sub-agent activity is conditionally replaced”. */
+      /** Defines the run fixture for “agent activity is conditionally replaced”. */
       const run = await provider.acquireLease({
         expiresAt: "2099-01-01T00:00:00.000Z",
         idempotencyKey: "activity-run",
         ownerId: "activity-owner",
         scope: "agent_run",
-        subAgentId: "worker",
+        agentId: "worker",
         taskId: null,
       });
       await provider.acquireLease({
@@ -408,24 +408,24 @@ for (const providerCase of providerCases) {
         idempotencyKey: "activity-task",
         ownerId: "activity-owner",
         scope: "task_assignment",
-        subAgentId: "worker",
+        agentId: "worker",
         taskId: "task-1",
       });
-      /** Defines the first fixture for “sub-agent activity is conditionally replaced”. */
+      /** Defines the first fixture for “agent activity is conditionally replaced”. */
       const first = {
         expectedRunLeaseIds: [],
         expectedTaskIds: [],
         idempotencyKey: "activity-1",
         nextRunLeaseIds: [run.leaseId!],
         nextTaskIds: ["task-1"],
-        subAgentId: "worker",
+        agentId: "worker",
       };
       assert.deepEqual(
-        await provider.updateSubAgentActivity(first),
-        await provider.updateSubAgentActivity(first),
+        await provider.updateAgentActivity(first),
+        await provider.updateAgentActivity(first),
       );
       await assert.rejects(
-        provider.updateSubAgentActivity({
+        provider.updateAgentActivity({
           ...first,
           idempotencyKey: "activity-2",
         }),
@@ -442,7 +442,7 @@ for (const providerCase of providerCases) {
         errorKey: "error-1",
         idempotencyKey: "error-write-1",
         relatedRunId: null,
-        relatedSubAgentId: null,
+        relatedAgentId: null,
         relatedTaskId: null,
         resolution: "first",
         severity: "medium" as const,

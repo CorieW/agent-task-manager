@@ -36,7 +36,7 @@ const TABLES: readonly TableDescriptor[] = [
       property("severity", "Severity", "select"),
       property("status", "Status", "select"),
       relation("task", "Task", "tasks"),
-      relation("subAgent", "Sub-agent", "subAgents"),
+      relation("agent", "Agent", "agents"),
       property("runId", "Run ID", "rich_text", false),
     ],
     title: "Errors",
@@ -54,7 +54,7 @@ const TABLES: readonly TableDescriptor[] = [
     title: "Tasks",
   },
   {
-    kind: "subAgents",
+    kind: "agents",
     managedRanges: [],
     properties: [
       property("name", "Name", "title"),
@@ -65,7 +65,7 @@ const TABLES: readonly TableDescriptor[] = [
       relation("workingOn", "Working On", "tasks"),
       property("lastRun", "Last Run", "last_edited_time", true, false),
     ],
-    title: "Sub-agents",
+    title: "Agents",
   },
 ];
 
@@ -102,7 +102,7 @@ function property(
 function relation(
   logicalName: string,
   physicalName: string,
-  targetTable: "subAgents" | "tasks",
+  targetTable: "agents" | "tasks",
   required = true,
 ) {
   return {

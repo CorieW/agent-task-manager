@@ -14,7 +14,7 @@ import {
   runFoundationDryRun,
   scheduleInvocations,
   type ProviderEnvironment,
-  type SubAgentDefinition,
+  type AgentDefinition,
   type WorkspaceSchemaDescriptor,
 } from "../src/index.js";
 
@@ -22,7 +22,7 @@ import {
 const environment: ProviderEnvironment = {
   bootstrapParent: null,
   connection: {},
-  tables: { errors: null, resources: null, subAgents: null, tasks: null },
+  tables: { errors: null, resources: null, agents: null, tasks: null },
   type: "memory",
 };
 
@@ -50,10 +50,8 @@ const target: WorkspaceSchemaDescriptor = {
   version: "1",
 };
 
-/** Creates a Sub-agent definition fixture. */
-function definition(
-  overrides: Partial<SubAgentDefinition> = {},
-): SubAgentDefinition {
+/** Creates an Agent definition fixture. */
+function definition(overrides: Partial<AgentDefinition> = {}): AgentDefinition {
   return {
     allowedIntents: [],
     capabilities: [],
@@ -77,7 +75,7 @@ function definition(
     revision: 1,
     retry: { maxAttempts: 1, noVerdict: "block" },
     runnerProfile: "default",
-    schema: "sub-agent-definition-v1",
+    schema: "agent-definition-v1",
     selection: {
       acceptsAssignmentsFrom: ["self"],
       maxCandidateSummaries: 10,
@@ -105,9 +103,9 @@ test("typed selection results are closed, digested, and authority checked", () =
     selectionBasisDigest: "basis",
     selectorRevision: 1,
     selectorRunId: "run-1",
-    selectorSubAgentId: "planner",
-    targetSubAgentId: "planner",
-    targetSubAgentRevision: 1,
+    selectorAgentId: "planner",
+    targetAgentId: "planner",
+    targetAgentRevision: 1,
     taskId: "task-1",
   });
   /** Defines the parsed fixture for “typed selection results are closed, digested, and authority checked”. */
@@ -177,7 +175,7 @@ test("foundation dry run plans and schedules without writes", async () => {
   const after = await provider.inspectWorkspaceSchema();
   assert.equal(report.environmentValid, true);
   assert.equal(report.workspaceState, "needs_bootstrap");
-  assert.deepEqual(report.scheduledSubAgentIds, ["planner"]);
+  assert.deepEqual(report.scheduledAgentIds, ["planner"]);
   assert.ok((report.migrationPlan?.steps.length ?? 0) > 0);
   assert.deepEqual(after, before);
   assert.equal(
@@ -212,7 +210,7 @@ test("foundation dry run honors capacity and does not plan ready workspaces", as
   });
   assert.equal(report.workspaceState, "ready");
   assert.equal(report.migrationPlan, null);
-  assert.deepEqual(report.scheduledSubAgentIds, []);
+  assert.deepEqual(report.scheduledAgentIds, []);
 });
 
 test("pagination and idempotency primitives are deterministic", () => {

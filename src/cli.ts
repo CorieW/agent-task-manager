@@ -18,7 +18,7 @@ import type { TableKind } from "./domain/provider.js";
 import {
   inspectHumanRecovery,
   inspectLease,
-  inspectSubAgentActivity,
+  inspectAgentActivity,
   reconcileActivity,
   reconcileHumanResponse,
   reconcileLease,
@@ -36,8 +36,8 @@ Usage:
   agent-task-manager init --apply --expected-plan-digest <sha256> [--write-environment] [--config <path>]
   agent-task-manager migrate --plan [--json] [--config <path>]
   agent-task-manager migrate --apply --expected-plan-digest <sha256> [--write-environment] [--config <path>]
-  agent-task-manager inspect (--task <task-id> | --sub-agent <definition-id> | --lease <lease-id>) [--json] [--config <path>]
-  agent-task-manager reconcile activity --sub-agent <definition-id> [--json] [--config <path>]
+  agent-task-manager inspect (--task <task-id> | --agent <definition-id> | --lease <lease-id>) [--json] [--config <path>]
+  agent-task-manager reconcile activity --agent <definition-id> [--json] [--config <path>]
   agent-task-manager reconcile human --task <task-id> --slot <sha256> [--json] [--config <path>]
   agent-task-manager reconcile lease --lease <lease-id> --owner <owner-id> --expected-version <sha256> [--json] [--config <path>]
   agent-task-manager providers
@@ -174,22 +174,22 @@ export async function main(
     const provider = notionProvider(config);
     /** Whether the Task inspection option was supplied. */
     const hasTask = args.includes("--task");
-    /** Whether the sub-agent inspection option was supplied. */
-    const hasSubAgent = args.includes("--sub-agent");
+    /** Whether the agent inspection option was supplied. */
+    const hasAgent = args.includes("--agent");
     /** Whether the lease inspection option was supplied. */
     const hasLease = args.includes("--lease");
-    if ([hasTask, hasSubAgent, hasLease].filter(Boolean).length !== 1)
+    if ([hasTask, hasAgent, hasLease].filter(Boolean).length !== 1)
       throw new Error(
-        "inspect requires exactly one of --task, --sub-agent, or --lease",
+        "inspect requires exactly one of --task, --agent, or --lease",
       );
-    /** Requested Task, sub-agent, or lease inspection. */
+    /** Requested Task, agent, or lease inspection. */
     let inspection;
     if (hasTask) {
       inspection = await inspectHumanRecovery(provider, option(args, "--task"));
-    } else if (hasSubAgent) {
-      inspection = await inspectSubAgentActivity(
+    } else if (hasAgent) {
+      inspection = await inspectAgentActivity(
         provider,
-        option(args, "--sub-agent"),
+        option(args, "--agent"),
       );
     } else {
       inspection = await inspectLease(provider, option(args, "--lease"));
@@ -201,8 +201,8 @@ export async function main(
       summary = "Lease was not found.";
     } else if ("slots" in inspection) {
       summary = `Task ${inspection.taskId} is ${inspection.status}; ${inspection.slots.length} human slot(s).`;
-    } else if ("subAgentId" in inspection && "activity" in inspection) {
-      summary = `Sub-agent ${inspection.subAgentId} activity inspected.`;
+    } else if ("agentId" in inspection && "activity" in inspection) {
+      summary = `Agent ${inspection.agentId} activity inspected.`;
     } else {
       summary = `Lease ${inspection.leaseId} inspected.`;
     }
@@ -224,7 +224,7 @@ export async function main(
     /** Result produced by main. */
     let result;
     if (operation === "activity") {
-      result = await reconcileActivity(provider, option(args, "--sub-agent"));
+      result = await reconcileActivity(provider, option(args, "--agent"));
     } else if (operation === "human") {
       result = await reconcileHumanResponse(
         provider,

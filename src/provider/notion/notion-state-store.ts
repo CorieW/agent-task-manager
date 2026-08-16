@@ -53,8 +53,8 @@ interface LeaseRecord {
   readonly schema: "agent-task-manager-lease-v1";
   /** Contains scope for lease record. */
   readonly scope: LeaseRequest["scope"];
-  /** Identifies Sub-agent. */
-  readonly subAgentId: string;
+  /** Identifies Agent. */
+  readonly agentId: string;
   /** Identifies task. */
   readonly taskId: string | null;
 }
@@ -191,7 +191,7 @@ export class NotionStateStore {
       const key = leaseKey(
         request.scope,
         request.scope === "agent_run"
-          ? `${request.subAgentId}\0${request.ownerId}`
+          ? `${request.agentId}\0${request.ownerId}`
           : requiredTaskId(request),
       );
       /** Holds the `currentValue` intermediate used by `acquireLease`. */
@@ -219,7 +219,7 @@ export class NotionStateStore {
           releasedAt: null,
           schema: "agent-task-manager-lease-v1",
           scope: request.scope,
-          subAgentId: request.subAgentId,
+          agentId: request.agentId,
           taskId: request.taskId,
         };
         await this.writeRecord(
@@ -362,7 +362,7 @@ export class NotionStateStore {
       ownerId: record.ownerId,
       released: record.releasedAt !== null,
       scope: record.scope,
-      subAgentId: record.subAgentId,
+      agentId: record.agentId,
       taskId: record.taskId,
       version: digestJson(toJsonValue(record)),
     };
@@ -371,22 +371,22 @@ export class NotionStateStore {
   /** Returns IDs for all currently active leases. */
   public async activeLeaseIds(
     scope: LeaseRequest["scope"],
-    subAgentId: string,
+    agentId: string,
   ): Promise<readonly string[]> {
     /** Holds the `projection` intermediate used by `activeLeaseIds`. */
-    const projection = await this.activeProjection(subAgentId);
+    const projection = await this.activeProjection(agentId);
     return scope === "agent_run"
       ? projection.runLeaseIds
       : projection.taskLeaseIds;
   }
 
   /** Returns Task IDs held by currently active assignment leases. */
-  public async activeTaskIds(subAgentId: string): Promise<readonly string[]> {
-    return (await this.activeProjection(subAgentId)).taskIds;
+  public async activeTaskIds(agentId: string): Promise<readonly string[]> {
+    return (await this.activeProjection(agentId)).taskIds;
   }
 
-  /** Builds the active run and Task lease projection for one Sub-agent. */
-  public async activeProjection(subAgentId: string): Promise<{
+  /** Builds the active run and Task lease projection for one Agent. */
+  public async activeProjection(agentId: string): Promise<{
     /** Lists run lease IDs for active projection. */
     readonly runLeaseIds: readonly string[];
     /** Lists task IDs for active projection. */
@@ -401,7 +401,7 @@ export class NotionStateStore {
     /** Holds the `active` intermediate used by `activeProjection`. */
     const active = leases.filter(
       (record) =>
-        record.subAgentId === subAgentId &&
+        record.agentId === agentId &&
         record.releasedAt === null &&
         Date.parse(record.expiresAt) > now,
     );
@@ -469,7 +469,7 @@ export class NotionStateStore {
           key: leaseKey(
             record.scope,
             record.scope === "agent_run"
-              ? `${record.subAgentId}\0${record.ownerId}`
+              ? `${record.agentId}\0${record.ownerId}`
               : requiredTaskId(record),
           ),
           record,
@@ -573,7 +573,7 @@ function parseLease(value: JsonValue): LeaseRecord {
       "releasedAt",
       "schema",
       "scope",
-      "subAgentId",
+      "agentId",
       "taskId",
     ],
     "Lease",
@@ -601,7 +601,7 @@ function parseLease(value: JsonValue): LeaseRecord {
     releasedAt,
     schema: object.schema,
     scope: object.scope,
-    subAgentId: stringValue(object.subAgentId, "Lease subAgentId"),
+    agentId: stringValue(object.agentId, "Lease agentId"),
     taskId,
   };
 }

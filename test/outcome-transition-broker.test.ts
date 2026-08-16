@@ -6,7 +6,7 @@ import {
   InMemoryProvider,
   OutcomeTransitionBroker,
   type ProviderEnvironment,
-  type SubAgentDefinition,
+  type AgentDefinition,
   type WorkspaceSchemaDescriptor,
 } from "../src/index.js";
 
@@ -17,7 +17,7 @@ const environment: ProviderEnvironment = {
   tables: {
     errors: "errors",
     resources: "resources",
-    subAgents: "agents",
+    agents: "agents",
     tasks: "tasks",
   },
   type: "memory",
@@ -55,7 +55,7 @@ test("requires and persists human recovery for an explicitly declared outcome", 
         description: "The configured publication target is unavailable.",
         errorKey: "publication-target",
         relatedRunId: "run-1",
-        relatedSubAgentId: "writer",
+        relatedAgentId: "writer",
         resolution: "Configure a valid target and resume Coding.",
         severity: "high",
         status: "Not Fixed",
@@ -120,8 +120,8 @@ function providerWithTask(): InMemoryProvider {
   return provider;
 }
 
-/** Creates a Sub-agent definition fixture. */
-function definition(): SubAgentDefinition {
+/** Creates an Agent definition fixture. */
+function definition(): AgentDefinition {
   return {
     allowedIntents: ["task.status.transition"],
     capabilities: [],
@@ -146,7 +146,7 @@ function definition(): SubAgentDefinition {
     retry: { maxAttempts: 1, noVerdict: "block" },
     revision: 1,
     runnerProfile: "runner",
-    schema: "sub-agent-definition-v1",
+    schema: "agent-definition-v1",
     selection: {
       acceptsAssignmentsFrom: ["explicit"],
       maxCandidateSummaries: 1,

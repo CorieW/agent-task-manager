@@ -1,7 +1,7 @@
 {
   "name": "agent-task-manager",
   "version": "0.1.0",
-  "description": "Provider-neutral orchestration for task-driven AI sub-agents",
+  "description": "Provider-neutral orchestration for task-driven AI agents",
   "type": "module",
   "private": true,
   "bin": {

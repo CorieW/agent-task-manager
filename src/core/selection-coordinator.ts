@@ -18,8 +18,8 @@ import {
 import type {
   LeaseProjection,
   ResourceMutation,
-  SubAgentActivity,
-  SubAgentDefinition,
+  AgentActivity,
+  AgentDefinition,
   TaskSnapshot,
 } from "../domain/records.js";
 import type { AgentTaskProvider } from "../provider/agent-task-provider.js";
@@ -73,8 +73,8 @@ export interface AssignmentPromotion {
   readonly runLeaseId: string;
   /** SHA-256 digest of canonical selection basis content. */
   readonly selectionBasisDigest: string;
-  /** Stable identifier for target sub-agent. */
-  readonly targetSubAgentId: string;
+  /** Stable identifier for target agent. */
+  readonly targetAgentId: string;
   /** Stable identifier for task. */
   readonly taskId: string;
   /** Stable identifier for task lease. */
@@ -95,10 +95,10 @@ export interface ExplicitAssignmentCore {
   readonly schema: "explicit-assignment-v1";
   /** SHA-256 digest of canonical selection basis content. */
   readonly selectionBasisDigest: string;
-  /** Stable identifier for target sub-agent. */
-  readonly targetSubAgentId: string;
-  /** Target sub-agent revision for explicit assignment core. */
-  readonly targetSubAgentRevision: number;
+  /** Stable identifier for target agent. */
+  readonly targetAgentId: string;
+  /** Target agent revision for explicit assignment core. */
+  readonly targetAgentRevision: number;
   /** Stable identifier for task. */
   readonly taskId: string;
 }
@@ -148,7 +148,7 @@ export async function verifyAssignmentPromotion(
     schema: "assignment-intent-v1",
     selectionBasisDigest: promotion.selectionBasisDigest,
     state: "complete",
-    targetSubAgentId: promotion.targetSubAgentId,
+    targetAgentId: promotion.targetAgentId,
     taskId: promotion.taskId,
     taskLeaseId: promotion.taskLeaseId,
     taskStatus: promotion.taskStatus,
@@ -177,8 +177,8 @@ export function parseExplicitAssignment(value: JsonValue): ExplicitAssignment {
     "idempotencyKey",
     "schema",
     "selectionBasisDigest",
-    "targetSubAgentId",
-    "targetSubAgentRevision",
+    "targetAgentId",
+    "targetAgentRevision",
     "taskId",
   ];
   if (Object.keys(object).sort().join("\0") !== keys.sort().join("\0"))
@@ -186,8 +186,8 @@ export function parseExplicitAssignment(value: JsonValue): ExplicitAssignment {
   if (object.schema !== "explicit-assignment-v1")
     throw new TypeError("Explicit assignment schema is invalid");
   if (
-    !Number.isSafeInteger(object.targetSubAgentRevision) ||
-    (object.targetSubAgentRevision as number) < 1
+    !Number.isSafeInteger(object.targetAgentRevision) ||
+    (object.targetAgentRevision as number) < 1
   )
     throw new TypeError("Explicit assignment revision is invalid");
   /** Parsed used during parse explicit assignment. */
@@ -201,7 +201,7 @@ export function parseExplicitAssignment(value: JsonValue): ExplicitAssignment {
     "digest",
     "idempotencyKey",
     "selectionBasisDigest",
-    "targetSubAgentId",
+    "targetAgentId",
     "taskId",
   ] as const)
     requiredString(parsed[key], key);
@@ -362,7 +362,7 @@ export async function promoteSelection(input: {
   }
 
   /** Target ID used during promote selection. */
-  const targetId = requiredString(result.targetSubAgentId, "Selection target");
+  const targetId = requiredString(result.targetAgentId, "Selection target");
   /** Active target used during promote selection. */
   const activeTarget = requiredActivated(activated, targetId);
   /** Target catalog entry used during promote selection. */
@@ -489,8 +489,8 @@ export async function promoteExplicitAssignment(input: {
       "Explicit assignment does not match its immutable candidate basis",
     );
   if (
-    parsed.targetSubAgentId !== target.id ||
-    parsed.targetSubAgentRevision !== target.revision
+    parsed.targetAgentId !== target.id ||
+    parsed.targetAgentRevision !== target.revision
   )
     throw new Error("Explicit assignment target revision changed");
   if (
@@ -551,7 +551,7 @@ async function acquireAndProject(input: {
   /** SHA-256 digest of canonical selection basis content. */
   readonly selectionBasisDigest: string;
   /** Target for acquire and project input. */
-  readonly target: SubAgentDefinition;
+  readonly target: AgentDefinition;
   /** Stable identifier for task. */
   readonly taskId: string;
   /** Task status for acquire and project input. */
@@ -577,7 +577,7 @@ async function acquireAndProject(input: {
       ownerId: input.ownerId,
       runLeaseId: priorIntent.runLeaseId,
       selectionBasisDigest: input.selectionBasisDigest,
-      targetSubAgentId: input.target.id,
+      targetAgentId: input.target.id,
       taskId: input.taskId,
       taskLeaseId: priorIntent.taskLeaseId,
       taskStatus: input.taskStatus,
@@ -599,9 +599,7 @@ async function acquireAndProject(input: {
     input.target.id,
   );
   /** Before activity loaded during acquire and project. */
-  const beforeActivity = await input.provider.getSubAgentActivity(
-    input.target.id,
-  );
+  const beforeActivity = await input.provider.getAgentActivity(input.target.id);
   verifyActivity(beforeActivity, beforeProjection);
   /** Run lease ID used during acquire and project. */
   let runLeaseId = input.existingRunLeaseId;
@@ -612,7 +610,7 @@ async function acquireAndProject(input: {
       idempotencyKey: `selection:${input.operationDigest}:run`,
       ownerId: input.ownerId,
       scope: "agent_run",
-      subAgentId: input.target.id,
+      agentId: input.target.id,
       taskId: null,
     });
     if (!runLease.acquired || runLease.leaseId === null) {
@@ -633,7 +631,7 @@ async function acquireAndProject(input: {
     idempotencyKey: `selection:${input.operationDigest}:task`,
     ownerId: input.ownerId,
     scope: "task_assignment",
-    subAgentId: input.target.id,
+    agentId: input.target.id,
     taskId: input.taskId,
   });
   if (!taskLease.acquired || taskLease.leaseId === null) {
@@ -678,26 +676,26 @@ async function acquireAndProject(input: {
     throw new Error("Selection exceeds target concurrency");
   }
   /** Current activity loaded during acquire and project. */
-  const currentActivity = await input.provider.getSubAgentActivity(
+  const currentActivity = await input.provider.getAgentActivity(
     input.target.id,
   );
   if (!activityMatches(currentActivity, afterProjection)) {
-    await input.provider.updateSubAgentActivity({
+    await input.provider.updateAgentActivity({
       expectedRunLeaseIds: beforeProjection.runLeaseIds,
       expectedTaskIds: beforeActivity.taskIds,
       idempotencyKey: `selection:${input.operationDigest}:activity`,
       nextRunLeaseIds: afterProjection.runLeaseIds,
       nextTaskIds: afterProjection.taskIds,
-      subAgentId: input.target.id,
+      agentId: input.target.id,
     });
   }
   if (
     !activityMatches(
-      await input.provider.getSubAgentActivity(input.target.id),
+      await input.provider.getAgentActivity(input.target.id),
       afterProjection,
     )
   )
-    throw new Error("Selected Sub-agent activity did not verify");
+    throw new Error("Selected Agent activity did not verify");
   await writeAssignmentIntent(input.provider, intentKey, input, {
     runLeaseId,
     state: "complete",
@@ -708,7 +706,7 @@ async function acquireAndProject(input: {
     ownerId: input.ownerId,
     runLeaseId,
     selectionBasisDigest: input.selectionBasisDigest,
-    targetSubAgentId: input.target.id,
+    targetAgentId: input.target.id,
     taskId: input.taskId,
     taskLeaseId: taskLease.leaseId,
     taskStatus: input.taskStatus,
@@ -741,7 +739,7 @@ async function readAssignmentIntent(
     /** SHA-256 digest of canonical selection basis content. */
     readonly selectionBasisDigest: string;
     /** Target for read assignment intent input. */
-    readonly target: SubAgentDefinition;
+    readonly target: AgentDefinition;
     /** Stable identifier for task. */
     readonly taskId: string;
     /** Task status for read assignment intent input. */
@@ -764,7 +762,7 @@ async function readAssignmentIntent(
     value.operationDigest !== input.operationDigest ||
     value.ownerId !== input.ownerId ||
     value.selectionBasisDigest !== input.selectionBasisDigest ||
-    value.targetSubAgentId !== input.target.id ||
+    value.targetAgentId !== input.target.id ||
     value.taskId !== input.taskId ||
     value.taskStatus !== input.taskStatus ||
     value.taskVersion !== input.taskVersion
@@ -811,7 +809,7 @@ async function writeAssignmentIntent(
     /** SHA-256 digest of canonical selection basis content. */
     readonly selectionBasisDigest: string;
     /** Target for write assignment intent input. */
-    readonly target: SubAgentDefinition;
+    readonly target: AgentDefinition;
     /** Stable identifier for task. */
     readonly taskId: string;
     /** Task status for write assignment intent input. */
@@ -829,7 +827,7 @@ async function writeAssignmentIntent(
     schema: "assignment-intent-v1",
     state: progress.state,
     selectionBasisDigest: input.selectionBasisDigest,
-    targetSubAgentId: input.target.id,
+    targetAgentId: input.target.id,
     taskId: input.taskId,
     taskLeaseId: progress.taskLeaseId,
     taskStatus: input.taskStatus,
@@ -852,7 +850,7 @@ async function writeAssignmentIntent(
 /** Atomically reserves one assignment slot in the run's durable budget. */
 async function reserveAssignmentBudget(
   provider: AgentTaskProvider,
-  definition: SubAgentDefinition,
+  definition: AgentDefinition,
   runIdentity: string,
   operationDigest: string,
 ): Promise<void> {
@@ -871,7 +869,7 @@ async function reserveAssignmentBudget(
     const value = parsed as Record<string, unknown>;
     if (
       value.schema !== "assignment-budget-v1" ||
-      value.subAgentId !== definition.id ||
+      value.agentId !== definition.id ||
       value.runIdentity !== runIdentity ||
       !Array.isArray(value.operationDigests) ||
       value.operationDigests.some((item) => typeof item !== "string")
@@ -882,14 +880,14 @@ async function reserveAssignmentBudget(
   }
   if (!operations.includes(operationDigest)) operations.push(operationDigest);
   if (operations.length > definition.maxAssignmentsPerRun)
-    throw new Error("Sub-agent assignment budget is exhausted");
+    throw new Error("Agent assignment budget is exhausted");
   operations.sort();
   /** Body used during reserve assignment budget. */
   const body = JSON.stringify({
     operationDigests: operations,
     runIdentity,
     schema: "assignment-budget-v1",
-    subAgentId: definition.id,
+    agentId: definition.id,
   });
   await provider.putResource({
     body,
@@ -935,33 +933,30 @@ async function verifyDependencies(
 /** Releases the selector lease and synchronizes its activity projection. */
 async function releaseAndProjectSelector(
   provider: AgentTaskProvider,
-  subAgentId: string,
+  agentId: string,
   leaseId: string,
   ownerId: string,
   operationDigest: string,
 ): Promise<void> {
   /** Before projection loaded during release and project selector. */
-  const beforeProjection = await provider.getLeaseProjection(subAgentId);
+  const beforeProjection = await provider.getLeaseProjection(agentId);
   /** Before activity loaded during release and project selector. */
-  const beforeActivity = await provider.getSubAgentActivity(subAgentId);
+  const beforeActivity = await provider.getAgentActivity(agentId);
   verifyActivity(beforeActivity, beforeProjection);
   await provider.releaseLease({ expectedVersion: null, leaseId, ownerId });
   /** After projection loaded during release and project selector. */
-  const afterProjection = await provider.getLeaseProjection(subAgentId);
+  const afterProjection = await provider.getLeaseProjection(agentId);
   if (!activityMatches(beforeActivity, afterProjection)) {
-    await provider.updateSubAgentActivity({
+    await provider.updateAgentActivity({
       expectedRunLeaseIds: beforeProjection.runLeaseIds,
       expectedTaskIds: beforeProjection.taskIds,
       idempotencyKey: `selection:${operationDigest}:selector-finalize`,
       nextRunLeaseIds: afterProjection.runLeaseIds,
       nextTaskIds: afterProjection.taskIds,
-      subAgentId,
+      agentId,
     });
   }
-  verifyActivity(
-    await provider.getSubAgentActivity(subAgentId),
-    afterProjection,
-  );
+  verifyActivity(await provider.getAgentActivity(agentId), afterProjection);
 }
 
 /** Returns the single active definition matching an ID and revision. */
@@ -974,21 +969,21 @@ function requiredActivated(
     ({ resolved }) => resolved.definition.id === id,
   );
   if (matches.length !== 1 || matches[0] === undefined)
-    throw new Error(`Sub-agent ${id} is not uniquely activated`);
+    throw new Error(`Agent ${id} is not uniquely activated`);
   return matches[0];
 }
 
 /** Confirms that provider activity matches the expected lease projection. */
 function verifyActivity(
-  activity: SubAgentActivity,
+  activity: AgentActivity,
   projection: LeaseProjection,
 ): void {
   if (!activityMatches(activity, projection))
-    throw new Error("Sub-agent activity does not match active leases");
+    throw new Error("Agent activity does not match active leases");
 }
 /** Checks whether activity contains exactly the expected Tasks and online state. */
 function activityMatches(
-  activity: SubAgentActivity,
+  activity: AgentActivity,
   projection: LeaseProjection,
 ): boolean {
   /** Expected status used for comparison. */

@@ -15,7 +15,7 @@ export * from "./core/outcome-router.js";
 export * from "./core/selection-result.js";
 export * from "./core/selection-coordinator.js";
 export * from "./core/schema-diff.js";
-export * from "./core/sub-agent-definition.js";
+export * from "./core/agent-definition.js";
 export * from "./core/task-query-contract.js";
 export * from "./domain/json.js";
 export * from "./domain/provider.js";

@@ -67,7 +67,7 @@ export class ProviderEffectJournal {
       idempotencyKey: `external-effect-claim:${effectId}:${ownerId}`,
       ownerId,
       scope: "task_assignment",
-      subAgentId: "system/external-effect-broker",
+      agentId: "system/external-effect-broker",
       taskId: `system/external-effect/${effectId}`,
     });
     if (!acquired.acquired || acquired.leaseId === null)

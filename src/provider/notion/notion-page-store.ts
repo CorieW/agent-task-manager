@@ -29,8 +29,8 @@ export interface NotionMutableTableIds {
   readonly errors: string;
   /** Contains resources for Notion mutable table IDs. */
   readonly resources: string;
-  /** Contains Sub agents for Notion mutable table IDs. */
-  readonly subAgents: string;
+  /** Contains Agents for Notion mutable table IDs. */
+  readonly agents: string;
   /** Contains tasks for Notion mutable table IDs. */
   readonly tasks: string;
 }
@@ -217,8 +217,8 @@ export class NotionPageStore {
       propertyOption(current.page, "Status") === error.status &&
       propertyText(current.page, "Run ID") === (error.relatedRunId ?? "") &&
       sameSet(
-        await this.relationIds(current.page, "Sub-agent"),
-        error.relatedSubAgentId === null ? [] : [error.relatedSubAgentId],
+        await this.relationIds(current.page, "Agent"),
+        error.relatedAgentId === null ? [] : [error.relatedAgentId],
       ) &&
       sameSet(
         await this.relationIds(current.page, "Task"),
@@ -235,25 +235,25 @@ export class NotionPageStore {
     return this.receipt("errors", current, error.idempotencyKey);
   }
 
-  /** Updates Sub agent activity. */
-  public async updateSubAgentActivity(
+  /** Updates Agent activity. */
+  public async updateAgentActivity(
     change: ActivityMutation,
   ): Promise<WriteReceipt> {
-    /** Holds the `current` intermediate used by `updateSubAgentActivity`. */
-    const current = await this.getPage(change.subAgentId);
-    /** Holds the `currentTaskIds` intermediate used by `updateSubAgentActivity`. */
+    /** Holds the `current` intermediate used by `updateAgentActivity`. */
+    const current = await this.getPage(change.agentId);
+    /** Holds the `currentTaskIds` intermediate used by `updateAgentActivity`. */
     const currentTaskIds = await this.relationIds(current.page, "Working On");
     if (!sameSet(currentTaskIds, change.expectedTaskIds))
-      throw new Error("Sub-agent Working On conflict");
-    /** Holds the `currentStatus` intermediate used by `updateSubAgentActivity`. */
+      throw new Error("Agent Working On conflict");
+    /** Holds the `currentStatus` intermediate used by `updateAgentActivity`. */
     const currentStatus = propertyOption(current.page, "Status");
-    /** Defines `expectedStatus` for comparison in `updateSubAgentActivity`. */
+    /** Defines `expectedStatus` for comparison in `updateAgentActivity`. */
     const expectedStatus = activityStatus(change.expectedRunLeaseIds);
     if (currentStatus !== expectedStatus) {
-      throw new Error("Sub-agent Status conflict");
+      throw new Error("Agent Status conflict");
     }
-    return this.setSubAgentActivity(
-      change.subAgentId,
+    return this.setAgentActivity(
+      change.agentId,
       expectedStatus,
       change.expectedTaskIds,
       activityStatus(change.nextRunLeaseIds),
@@ -262,12 +262,10 @@ export class NotionPageStore {
     );
   }
 
-  /** Returns Sub agent activity. */
-  public async getSubAgentActivity(
-    subAgentId: string,
-  ): Promise<NotionAgentActivity> {
-    /** Holds the `current` intermediate used by `getSubAgentActivity`. */
-    const current = await this.getPage(subAgentId);
+  /** Returns Agent activity. */
+  public async getAgentActivity(agentId: string): Promise<NotionAgentActivity> {
+    /** Holds the `current` intermediate used by `getAgentActivity`. */
+    const current = await this.getPage(agentId);
     return {
       status: propertyOption(current.page, "Status") ?? "",
       taskIds: normalizedSet(
@@ -277,17 +275,17 @@ export class NotionPageStore {
     };
   }
 
-  /** Sets Sub agent activity. */
-  public async setSubAgentActivity(
-    subAgentId: string,
+  /** Sets Agent activity. */
+  public async setAgentActivity(
+    agentId: string,
     expectedStatus: string,
     expectedTaskIds: readonly string[],
     nextStatus: "Offline" | "Online",
     nextTaskIds: readonly string[],
     idempotencyKey: string,
   ): Promise<WriteReceipt> {
-    /** Holds the `current` intermediate used by `setSubAgentActivity`. */
-    const current = await this.getPage(subAgentId);
+    /** Holds the `current` intermediate used by `setAgentActivity`. */
+    const current = await this.getPage(agentId);
     if (
       propertyOption(current.page, "Status") !== expectedStatus ||
       !sameSet(
@@ -295,7 +293,7 @@ export class NotionPageStore {
         expectedTaskIds,
       )
     ) {
-      throw new Error("Sub-agent activity changed before reconciliation");
+      throw new Error("Agent activity changed before reconciliation");
     }
     await this.transport.request({
       body: {
@@ -307,21 +305,21 @@ export class NotionPageStore {
         },
       },
       method: "PATCH",
-      path: `/v1/pages/${subAgentId}`,
+      path: `/v1/pages/${agentId}`,
     });
-    /** Holds the `verified` intermediate used by `setSubAgentActivity`. */
-    const verified = await this.getPage(subAgentId);
-    /** Holds the `status` intermediate used by `setSubAgentActivity`. */
+    /** Holds the `verified` intermediate used by `setAgentActivity`. */
+    const verified = await this.getPage(agentId);
+    /** Holds the `status` intermediate used by `setAgentActivity`. */
     const status = propertyOption(verified.page, "Status");
     if (status !== nextStatus) {
-      throw new Error("Sub-agent Status post-verification failed");
+      throw new Error("Agent Status post-verification failed");
     }
     if (
       !sameSet(await this.relationIds(verified.page, "Working On"), nextTaskIds)
     ) {
-      throw new Error("Sub-agent Working On post-verification failed");
+      throw new Error("Agent Working On post-verification failed");
     }
-    return this.receipt("subAgents", verified, idempotencyKey);
+    return this.receipt("agents", verified, idempotencyKey);
   }
 
   /** Applies task mutation. */
@@ -691,8 +689,8 @@ function errorProperties(error: ErrorMutation): JsonObject {
     "Run ID": richTextProperty(error.relatedRunId ?? ""),
     Severity: selectProperty(error.severity),
     Status: selectProperty(error.status),
-    "Sub-agent": relationProperty(
-      error.relatedSubAgentId === null ? [] : [error.relatedSubAgentId],
+    Agent: relationProperty(
+      error.relatedAgentId === null ? [] : [error.relatedAgentId],
     ),
     Task: relationProperty(
       error.relatedTaskId === null ? [] : [error.relatedTaskId],
@@ -973,7 +971,7 @@ function normalizedSet(values: readonly string[]): readonly string[] {
 function sameSet(left: readonly string[], right: readonly string[]): boolean {
   return normalizedSet(left).join("\0") === normalizedSet(right).join("\0");
 }
-/** Derives Sub-agent activity from active run leases. */
+/** Derives Agent activity from active run leases. */
 function activityStatus(runLeaseIds: readonly string[]): "Offline" | "Online" {
   return runLeaseIds.length === 0 ? "Offline" : "Online";
 }

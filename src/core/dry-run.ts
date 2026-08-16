@@ -18,8 +18,8 @@ export interface FoundationDryRunReport {
   readonly environmentValid: boolean;
   /** Migration plan for foundation dry run report. */
   readonly migrationPlan: WorkspaceMigrationPlan | null;
-  /** Scheduled sub-agent IDs. */
-  readonly scheduledSubAgentIds: readonly string[];
+  /** Scheduled agent IDs. */
+  readonly scheduledAgentIds: readonly string[];
   /** Workspace state for foundation dry run report. */
   readonly workspaceState: WorkspaceState;
 }
@@ -30,7 +30,7 @@ export async function runFoundationDryRun(input: {
   readonly environment: ProviderEnvironment;
   /** Stable identifier for environment. */
   readonly environmentId: string;
-  /** Active run count indexed by sub-agent definition ID. */
+  /** Active run count indexed by agent definition ID. */
   readonly activeRuns: Readonly<Record<string, number>>;
   /** Due scheduled definition IDs. */
   readonly dueScheduledDefinitionIds: readonly string[];
@@ -67,7 +67,7 @@ export async function runFoundationDryRun(input: {
         })
       : null;
   /** Definitions loaded during run foundation dry run. */
-  const definitions = await input.provider.listSubAgentDefinitions();
+  const definitions = await input.provider.listAgentDefinitions();
   /** Scheduled used during run foundation dry run. */
   const scheduled = scheduleInvocations({
     activeRuns: input.activeRuns,
@@ -80,7 +80,7 @@ export async function runFoundationDryRun(input: {
   const core = {
     environmentValid: environmentReport.valid,
     migrationPlan,
-    scheduledSubAgentIds: scheduled.map((definition) => definition.id),
+    scheduledAgentIds: scheduled.map((definition) => definition.id),
     workspaceState: tableReport.state,
   };
   return { ...core, digest: digestJson(toJsonValue(core)) };

@@ -12,8 +12,8 @@ import type {
   ResourceMutation,
   ResourceRecord,
   ResourceRef,
-  SubAgentDefinition,
-  SubAgentActivity,
+  AgentDefinition,
+  AgentActivity,
   TaskQuery,
   TaskSnapshot,
   TaskSummary,
@@ -61,25 +61,25 @@ export interface AgentTaskProvider {
   /** Reconciles workspace step against provider state. */
   reconcileWorkspaceStep(stepId: string): Promise<ReconciliationResult>;
 
-  /** Lists Sub agent definitions. */
-  listSubAgentDefinitions(): Promise<readonly SubAgentDefinition[]>;
-  /** Returns Sub agent definition. */
-  getSubAgentDefinition(id: string): Promise<SubAgentDefinition>;
-  /** Returns Sub agent activity. */
-  getSubAgentActivity(id: string): Promise<SubAgentActivity>;
+  /** Lists Agent definitions. */
+  listAgentDefinitions(): Promise<readonly AgentDefinition[]>;
+  /** Returns Agent definition. */
+  getAgentDefinition(id: string): Promise<AgentDefinition>;
+  /** Returns Agent activity. */
+  getAgentActivity(id: string): Promise<AgentActivity>;
   /** Returns lease projection. */
   getLeaseProjection(id: string): Promise<LeaseProjection>;
   /** Returns lease snapshot. */
   getLeaseSnapshot(leaseId: string): Promise<LeaseSnapshot | null>;
-  /** Reconciles Sub agent activity against provider state. */
-  reconcileSubAgentActivity(
-    subAgentId: string,
+  /** Reconciles Agent activity against provider state. */
+  reconcileAgentActivity(
+    agentId: string,
     idempotencyKey: string,
   ): Promise<ReconciliationResult>;
   /** Lists task status options. */
   listTaskStatusOptions(): Promise<readonly string[]>;
-  /** Updates Sub agent activity. */
-  updateSubAgentActivity(change: ActivityMutation): Promise<WriteReceipt>;
+  /** Updates Agent activity. */
+  updateAgentActivity(change: ActivityMutation): Promise<WriteReceipt>;
 
   /** Lists task summaries. */
   listTaskSummaries(query: TaskQuery): Promise<readonly TaskSummary[]>;

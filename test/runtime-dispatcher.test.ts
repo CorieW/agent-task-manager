@@ -31,7 +31,7 @@ import {
   type ProviderEnvironment,
   type ResourceMutation,
   type ResolvedRuntimeEnvironment,
-  type SubAgentDefinition,
+  type AgentDefinition,
   type SupervisedAgentProcess,
   type ToolIsolationAdapter,
   type ToolIsolationPolicy,
@@ -43,7 +43,7 @@ import {
 const environment: ProviderEnvironment = {
   bootstrapParent: null,
   connection: {},
-  tables: { errors: "e", resources: "r", subAgents: "a", tasks: "t" },
+  tables: { errors: "e", resources: "r", agents: "a", tasks: "t" },
   type: "memory",
 };
 /** Defines the shared target fixture for this test module. */
@@ -200,7 +200,7 @@ test("blocks unauthorized tool activity without retrying", async () => {
   assert.equal(prepared.provider.errors.length, 1);
   assert.equal(
     prepared.provider.errors[0]?.title,
-    "Sub-agent runtime tool_policy_violation",
+    "Agent runtime tool_policy_violation",
   );
 });
 
@@ -319,7 +319,7 @@ test("runs a context-only agent through the concrete no-tool stack", async () =>
     installedRunnerProfiles: ["no-tools"],
   };
   /** Defines the definition fixture for “runs a context-only agent through the concrete no-tool stack”. */
-  const definition: SubAgentDefinition = {
+  const definition: AgentDefinition = {
     ...agentDefinition(),
     capabilities: [],
     runnerProfile: "no-tools",
@@ -513,8 +513,8 @@ async function preparedDispatch(
     idempotencyKey: `explicit:${ownerId}`,
     schema: "explicit-assignment-v1",
     selectionBasisDigest: selectionContext.basisDigest,
-    targetSubAgentId: target.resolved.definition.id,
-    targetSubAgentRevision: target.resolved.definition.revision,
+    targetAgentId: target.resolved.definition.id,
+    targetAgentRevision: target.resolved.definition.revision,
     taskId: "task-1",
   });
   /** Defines the promotion fixture used by prepared dispatch. */
@@ -572,7 +572,7 @@ function runtimeEnvironment(
     provider: {
       bootstrapParent: null,
       connection: {},
-      tables: { errors: "e", resources: "r", subAgents: "a", tasks: "t" },
+      tables: { errors: "e", resources: "r", agents: "a", tasks: "t" },
       type: "memory",
     },
     runtime: {
@@ -723,7 +723,7 @@ async function preparedProvider(
   return provider;
 }
 /** Creates the agent definition test fixture. */
-function agentDefinition(): SubAgentDefinition {
+function agentDefinition(): AgentDefinition {
   return {
     allowedIntents: ["task.note"],
     capabilities: ["repository.read"],
@@ -748,7 +748,7 @@ function agentDefinition(): SubAgentDefinition {
     retry: { maxAttempts: 1, noVerdict: "block" },
     revision: 1,
     runnerProfile: "read-only",
-    schema: "sub-agent-definition-v1",
+    schema: "agent-definition-v1",
     selection: {
       acceptsAssignmentsFrom: ["explicit", "self"],
       maxCandidateSummaries: 1,

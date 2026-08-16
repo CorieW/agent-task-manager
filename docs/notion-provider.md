@@ -10,12 +10,12 @@ Extra properties are tolerated. A missing compatible property can be added
 only by a digest-authorized workspace apply; incompatible or destructive drift
 fails closed.
 
-| Table      | Required properties                                                                                                                                      |
-| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Tasks      | `Task` title; provider-defined `Status` select; adapter-internal `Manager Mutation` rich text; self-relation `Dependencies`; optional numeric `Priority` |
-| Sub-agents | `Name` title; `Enabled` checkbox; numeric `Revision`; `Model` rich text; `Status` select; `Working On` Tasks relation; `Last Run` last-edited time       |
-| Errors     | `Error` title; `Error Key` rich text; `Severity` and `Status` selects; `Task` and `Sub-agent` relations; optional `Run ID`                               |
-| Resources  | `Resource` title; `Kind` and `State` selects; `Version`, `Digest`, and `Dependencies` rich text                                                          |
+| Table     | Required properties                                                                                                                                      |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tasks     | `Task` title; provider-defined `Status` select; adapter-internal `Manager Mutation` rich text; self-relation `Dependencies`; optional numeric `Priority` |
+| Agents    | `Name` title; `Enabled` checkbox; numeric `Revision`; `Model` rich text; `Status` select; `Working On` Tasks relation; `Last Run` last-edited time       |
+| Errors    | `Error` title; `Error Key` rich text; `Severity` and `Status` selects; `Task` and `Agent` relations; optional `Run ID`                                   |
+| Resources | `Resource` title; `Kind` and `State` selects; `Version`, `Digest`, and `Dependencies` rich text                                                          |
 
 Project-specific columns are additive and remain provider data rather than core
 role logic. The Perfect Project v4 workspace additionally uses Task governance
@@ -24,7 +24,7 @@ fields (`Type`, `Scope`, `Acceptance Criteria`, `GitHub Links`, `Owner`,
 ownership/fix tracking, and Resource ownership/source/review tracking. Its Task
 `Status` select carries both active workflow states and terminal outcomes:
 `Completed`, `Cancelled`, `Duplicate`, `Not reproducible`, and `Superseded`.
-Sub-agent responsibilities and boundaries belong in prompt Resources instead
+Agent responsibilities and boundaries belong in prompt Resources instead
 of duplicate table properties. The adapter tolerates and can round-trip these
 extra properties without imposing them on another project.
 
@@ -37,7 +37,7 @@ description or resolution body instead of a dedicated property.
 
 Provider-managed page bodies use exact level-two headings:
 
-- Sub-agent definitions: `## Sub-agent definition`
+- Agent definitions: `## Agent definition`
 - Resources and internal journals: `## Resource body`
 - Errors: `## Error Description` and `## Error Resolution`
 
@@ -54,7 +54,7 @@ intent, lease, bootstrap-session, and recovery records.
 
 `Status` and `Working On` are independent:
 
-- `Status` is `Online` exactly when the Sub-agent owns an active run lease.
+- `Status` is `Online` exactly when the Agent owns an active run lease.
 - `Working On` contains exactly its active task-assignment leases.
 
 The provider exhausts paginated relation values before comparing or replacing

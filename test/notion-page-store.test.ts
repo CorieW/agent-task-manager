@@ -14,7 +14,7 @@ import type {
 const TABLES = {
   errors: "errors",
   resources: "resources",
-  subAgents: "agents",
+  agents: "agents",
   tasks: "tasks",
 };
 
@@ -271,24 +271,24 @@ test("conditionally updates Status and Working On", async () => {
   /** Defines the store fixture for “conditionally updates Status and Working On”. */
   const store = new NotionPageStore(TABLES, transport, () => new Date(0));
   /** Defines the receipt fixture for “conditionally updates Status and Working On”. */
-  const receipt = await store.updateSubAgentActivity({
+  const receipt = await store.updateAgentActivity({
     expectedRunLeaseIds: [],
     expectedTaskIds: [],
     idempotencyKey: "activity-1",
     nextRunLeaseIds: ["lease-1"],
     nextTaskIds: ["task-1"],
-    subAgentId: "agent-1",
+    agentId: "agent-1",
   });
   assert.equal(receipt.providerRecord.id, "agent-1");
-  assert.equal((await store.getSubAgentActivity("agent-1")).status, "Online");
+  assert.equal((await store.getAgentActivity("agent-1")).status, "Online");
   await assert.rejects(
-    store.updateSubAgentActivity({
+    store.updateAgentActivity({
       expectedRunLeaseIds: [],
       expectedTaskIds: [],
       idempotencyKey: "activity-2",
       nextRunLeaseIds: [],
       nextTaskIds: [],
-      subAgentId: "agent-1",
+      agentId: "agent-1",
     }),
     /Working On conflict/u,
   );
@@ -328,7 +328,7 @@ test("recognizes the exact Error target after an interrupted intent", async () =
     errorKey: "failure/stable",
     idempotencyKey: "error-write",
     relatedRunId: "run-1",
-    relatedSubAgentId: null,
+    relatedAgentId: null,
     relatedTaskId: null,
     resolution: "Repair the environment.",
     severity: "high" as const,

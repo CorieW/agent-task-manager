@@ -115,8 +115,8 @@ export interface TrialObservationIssue {
   readonly code: string;
   /** Contains description for trial observation issue. */
   readonly description: string;
-  /** Identifies related Sub-agent. */
-  readonly relatedSubAgentId: string | null;
+  /** Identifies related Agent. */
+  readonly relatedAgentId: string | null;
   /** Contains resolution for trial observation issue. */
   readonly resolution: string;
   /** Contains title for trial observation issue. */
@@ -211,8 +211,8 @@ interface BlockerDetails {
   readonly request: IdentificationTrialRequest;
   /** Contains resolution for blocker details. */
   readonly resolution: string;
-  /** Optionally identifies Sub-agent. */
-  readonly subAgentId?: string | null;
+  /** Optionally identifies Agent. */
+  readonly agentId?: string | null;
   /** Optionally identifies task. */
   readonly taskId?: string | null;
   /** Contains title for blocker details. */
@@ -257,7 +257,7 @@ export async function prepareIdentificationTrial(
       taskBasis.push(taskBasisFor(task));
     }
     /** Holds the `definitions` intermediate used by `prepareIdentificationTrial`. */
-    const definitions = await provider.listSubAgentDefinitions();
+    const definitions = await provider.listAgentDefinitions();
     /** Holds the `selectedIds` intermediate used by `prepareIdentificationTrial`. */
     const selectedIds =
       request.definitionIds === null
@@ -271,8 +271,8 @@ export async function prepareIdentificationTrial(
         code: "no_enabled_definitions",
         request,
         resolution:
-          "Enable at least one provider-defined Sub-agent and create a fresh trial basis.",
-        title: "No Sub-agent definition is available",
+          "Enable at least one provider-defined Agent and create a fresh trial basis.",
+        title: "No Agent definition is available",
       });
     }
     /** Indexes entries in `byId` for `prepareIdentificationTrial`. */
@@ -290,8 +290,8 @@ export async function prepareIdentificationTrial(
           request,
           resolution:
             "Restore or enable the requested provider definition, then create a fresh trial basis.",
-          subAgentId: definitionId,
-          title: "A requested Sub-agent definition is unavailable",
+          agentId: definitionId,
+          title: "A requested Agent definition is unavailable",
         });
       }
       /** Holds the `resolved` intermediate used by `prepareIdentificationTrial`. */
@@ -399,7 +399,7 @@ export async function recordIdentificationTrialObservation(
       description: issue.description,
       request: plan.request,
       resolution: issue.resolution,
-      subAgentId: issue.relatedSubAgentId,
+      agentId: issue.relatedAgentId,
       taskId: observation.taskId,
       title: issue.title,
     });
@@ -441,22 +441,22 @@ function createBlocker(details: BlockerDetails): IdentificationTrialBlocker {
   const description = details.description ?? title;
   /** Holds the `taskId` intermediate used by `createBlocker`. */
   const taskId = details.taskId ?? null;
-  /** Holds the `subAgentId` intermediate used by `createBlocker`. */
-  const subAgentId = details.subAgentId ?? null;
+  /** Holds the `agentId` intermediate used by `createBlocker`. */
+  const agentId = details.agentId ?? null;
   assertBoundedString(code, "Blocker code", 100);
   assertBoundedString(title, "Blocker title", 200);
   assertBoundedString(description, "Blocker description", 4_000);
   assertBoundedString(resolution, "Blocker resolution", 4_000);
   /** Holds the `entityIdentity` intermediate used by `createBlocker`. */
   const entityIdentity = digestJson(
-    toJsonValue({ code, subAgentId, taskId, trialId: request.trialId }),
+    toJsonValue({ code, agentId, taskId, trialId: request.trialId }),
   );
   /** Holds the `errorCore` intermediate used by `createBlocker`. */
   const errorCore = {
     description,
     errorKey: `trial/${request.trialId}/${entityIdentity}`,
     relatedRunId: request.trialId,
-    relatedSubAgentId: subAgentId,
+    relatedAgentId: agentId,
     relatedTaskId: taskId,
     resolution,
     severity: "high",
@@ -845,12 +845,12 @@ function assertObservation(
   }
   if (observedDefinitions.size !== knownDefinitions.size)
     throw new TypeError(
-      "Trial metrics must include every selected Sub-agent definition",
+      "Trial metrics must include every selected Agent definition",
     );
   if (observation.issue !== null) {
     assertExactKeys(
       observation.issue,
-      ["code", "description", "relatedSubAgentId", "resolution", "title"],
+      ["code", "description", "relatedAgentId", "resolution", "title"],
       "Trial observation issue",
     );
     assertBoundedString(observation.issue.code, "Issue code", 100);
@@ -865,15 +865,15 @@ function assertObservation(
       "Issue resolution",
       4_000,
     );
-    if (observation.issue.relatedSubAgentId !== null) {
+    if (observation.issue.relatedAgentId !== null) {
       assertBoundedString(
-        observation.issue.relatedSubAgentId,
-        "Issue Sub-agent ID",
+        observation.issue.relatedAgentId,
+        "Issue Agent ID",
         200,
       );
-      if (!knownDefinitions.has(observation.issue.relatedSubAgentId))
+      if (!knownDefinitions.has(observation.issue.relatedAgentId))
         throw new TypeError(
-          "Trial issue references an unknown Sub-agent definition",
+          "Trial issue references an unknown Agent definition",
         );
     }
   }
@@ -913,7 +913,7 @@ function assertBlocker(blocker: IdentificationTrialBlocker): void {
       "errorKey",
       "idempotencyKey",
       "relatedRunId",
-      "relatedSubAgentId",
+      "relatedAgentId",
       "relatedTaskId",
       "resolution",
       "severity",

@@ -12,8 +12,8 @@ import type {
   ResourceMutation,
   ResourceRecord,
   ResourceRef,
-  SubAgentActivity,
-  SubAgentDefinition,
+  AgentActivity,
+  AgentDefinition,
   TaskQuery,
   TaskSnapshot,
   TaskSummary,
@@ -38,7 +38,7 @@ import type { AgentTaskProvider } from "./agent-task-provider.js";
 /** Defines seedable agent task provider. */
 export interface SeedableAgentTaskProvider extends AgentTaskProvider {
   /** Seeds definition. */
-  seedDefinition(definition: SubAgentDefinition): void;
+  seedDefinition(definition: AgentDefinition): void;
   /** Seeds task. */
   seedTask(task: TaskSnapshot): void;
   /** Seeds task status options. */
@@ -58,7 +58,7 @@ export class SerializedProviderEmulator implements SeedableAgentTaskProvider {
   ) {}
 
   /** Seeds definition. */
-  public seedDefinition(definition: SubAgentDefinition): void {
+  public seedDefinition(definition: AgentDefinition): void {
     this.backing.seedDefinition(crossBoundary(definition));
   }
 
@@ -123,24 +123,22 @@ export class SerializedProviderEmulator implements SeedableAgentTaskProvider {
     );
   }
 
-  /** Lists Sub agent definitions. */
-  public async listSubAgentDefinitions(): Promise<
-    readonly SubAgentDefinition[]
-  > {
-    return crossBoundary(await this.backing.listSubAgentDefinitions());
+  /** Lists Agent definitions. */
+  public async listAgentDefinitions(): Promise<readonly AgentDefinition[]> {
+    return crossBoundary(await this.backing.listAgentDefinitions());
   }
 
-  /** Returns Sub agent definition. */
-  public async getSubAgentDefinition(id: string): Promise<SubAgentDefinition> {
+  /** Returns Agent definition. */
+  public async getAgentDefinition(id: string): Promise<AgentDefinition> {
     return crossBoundary(
-      await this.backing.getSubAgentDefinition(crossBoundary(id)),
+      await this.backing.getAgentDefinition(crossBoundary(id)),
     );
   }
 
-  /** Returns Sub agent activity. */
-  public async getSubAgentActivity(id: string): Promise<SubAgentActivity> {
+  /** Returns Agent activity. */
+  public async getAgentActivity(id: string): Promise<AgentActivity> {
     return crossBoundary(
-      await this.backing.getSubAgentActivity(crossBoundary(id)),
+      await this.backing.getAgentActivity(crossBoundary(id)),
     );
   }
 
@@ -160,14 +158,14 @@ export class SerializedProviderEmulator implements SeedableAgentTaskProvider {
     );
   }
 
-  /** Reconciles Sub agent activity against provider state. */
-  public async reconcileSubAgentActivity(
-    subAgentId: string,
+  /** Reconciles Agent activity against provider state. */
+  public async reconcileAgentActivity(
+    agentId: string,
     idempotencyKey: string,
   ): Promise<ReconciliationResult> {
     return crossBoundary(
-      await this.backing.reconcileSubAgentActivity(
-        crossBoundary(subAgentId),
+      await this.backing.reconcileAgentActivity(
+        crossBoundary(agentId),
         crossBoundary(idempotencyKey),
       ),
     );
@@ -178,12 +176,12 @@ export class SerializedProviderEmulator implements SeedableAgentTaskProvider {
     return crossBoundary(await this.backing.listTaskStatusOptions());
   }
 
-  /** Updates Sub agent activity. */
-  public async updateSubAgentActivity(
+  /** Updates Agent activity. */
+  public async updateAgentActivity(
     change: ActivityMutation,
   ): Promise<WriteReceipt> {
     return crossBoundary(
-      await this.backing.updateSubAgentActivity(crossBoundary(change)),
+      await this.backing.updateAgentActivity(crossBoundary(change)),
     );
   }
 

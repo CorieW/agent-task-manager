@@ -11,7 +11,7 @@ import {
   type IdentificationTrialPlan,
   type ProviderEnvironment,
   type ResourceMutation,
-  type SubAgentDefinition,
+  type AgentDefinition,
   type TrialTaskObservation,
   type WorkspaceSchemaDescriptor,
 } from "../src/index.js";
@@ -23,7 +23,7 @@ const environment: ProviderEnvironment = {
   tables: {
     errors: "errors",
     resources: "resources",
-    subAgents: "agents",
+    agents: "agents",
     tasks: "tasks",
   },
   type: "memory",
@@ -98,7 +98,7 @@ test("stops on the first observed blocker and proposes one provider Error", asyn
       code: "missing_runtime_adapter",
       description:
         "The provider-defined role cannot be launched by the configured environment.",
-      relatedSubAgentId: "incident-summarizer",
+      relatedAgentId: "incident-summarizer",
       resolution:
         "Install and configure the named adapter before creating a fresh trial basis.",
       title: "Runtime adapter unavailable",
@@ -338,12 +338,8 @@ function request() {
   };
 }
 
-/** Creates a Sub-agent definition fixture. */
-function definition(
-  id: string,
-  name: string,
-  prompt: string,
-): SubAgentDefinition {
+/** Creates an Agent definition fixture. */
+function definition(id: string, name: string, prompt: string): AgentDefinition {
   return {
     allowedIntents: [],
     capabilities: [],
@@ -368,7 +364,7 @@ function definition(
     retry: { maxAttempts: 1, noVerdict: "block" },
     revision: 1,
     runnerProfile: "test-readonly",
-    schema: "sub-agent-definition-v1",
+    schema: "agent-definition-v1",
     selection: {
       acceptsAssignmentsFrom: ["explicit"],
       maxCandidateSummaries: 10,

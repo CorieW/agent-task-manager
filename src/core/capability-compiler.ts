@@ -1,6 +1,6 @@
 /** Compiles one least-privilege capability grant from definition and runtime facts. */
 import type { ProviderCapabilities } from "../domain/provider.js";
-import type { SubAgentDefinition } from "../domain/records.js";
+import type { AgentDefinition } from "../domain/records.js";
 
 /** Canonical fields for capability grant. */
 export interface CapabilityGrant {
@@ -15,7 +15,7 @@ export interface CapabilityGrant {
 /** Builds a least-privilege grant from a definition and installed capabilities. */
 export function compileCapabilityGrant(input: {
   /** Definition for compile capability grant input. */
-  readonly definition: SubAgentDefinition;
+  readonly definition: AgentDefinition;
   /** Installed capabilities included in compile capability grant input. */
   readonly installedCapabilities: readonly string[];
   /** Installed intents included in compile capability grant input. */

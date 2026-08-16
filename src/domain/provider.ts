@@ -2,12 +2,7 @@
 import type { JsonObject, JsonValue } from "./json.js";
 
 /** Provider table kinds managed by the application. */
-export const TABLE_KINDS = [
-  "tasks",
-  "subAgents",
-  "errors",
-  "resources",
-] as const;
+export const TABLE_KINDS = ["tasks", "agents", "errors", "resources"] as const;
 
 /** Allowed table kind literals. */
 export type TableKind = (typeof TABLE_KINDS)[number];

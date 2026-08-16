@@ -9,7 +9,7 @@ import {
   resolveLoadedDefinition,
   type ResolvedDefinition,
 } from "./definition-resolver.js";
-import { validateDefinitionSet } from "./sub-agent-definition.js";
+import { validateDefinitionSet } from "./agent-definition.js";
 import type { AgentTaskProvider } from "../provider/agent-task-provider.js";
 
 /** Canonical fields for activated definition. */
@@ -36,12 +36,12 @@ export async function activateDefinitions(input: {
   readonly supportedModels: Readonly<Record<string, readonly string[]>>;
 }): Promise<readonly ActivatedDefinition[]> {
   /** Definitions loaded during activate definitions. */
-  const definitions = await input.provider.listSubAgentDefinitions();
+  const definitions = await input.provider.listAgentDefinitions();
   /** Validation issues collected during this operation. */
   const issues = validateDefinitionSet(definitions);
   if (issues.length > 0)
     throw new Error(
-      `Sub-agent definition set is invalid:\n${issues.map((issue) => `${issue.path}: ${issue.message}`).join("\n")}`,
+      `Agent definition set is invalid:\n${issues.map((issue) => `${issue.path}: ${issue.message}`).join("\n")}`,
     );
   /** Provider capabilities loaded during activate definitions. */
   const providerCapabilities = await input.provider.getCapabilities();

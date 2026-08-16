@@ -57,7 +57,7 @@ test("plans Resources-first bootstrap with deferred relations and no writes", as
     plan.steps
       .filter((step) => step.kind === "create_table")
       .map((step) => step.payload.kind),
-    ["resources", "errors", "tasks", "subAgents"],
+    ["resources", "errors", "tasks", "agents"],
   );
   /** Defines the last create fixture for “plans Resources-first bootstrap with deferred relations and no writes”. */
   const lastCreate = plan.steps.findLastIndex(
@@ -154,7 +154,7 @@ function environment(): ProviderEnvironment {
   return {
     bootstrapParent: PARENT,
     connection: { authEnvironmentVariable: "NOTION_TOKEN" },
-    tables: { errors: null, resources: null, subAgents: null, tasks: null },
+    tables: { errors: null, resources: null, agents: null, tasks: null },
     type: "notion",
   };
 }

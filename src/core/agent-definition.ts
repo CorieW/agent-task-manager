@@ -1,10 +1,10 @@
-/** Parses and validates provider-owned Sub-agent definitions without role-name logic. */
+/** Parses and validates provider-owned Agent definitions without role-name logic. */
 import type { JsonObject, JsonValue } from "../domain/json.js";
 import type {
   InvocationPolicy,
   RetryPolicy,
   SelectionPolicy,
-  SubAgentDefinition,
+  AgentDefinition,
 } from "../domain/records.js";
 
 /** Exact top-level fields allowed in a definition manifest. */
@@ -47,13 +47,13 @@ export interface DefinitionValidationIssue {
   readonly path: string;
 }
 
-/** Parses a serialized sub-agent definition and rejects invalid manifests. */
-export function parseSubAgentDefinitionManifest(
+/** Parses a serialized agent definition and rejects invalid manifests. */
+export function parseAgentDefinitionManifest(
   value: JsonObject,
-): SubAgentDefinition {
-  assertExactKeys(value, DEFINITION_KEYS, "Sub-agent definition");
-  /** Definition used during parse sub-agent definition manifest. */
-  const definition: SubAgentDefinition = {
+): AgentDefinition {
+  assertExactKeys(value, DEFINITION_KEYS, "Agent definition");
+  /** Definition used during parse agent definition manifest. */
+  const definition: AgentDefinition = {
     allowedIntents: uniqueStrings(value.allowedIntents, "allowedIntents"),
     capabilities: uniqueStrings(value.capabilities, "capabilities"),
     maxConcurrency: positiveInteger(value.maxConcurrency, "maxConcurrency"),
@@ -106,7 +106,7 @@ export function parseSubAgentDefinitionManifest(
     ),
   };
   /** Validation issues collected during this operation. */
-  const issues = validateSubAgentDefinition(definition);
+  const issues = validateAgentDefinition(definition);
   if (issues.length > 0)
     throw new TypeError(
       issues.map((issue) => `${issue.path}: ${issue.message}`).join("\n"),
@@ -114,13 +114,13 @@ export function parseSubAgentDefinitionManifest(
   return definition;
 }
 
-/** Returns policy and capability violations in one sub-agent definition. */
-export function validateSubAgentDefinition(
-  definition: SubAgentDefinition,
+/** Returns policy and capability violations in one agent definition. */
+export function validateAgentDefinition(
+  definition: AgentDefinition,
 ): readonly DefinitionValidationIssue[] {
   /** Validation issues collected during this operation. */
   const issues: DefinitionValidationIssue[] = [];
-  /** Distinct capability set tracked during validate sub-agent definition. */
+  /** Distinct capability set tracked during validate agent definition. */
   const capabilitySet = new Set(definition.capabilities);
   for (const capability of definition.prohibitedCapabilities) {
     if (capabilitySet.has(capability))
@@ -253,7 +253,7 @@ export function validateSubAgentDefinition(
 
 /** Returns validation issues for a definition set, including duplicate IDs. */
 export function validateDefinitionSet(
-  definitions: readonly SubAgentDefinition[],
+  definitions: readonly AgentDefinition[],
 ): readonly DefinitionValidationIssue[] {
   /** Validation issues collected during this operation. */
   const issues: DefinitionValidationIssue[] = [];
@@ -261,7 +261,7 @@ export function validateDefinitionSet(
   const identities = new Map<string, number>();
   for (const definition of definitions) {
     issues.push(
-      ...validateSubAgentDefinition(definition).map((entry) => ({
+      ...validateAgentDefinition(definition).map((entry) => ({
         ...entry,
         path: `${definition.id}.${entry.path}`,
       })),
@@ -281,7 +281,7 @@ export function validateDefinitionSet(
   return issues;
 }
 
-/** Parses a sub-agent invocation policy. */
+/** Parses a agent invocation policy. */
 function parseInvocation(value: JsonObject): InvocationPolicy {
   assertExactKeys(value, ["mode", "scheduleResource"], "invocation");
   if (
@@ -299,7 +299,7 @@ function parseInvocation(value: JsonObject): InvocationPolicy {
   };
 }
 
-/** Parses a sub-agent Task-selection policy. */
+/** Parses a agent Task-selection policy. */
 function parseSelection(value: JsonObject): SelectionPolicy {
   assertExactKeys(
     value,
@@ -351,7 +351,7 @@ function parseSelection(value: JsonObject): SelectionPolicy {
   };
 }
 
-/** Parses a sub-agent retry policy. */
+/** Parses a agent retry policy. */
 function parseRetry(value: JsonObject): RetryPolicy {
   assertExactKeys(value, ["maxAttempts", "noVerdict"], "retry");
   if (value.noVerdict !== "block" && value.noVerdict !== "retry")
@@ -452,8 +452,8 @@ function booleanValue(value: JsonValue | undefined, label: string): boolean {
   return value;
 }
 /** Requires a supported schema discriminator. */
-function schemaValue(value: JsonValue | undefined): "sub-agent-definition-v1" {
-  if (value !== "sub-agent-definition-v1")
-    throw new TypeError("Sub-agent definition schema is invalid");
+function schemaValue(value: JsonValue | undefined): "agent-definition-v1" {
+  if (value !== "agent-definition-v1")
+    throw new TypeError("Agent definition schema is invalid");
   return value;
 }

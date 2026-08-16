@@ -6,7 +6,7 @@ import {
   type JsonValue,
 } from "../domain/json.js";
 import type {
-  SubAgentDefinition,
+  AgentDefinition,
   TaskQuery,
   TaskSummary,
 } from "../domain/records.js";
@@ -92,7 +92,7 @@ export function parseTaskQueryContract(body: string): TaskQueryContract {
 /** Constrains a Task query to the definition's candidate-summary budget. */
 export function taskQueryForDefinition(
   contract: TaskQueryContract,
-  definition: SubAgentDefinition,
+  definition: AgentDefinition,
 ): TaskQuery {
   if (contract.limit > definition.selection.maxCandidateSummaries)
     throw new Error(

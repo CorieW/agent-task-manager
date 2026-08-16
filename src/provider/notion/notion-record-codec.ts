@@ -1,7 +1,7 @@
 /** Decodes provider-owned Notion rows and managed content into domain records. */
 import { sha256 } from "../../core/digest.js";
 import { pageAfter } from "../../core/pagination.js";
-import { parseSubAgentDefinitionManifest } from "../../core/sub-agent-definition.js";
+import { parseAgentDefinitionManifest } from "../../core/agent-definition.js";
 import {
   toJsonValue,
   type JsonObject,
@@ -10,7 +10,7 @@ import {
 import type {
   ResourceRecord,
   ResourceRef,
-  SubAgentDefinition,
+  AgentDefinition,
   TaskQuery,
   TaskSnapshot,
   TaskSummary,
@@ -28,8 +28,8 @@ export interface NotionTableIds {
   readonly errors: string;
   /** Contains resources for Notion table IDs. */
   readonly resources: string;
-  /** Contains Sub agents for Notion table IDs. */
-  readonly subAgents: string;
+  /** Contains Agents for Notion table IDs. */
+  readonly agents: string;
   /** Contains tasks for Notion table IDs. */
   readonly tasks: string;
 }
@@ -42,52 +42,46 @@ export class NotionRecordReader {
     /** Contains transport for Notion record reader. */ private readonly transport: NotionTransport,
   ) {}
 
-  /** Lists Sub agent definitions. */
-  public async listSubAgentDefinitions(): Promise<
-    readonly SubAgentDefinition[]
-  > {
-    /** Holds the `pages` intermediate used by `listSubAgentDefinitions`. */
-    const pages = await this.queryDataSource(this.tables.subAgents);
-    /** Holds the `definitions` intermediate used by `listSubAgentDefinitions`. */
+  /** Lists Agent definitions. */
+  public async listAgentDefinitions(): Promise<readonly AgentDefinition[]> {
+    /** Holds the `pages` intermediate used by `listAgentDefinitions`. */
+    const pages = await this.queryDataSource(this.tables.agents);
+    /** Holds the `definitions` intermediate used by `listAgentDefinitions`. */
     const definitions = await Promise.all(
-      pages.map((page) => this.subAgentDefinition(page)),
+      pages.map((page) => this.agentDefinition(page)),
     );
     if (
       new Set(definitions.map((definition) => definition.id)).size !==
       definitions.length
     )
-      throw new Error("Sub-agent definition IDs must be unique");
+      throw new Error("Agent definition IDs must be unique");
     return definitions.sort((left, right) => left.id.localeCompare(right.id));
   }
 
-  /** Returns Sub agent definition. */
-  public async getSubAgentDefinition(id: string): Promise<SubAgentDefinition> {
-    /** Holds the `matches` intermediate used by `getSubAgentDefinition`. */
-    const matches = (await this.listSubAgentDefinitions()).filter(
+  /** Returns Agent definition. */
+  public async getAgentDefinition(id: string): Promise<AgentDefinition> {
+    /** Holds the `matches` intermediate used by `getAgentDefinition`. */
+    const matches = (await this.listAgentDefinitions()).filter(
       (definition) => definition.id === id,
     );
     if (matches.length !== 1)
-      throw new Error(
-        `Sub-agent definition ${id} must resolve to exactly one row`,
-      );
+      throw new Error(`Agent definition ${id} must resolve to exactly one row`);
     return requiredDefinition(matches[0], id);
   }
 
-  /** Returns Sub agent page ID. */
-  public async getSubAgentPageId(id: string): Promise<string> {
-    /** Holds the `pages` intermediate used by `getSubAgentPageId`. */
-    const pages = await this.queryDataSource(this.tables.subAgents);
-    /** Holds the `matches` intermediate used by `getSubAgentPageId`. */
+  /** Returns Agent page ID. */
+  public async getAgentPageId(id: string): Promise<string> {
+    /** Holds the `pages` intermediate used by `getAgentPageId`. */
+    const pages = await this.queryDataSource(this.tables.agents);
+    /** Holds the `matches` intermediate used by `getAgentPageId`. */
     const matches: string[] = [];
     for (const page of pages) {
-      if ((await this.subAgentDefinition(page)).id === id)
-        matches.push(requiredString(page.id, "Sub-agent page id"));
+      if ((await this.agentDefinition(page)).id === id)
+        matches.push(requiredString(page.id, "Agent page id"));
     }
     if (matches.length !== 1)
-      throw new Error(
-        `Sub-agent definition ${id} must resolve to exactly one row`,
-      );
-    return requiredString(matches[0], "Sub-agent page id");
+      throw new Error(`Agent definition ${id} must resolve to exactly one row`);
+    return requiredString(matches[0], "Agent page id");
   }
 
   /** Lists task summaries. */
@@ -277,26 +271,24 @@ export class NotionRecordReader {
     return normalizeMarkdown(lines.filter((line) => line !== "").join("\n\n"));
   }
 
-  /** Decodes Sub-agent definition from Notion records. */
-  private async subAgentDefinition(
-    page: JsonObject,
-  ): Promise<SubAgentDefinition> {
-    assertPageParent(page, this.tables.subAgents, "Sub-agent");
+  /** Decodes Agent definition from Notion records. */
+  private async agentDefinition(page: JsonObject): Promise<AgentDefinition> {
+    assertPageParent(page, this.tables.agents, "Agent");
     if (page.archived === true || page.in_trash === true)
-      throw new Error("Sub-agent definition is archived");
-    /** Holds the `pageId` intermediate used by `subAgentDefinition`. */
-    const pageId = requiredString(page.id, "Sub-agent page id");
-    /** Holds the `manifest` intermediate used by `subAgentDefinition`. */
-    const manifest = await this.managedJson(pageId, "Sub-agent definition");
-    /** Holds the `definition` intermediate used by `subAgentDefinition`. */
-    const definition = parseSubAgentDefinitionManifest(manifest);
-    /** Holds the `name` intermediate used by `subAgentDefinition`. */
+      throw new Error("Agent definition is archived");
+    /** Holds the `pageId` intermediate used by `agentDefinition`. */
+    const pageId = requiredString(page.id, "Agent page id");
+    /** Holds the `manifest` intermediate used by `agentDefinition`. */
+    const manifest = await this.managedJson(pageId, "Agent definition");
+    /** Holds the `definition` intermediate used by `agentDefinition`. */
+    const definition = parseAgentDefinitionManifest(manifest);
+    /** Holds the `name` intermediate used by `agentDefinition`. */
     const name = propertyText(page, "Name");
-    /** Holds the `enabled` intermediate used by `subAgentDefinition`. */
+    /** Holds the `enabled` intermediate used by `agentDefinition`. */
     const enabled = propertyBoolean(page, "Enabled");
-    /** Holds the `revision` intermediate used by `subAgentDefinition`. */
+    /** Holds the `revision` intermediate used by `agentDefinition`. */
     const revision = propertyNumber(page, "Revision");
-    /** Holds the `model` intermediate used by `subAgentDefinition`. */
+    /** Holds the `model` intermediate used by `agentDefinition`. */
     const model = propertyText(page, "Model");
     if (
       definition.name !== name ||
@@ -305,7 +297,7 @@ export class NotionRecordReader {
       definition.model !== model
     ) {
       throw new Error(
-        `Sub-agent ${definition.id} manifest does not match its authoritative properties`,
+        `Agent ${definition.id} manifest does not match its authoritative properties`,
       );
     }
     return definition;
@@ -761,11 +753,11 @@ function requiredObject(
 
 /** Returns definition or throws for invalid input. */
 function requiredDefinition(
-  value: SubAgentDefinition | undefined,
+  value: AgentDefinition | undefined,
   id: string,
-): SubAgentDefinition {
+): AgentDefinition {
   if (value === undefined)
-    throw new Error(`Sub-agent definition is missing: ${id}`);
+    throw new Error(`Agent definition is missing: ${id}`);
   return value;
 }
 

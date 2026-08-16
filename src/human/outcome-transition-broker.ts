@@ -1,7 +1,7 @@
 /** Applies provider-defined outcome routes while enforcing blocker-first human recovery. */
 import { routeOutcome } from "../core/outcome-router.js";
 import { taskPropertiesWithStatus } from "../core/task-properties.js";
-import type { ErrorMutation, SubAgentDefinition } from "../domain/records.js";
+import type { ErrorMutation, AgentDefinition } from "../domain/records.js";
 import type { AgentTaskProvider } from "../provider/agent-task-provider.js";
 import { HumanRecoveryManager } from "./recovery-manager.js";
 
@@ -25,7 +25,7 @@ export interface BlockedOutcomeResolution {
 interface OutcomeTransitionBase {
   /** Provides definition to outcome transition base. */
   readonly definition: Pick<
-    SubAgentDefinition,
+    AgentDefinition,
     "humanResolutionOutcomes" | "transitions"
   >;
   /** Records the current outcome for workflow decisions. */

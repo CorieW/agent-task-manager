@@ -63,9 +63,9 @@ node dist/src/cli.js init --apply --expected-plan-digest <sha256> [--write-envir
 node dist/src/cli.js migrate --plan --json [--config <path>]
 node dist/src/cli.js migrate --apply --expected-plan-digest <sha256> [--write-environment] [--config <path>]
 node dist/src/cli.js inspect --task <task-id> --json [--config <path>]
-node dist/src/cli.js inspect --sub-agent <definition-id> --json [--config <path>]
+node dist/src/cli.js inspect --agent <definition-id> --json [--config <path>]
 node dist/src/cli.js inspect --lease <lease-id> --json [--config <path>]
-node dist/src/cli.js reconcile activity --sub-agent <definition-id> --json [--config <path>]
+node dist/src/cli.js reconcile activity --agent <definition-id> --json [--config <path>]
 node dist/src/cli.js reconcile human --task <task-id> --slot <sha256> --json [--config <path>]
 node dist/src/cli.js reconcile lease --lease <lease-id> --owner <owner-id> --expected-version <sha256> --json [--config <path>]
 ```
@@ -87,7 +87,7 @@ repair:
 - human reconciliation consumes one already-completed slot; and
 - lease reconciliation releases one exact lease/owner/version tuple.
 
-These commands do not discover work or dispatch a sub-agent. Recovery CLI
+These commands do not discover work or dispatch a agent. Recovery CLI
 commands support Notion environments; other providers use the provider-neutral
 library APIs until CLI provider-registry wiring is added.
 

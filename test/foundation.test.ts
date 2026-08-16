@@ -34,7 +34,7 @@ test("environment configuration permits missing tables only as null values", () 
     provider: {
       bootstrapParent: "provider:parent",
       connection: {},
-      tables: { errors: null, resources: null, subAgents: null, tasks: null },
+      tables: { errors: null, resources: null, agents: null, tasks: null },
       type: "memory",
     },
     schema: "agent-task-manager-environment-v1",
@@ -53,7 +53,7 @@ test("environment configuration is closed and reports missing required fields", 
           tables: {
             errors: null,
             resources: null,
-            subAgents: null,
+            agents: null,
             tasks: null,
           },
           type: "memory",
@@ -72,7 +72,7 @@ test("environment configuration is closed and reports missing required fields", 
           tables: {
             errors: null,
             resources: null,
-            subAgents: null,
+            agents: null,
             tasks: null,
           },
           type: "memory",
@@ -111,7 +111,7 @@ test("runtime readiness requires closed adapter and isolation environment defini
     provider: {
       bootstrapParent: null,
       connection: {},
-      tables: { errors: "e", resources: "r", subAgents: "a", tasks: "t" },
+      tables: { errors: "e", resources: "r", agents: "a", tasks: "t" },
       type: "memory",
     },
     runtime: {
@@ -136,7 +136,7 @@ test("runtime readiness requires closed adapter and isolation environment defini
           provider: {
             bootstrapParent: null,
             connection: {},
-            tables: { errors: "e", resources: "r", subAgents: "a", tasks: "t" },
+            tables: { errors: "e", resources: "r", agents: "a", tasks: "t" },
             type: "memory",
           },
           schema: "agent-task-manager-environment-v1",

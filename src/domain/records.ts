@@ -1,4 +1,4 @@
-/** Defines provider-neutral Task, Sub-agent, Resource, Error, activity, and lease records. */
+/** Defines provider-neutral Task, Agent, Resource, Error, activity, and lease records. */
 import type { JsonObject } from "./json.js";
 
 /** Compact projection used while selecting task. */
@@ -69,64 +69,64 @@ export interface RetryPolicy {
   readonly noVerdict: "block" | "retry";
 }
 
-/** Canonical fields for sub-agent definition. */
-export interface SubAgentDefinition {
+/** Canonical fields for agent definition. */
+export interface AgentDefinition {
   /** Effect intents the definition may invoke. */
   readonly allowedIntents: readonly string[];
-  /** Capabilities included in sub-agent definition. */
+  /** Capabilities included in agent definition. */
   readonly capabilities: readonly string[];
-  /** Max concurrency for sub-agent definition. */
+  /** Max concurrency for agent definition. */
   readonly maxConcurrency: number;
-  /** Max assignments per run for sub-agent definition. */
+  /** Max assignments per run for agent definition. */
   readonly maxAssignmentsPerRun: number;
-  /** Context budget bytes for sub-agent definition. */
+  /** Context budget bytes for agent definition. */
   readonly contextBudgetBytes: number;
   /** Deadline duration in seconds. */
   readonly deadlineSeconds: number;
   /** Whether the definition is eligible for activation. */
   readonly enabled: boolean;
-  /** Stable identifier for sub-agent definition. */
+  /** Stable identifier for agent definition. */
   readonly id: string;
-  /** Human resolution outcomes included in sub-agent definition. */
+  /** Human resolution outcomes included in agent definition. */
   readonly humanResolutionOutcomes: readonly string[];
-  /** Input resource selectors included in sub-agent definition. */
+  /** Input resource selectors included in agent definition. */
   readonly inputResourceSelectors: readonly string[];
-  /** Invocation for sub-agent definition. */
+  /** Invocation for agent definition. */
   readonly invocation: InvocationPolicy;
-  /** Priority for sub-agent definition. */
+  /** Priority for agent definition. */
   readonly priority: number;
-  /** Max assignment depth for sub-agent definition. */
+  /** Max assignment depth for agent definition. */
   readonly maxAssignmentDepth: number;
-  /** Model for sub-agent definition. */
+  /** Model for agent definition. */
   readonly model: string;
-  /** Name for sub-agent definition. */
+  /** Name for agent definition. */
   readonly name: string;
-  /** Prompt resources included in sub-agent definition. */
+  /** Prompt resources included in agent definition. */
   readonly promptResources: readonly string[];
-  /** Prohibited capabilities included in sub-agent definition. */
+  /** Prohibited capabilities included in agent definition. */
   readonly prohibitedCapabilities: readonly string[];
-  /** Reasoning for sub-agent definition. */
+  /** Reasoning for agent definition. */
   readonly reasoning: string;
   /** Provider capabilities required to activate the definition. */
   readonly requiredProviderCapabilities: readonly string[];
-  /** Revision for sub-agent definition. */
+  /** Revision for agent definition. */
   readonly revision: number;
-  /** Retry for sub-agent definition. */
+  /** Retry for agent definition. */
   readonly retry: RetryPolicy;
-  /** Runner profile for sub-agent definition. */
+  /** Runner profile for agent definition. */
   readonly runnerProfile: string;
   /** Schema discriminator for the serialized representation. */
-  readonly schema: "sub-agent-definition-v1";
-  /** Selection for sub-agent definition. */
+  readonly schema: "agent-definition-v1";
+  /** Selection for agent definition. */
   readonly selection: SelectionPolicy;
-  /** Transitions for sub-agent definition. */
+  /** Transitions for agent definition. */
   readonly transitions: Readonly<Record<string, string>>;
-  /** Output schema for sub-agent definition. */
+  /** Output schema for agent definition. */
   readonly outputSchema: string;
 }
 
-/** Canonical fields for sub-agent activity. */
-export interface SubAgentActivity {
+/** Canonical fields for agent activity. */
+export interface AgentActivity {
   /** Current workflow status. */
   readonly status: "Offline" | "Online";
   /** Task IDs. */
@@ -157,8 +157,8 @@ export interface ActivityMutation {
   readonly nextRunLeaseIds: readonly string[];
   /** Next task IDs. */
   readonly nextTaskIds: readonly string[];
-  /** Stable identifier for sub-agent. */
-  readonly subAgentId: string;
+  /** Stable identifier for agent. */
+  readonly agentId: string;
 }
 
 /** Requested state change for conditional task. */
@@ -226,8 +226,8 @@ export interface ErrorMutation {
   readonly idempotencyKey: string;
   /** Stable identifier for related run. */
   readonly relatedRunId: string | null;
-  /** Stable identifier for related sub-agent. */
-  readonly relatedSubAgentId: string | null;
+  /** Stable identifier for related agent. */
+  readonly relatedAgentId: string | null;
   /** Stable identifier for related task. */
   readonly relatedTaskId: string | null;
   /** Resolution for error mutation. */
@@ -250,8 +250,8 @@ export interface LeaseRequest {
   readonly ownerId: string;
   /** Scope for lease request. */
   readonly scope: "agent_run" | "task_assignment";
-  /** Stable identifier for sub-agent. */
-  readonly subAgentId: string;
+  /** Stable identifier for agent. */
+  readonly agentId: string;
   /** Stable identifier for task. */
   readonly taskId: string | null;
 }
@@ -292,8 +292,8 @@ export interface LeaseSnapshot {
   readonly released: boolean;
   /** Scope for lease snapshot. */
   readonly scope: LeaseRequest["scope"];
-  /** Stable identifier for sub-agent. */
-  readonly subAgentId: string;
+  /** Stable identifier for agent. */
+  readonly agentId: string;
   /** Stable identifier for task. */
   readonly taskId: string | null;
   /** Opaque version token used for compatibility or concurrency checks. */

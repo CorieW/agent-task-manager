@@ -14,7 +14,7 @@ import type {
 const TABLES = {
   errors: "errors",
   resources: "resources",
-  subAgents: "agents",
+  agents: "agents",
   tasks: "tasks",
 };
 
@@ -55,9 +55,7 @@ class RecordsTransport implements NotionTransport {
     if (request.path === "/v1/blocks/task-1/children")
       return blocks([{ paragraph: rich("Task details"), type: "paragraph" }]);
     if (request.path === "/v1/blocks/agent-1/children")
-      return blocks(
-        managed("Sub-agent definition", JSON.stringify(definition())),
-      );
+      return blocks(managed("Agent definition", JSON.stringify(definition())));
     if (request.path === "/v1/blocks/resource-1/children")
       return blocks(managed("Resource body", "resource text"));
     throw new Error(`Unexpected request ${request.method} ${request.path}`);
@@ -84,19 +82,19 @@ test("decodes task summaries and exhausts relation property pagination", async (
   );
 });
 
-test("loads strict Sub-agent definitions from their managed range", async () => {
-  /** Defines the reader fixture for “loads strict Sub-agent definitions from their managed range”. */
+test("loads strict Agent definitions from their managed range", async () => {
+  /** Defines the reader fixture for “loads strict Agent definitions from their managed range”. */
   const reader = new NotionRecordReader(TABLES, new RecordsTransport());
-  /** Defines the agent fixture for “loads strict Sub-agent definitions from their managed range”. */
-  const [agent] = await reader.listSubAgentDefinitions();
+  /** Defines the agent fixture for “loads strict Agent definitions from their managed range”. */
+  const [agent] = await reader.listAgentDefinitions();
   assert.equal(agent?.name, "Coordinator");
   assert.equal(agent?.selection.mode, "coordinator");
   assert.deepEqual(agent?.promptResources, ["prompt/coordinator"]);
   assert.equal(
-    (await reader.getSubAgentDefinition("coordinator")).id,
+    (await reader.getAgentDefinition("coordinator")).id,
     "coordinator",
   );
-  assert.equal(await reader.getSubAgentPageId("coordinator"), "agent-1");
+  assert.equal(await reader.getAgentPageId("coordinator"), "agent-1");
 });
 
 test("verifies Resources against their content digest", async () => {
@@ -192,7 +190,7 @@ function resourcePage(): JsonObject {
   };
 }
 
-/** Creates a Sub-agent definition fixture. */
+/** Creates an Agent definition fixture. */
 function definition(): JsonObject {
   return {
     allowedIntents: ["task.update"],
@@ -217,7 +215,7 @@ function definition(): JsonObject {
     revision: 1,
     retry: { maxAttempts: 1, noVerdict: "block" },
     runnerProfile: "default",
-    schema: "sub-agent-definition-v1",
+    schema: "agent-definition-v1",
     selection: {
       acceptsAssignmentsFrom: ["coordinator"],
       maxCandidateSummaries: 10,
