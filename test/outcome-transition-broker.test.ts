@@ -9,6 +9,7 @@ import {
   OutcomeTransitionBroker,
   ReviewCycleLimitError,
   TestCycleLimitError,
+  advanceReviewCycle,
   advanceTestCycle,
   type ProviderEnvironment,
   type AgentDefinition,
@@ -218,14 +219,12 @@ test("persists review-cycle state when the routed status is unchanged", async ()
 });
 
 test("blocks a repeated finding set before another coding round", async () => {
+  /** Builds a valid first review failure for the repeated-set boundary. */
+  const prior = advanceReviewCycle({ Status: "Review" }, [
+    "branch:src/a.ts:race",
+  ]).nextProperties;
   /** Defines the provider fixture for repeated review findings. */
-  const provider = providerWithTask("Review", {
-    "Review Finding Keys": '["branch:src/a.ts:race"]',
-    "Review Findings Digest":
-      "6e2f9539d5ff95a9793f4fb415edf5c93ce09abc5e7f5f44c9e477cdd8a5dd57",
-    "Review Repeat Count": 1,
-    "Review Round": 1,
-  });
+  const provider = providerWithTask("Review", prior);
   /** Defines the broker fixture for repeated review findings. */
   const broker = new OutcomeTransitionBroker(provider);
 
@@ -246,14 +245,15 @@ test("blocks a repeated finding set before another coding round", async () => {
 });
 
 test("blocks review cycles after three changes-requested rounds", async () => {
+  /** Builds a valid prior review state at the configured round ceiling. */
+  const prior = {
+    ...advanceReviewCycle({ Status: "Review" }, ["readability:src/a.ts:naming"])
+      .nextProperties,
+    [DEFAULT_REVIEW_CYCLE_POLICY.roundProperty]:
+      DEFAULT_REVIEW_CYCLE_POLICY.maxChangesRequestedRounds,
+  };
   /** Defines the provider fixture at the automatic review-round ceiling. */
-  const provider = providerWithTask("Review", {
-    "Review Finding Keys": '["readability:src/a.ts:naming"]',
-    "Review Findings Digest":
-      "843b894a6ea76cafa05041ef37f989735d92517040e4740a086c0ef13a520195",
-    "Review Repeat Count": 1,
-    "Review Round": 3,
-  });
+  const provider = providerWithTask("Review", prior);
   /** Defines the broker fixture at the automatic review-round ceiling. */
   const broker = new OutcomeTransitionBroker(provider);
 

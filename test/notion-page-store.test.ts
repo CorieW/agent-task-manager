@@ -8,7 +8,9 @@ import { NotionPageStore } from "../src/provider/notion/notion-page-store.js";
 import {
   decodeResourceKindOption,
   encodeResourceKindOption,
+  ERROR_SEVERITY_OPTIONS,
   RESOURCE_KIND_OPTIONS,
+  RESOURCE_STATE_OPTIONS,
 } from "../src/provider/notion/notion-option-codec.js";
 import type {
   NotionRequest,
@@ -314,7 +316,35 @@ test("creates one managed Resource row and verifies its content", async () => {
 test("supports the child-agent context Resource kind", () => {
   assert.equal(encodeResourceKindOption("agent/context"), "Agent / Context");
   assert.equal(decodeResourceKindOption("Agent / Context"), "agent/context");
-  assert.equal(RESOURCE_KIND_OPTIONS.includes("Agent / Context"), true);
+  assert.deepEqual(RESOURCE_KIND_OPTIONS, [
+    "Prompt",
+    "Policy",
+    "Task Query",
+    "JSON Schema",
+    "Invocation Schedule",
+    "Agent / Context",
+    "System / Bootstrap",
+    "System / Schema",
+    "System / Workspace Step",
+    "System / Environment Patch",
+    "System / Bootstrap Session",
+    "System / Human Interaction Slot",
+    "System / Human Consumption",
+    "System / External Effect Intent",
+    "System / Child Agent Node Intent",
+    "System / Workspace Ownership",
+    "System / Lease",
+    "System / Intent",
+    "System / Assignment Intent",
+    "System / Assignment Budget",
+  ]);
+  assert.deepEqual(RESOURCE_STATE_OPTIONS, ["Active", "Draft", "Retired"]);
+  assert.deepEqual(ERROR_SEVERITY_OPTIONS, [
+    "Critical",
+    "High",
+    "Medium",
+    "Low",
+  ]);
 });
 
 test("rejects a noncanonical Resource before provider mutation", async () => {
@@ -369,7 +399,7 @@ test("rebuilds readable Resources into machine-readable bodies", async () => {
   );
 });
 
-test("migrates a legacy prompt snippet when the Resource is updated", async () => {
+test("rebuilds a machine Resource into readable Markdown", async () => {
   /** Provides mutable Notion state for the legacy migration. */
   const transport = new MutableTransport();
   /** Writes Resources through the production page-store behavior. */

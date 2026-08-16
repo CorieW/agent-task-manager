@@ -77,7 +77,7 @@ test("validates native Markdown completeness evidence", () => {
   );
 });
 
-test("unwraps a legacy whole-prompt snippet only for its pinned digest", () => {
+test("unwraps a legacy whole-body snippet only for its pinned digest", () => {
   /** Represents the previous prompt Resource body projection. */
   const legacyBody = "Shared authority.\n\nRole instructions.";
   /** Models Notion's native Markdown rendering of the legacy code block. */

@@ -254,6 +254,20 @@ test("accepts bounded multi-status Task queries", () => {
       ),
     /at least one value/,
   );
+  assert.throws(
+    () =>
+      parseTaskQueryContract(
+        JSON.stringify({
+          ...query,
+          predicate: { status: ["Ready", "Ready"] },
+        }),
+      ),
+    /contains duplicates/,
+  );
+  assert.throws(
+    () => taskSummaryMatchesPredicate(readyTask, { status: [] }),
+    /Unsupported task predicate: status/,
+  );
 });
 
 test("supports arbitrary provider-defined role names without core changes", () => {

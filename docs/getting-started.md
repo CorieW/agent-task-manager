@@ -87,7 +87,7 @@ repair:
 - human reconciliation consumes one already-completed slot; and
 - lease reconciliation releases one exact lease/owner/version tuple.
 
-These commands do not discover work or dispatch a agent. Recovery CLI
+These commands do not discover work or dispatch an agent. Recovery CLI
 commands support Notion environments; other providers use the provider-neutral
 library APIs until CLI provider-registry wiring is added.
 

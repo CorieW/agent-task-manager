@@ -76,12 +76,19 @@ export function parseTaskQueryContract(body: string): TaskQueryContract {
     if (!TASK_QUERY_FIELDS.has(key))
       throw new TypeError(`Task query predicate field is unsupported: ${key}`);
     if (key === "status" && Array.isArray(expected)) {
-      stringArray(expected, "Task query predicate status");
-      if (expected.length === 0)
+      /** Classifies the shared bounded status-array constraints. */
+      const issue = statusPredicateIssue(expected);
+      if (issue === "invalid_value")
+        throw new TypeError(
+          "Task query predicate status must contain non-empty strings",
+        );
+      if (issue === "duplicate")
+        throw new TypeError("Task query predicate status contains duplicates");
+      if (issue === "empty")
         throw new TypeError(
           "Task query predicate status must contain at least one value",
         );
-      if (expected.length > MAX_STATUS_PREDICATE_VALUES)
+      if (issue === "too_many")
         throw new TypeError(
           `Task query predicate status cannot exceed ${MAX_STATUS_PREDICATE_VALUES} values`,
         );
@@ -112,18 +119,14 @@ export function taskSummaryMatchesPredicate(
   return Object.entries(predicate).every(([key, expected]) => {
     const actual = summary[key as keyof TaskSummary];
     if (!Array.isArray(expected)) return Object.is(actual, expected);
-    if (
-      key !== "status" ||
-      expected.length === 0 ||
-      expected.length > MAX_STATUS_PREDICATE_VALUES ||
-      expected.some(
-        (candidate) => typeof candidate !== "string" || candidate === "",
-      ) ||
-      new Set(expected).size !== expected.length
-    ) {
+    /** Classifies the same bounded status-array constraints at this direct boundary. */
+    const issue = statusPredicateIssue(expected);
+    if (key !== "status" || issue !== null) {
       throw new TypeError(`Unsupported task predicate: ${key}`);
     }
-    return expected.some((candidate) => Object.is(actual, candidate));
+    return (expected as readonly string[]).some((candidate) =>
+      Object.is(actual, candidate),
+    );
   });
 }
 
@@ -190,4 +193,20 @@ function stringArray(
   if (new Set(value).size !== value.length)
     throw new TypeError(`${label} contains duplicates`);
   return value as string[];
+}
+
+/** Enumerates failures of the shared bounded status-array contract. */
+type StatusPredicateIssue =
+  "duplicate" | "empty" | "invalid_value" | "too_many";
+
+/** Classifies a status-array predicate without choosing boundary-specific errors. */
+function statusPredicateIssue(
+  values: readonly JsonValue[],
+): StatusPredicateIssue | null {
+  if (values.some((value) => typeof value !== "string" || value === ""))
+    return "invalid_value";
+  if (new Set(values).size !== values.length) return "duplicate";
+  if (values.length === 0) return "empty";
+  if (values.length > MAX_STATUS_PREDICATE_VALUES) return "too_many";
+  return null;
 }

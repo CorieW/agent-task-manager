@@ -35,7 +35,7 @@ export interface InvocationScheduleContract {
   readonly schema: "invocation-schedule-v1";
 }
 
-/** Loads a agent definition and resolves its complete Resource graph. */
+/** Loads an agent definition and resolves its complete Resource graph. */
 export async function resolveDefinition(
   provider: AgentTaskProvider,
   definitionId: string,
@@ -184,7 +184,7 @@ async function resolveResourceGraph(
   );
 }
 
-/** Collects the distinct Resource keys referenced by a agent definition. */
+/** Collects the distinct Resource keys referenced by an agent definition. */
 function definitionResourceKeys(
   definition: AgentDefinition,
 ): readonly string[] {

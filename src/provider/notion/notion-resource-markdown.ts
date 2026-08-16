@@ -101,7 +101,7 @@ export function resourceBodyFromPageMarkdown(
   if (normalized === RESOURCE_BODY_HEADING) return "";
   if (!normalized.startsWith(`${RESOURCE_BODY_HEADING}\n`)) {
     throw new Error(
-      "Prompt Resource must start with exactly one ## Resource body heading",
+      "Readable Resource must start with exactly one ## Resource body heading",
     );
   }
   /** Selects the canonical Markdown following the managed heading. */

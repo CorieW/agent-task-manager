@@ -2,43 +2,8 @@
 import type { ErrorMutation, ResourceRecord } from "../../domain/records.js";
 import type { TableKind } from "../../domain/provider.js";
 
-/** Ordered Notion labels for Resource kinds. */
-export const RESOURCE_KIND_OPTIONS = [
-  "Prompt",
-  "Policy",
-  "Task Query",
-  "JSON Schema",
-  "Invocation Schedule",
-  "Agent / Context",
-  "System / Bootstrap",
-  "System / Schema",
-  "System / Workspace Step",
-  "System / Environment Patch",
-  "System / Bootstrap Session",
-  "System / Human Interaction Slot",
-  "System / Human Consumption",
-  "System / External Effect Intent",
-  "System / Child Agent Node Intent",
-  "System / Workspace Ownership",
-  "System / Lease",
-  "System / Intent",
-  "System / Assignment Intent",
-  "System / Assignment Budget",
-] as const;
-
-/** Ordered Notion labels for Resource lifecycle states. */
-export const RESOURCE_STATE_OPTIONS = ["Active", "Draft", "Retired"] as const;
-
-/** Ordered Notion labels for Error severities. */
-export const ERROR_SEVERITY_OPTIONS = [
-  "Critical",
-  "High",
-  "Medium",
-  "Low",
-] as const;
-
 /** Maps canonical Resource kinds to their Notion labels. */
-const RESOURCE_KIND_LABELS: Readonly<Record<string, string>> = {
+const RESOURCE_KIND_LABELS = {
   prompt: "Prompt",
   policy: "Policy",
   "task-query": "Task Query",
@@ -59,31 +24,42 @@ const RESOURCE_KIND_LABELS: Readonly<Record<string, string>> = {
   "system/intent": "System / Intent",
   "system/assignment-intent": "System / Assignment Intent",
   "system/assignment-budget": "System / Assignment Budget",
-};
+} as const satisfies Readonly<Record<string, string>>;
+
+/** Ordered Notion labels for Resource kinds. */
+export const RESOURCE_KIND_OPTIONS: readonly string[] =
+  Object.values(RESOURCE_KIND_LABELS);
 
 /** Maps Notion Resource-kind labels back to canonical values. */
 const RESOURCE_KINDS = reverse(RESOURCE_KIND_LABELS);
 
 /** Maps canonical Resource states to their Notion labels. */
-const RESOURCE_STATE_LABELS: Readonly<Record<ResourceRecord["state"], string>> =
-  {
-    active: "Active",
-    draft: "Draft",
-    retired: "Retired",
-  };
+const RESOURCE_STATE_LABELS = {
+  active: "Active",
+  draft: "Draft",
+  retired: "Retired",
+} as const satisfies Readonly<Record<ResourceRecord["state"], string>>;
+
+/** Ordered Notion labels for Resource lifecycle states. */
+export const RESOURCE_STATE_OPTIONS: readonly string[] = Object.values(
+  RESOURCE_STATE_LABELS,
+);
 
 /** Maps Notion Resource-state labels back to canonical values. */
 const RESOURCE_STATES = reverse(RESOURCE_STATE_LABELS);
 
 /** Maps canonical Error severities to their Notion labels. */
-const ERROR_SEVERITY_LABELS: Readonly<
-  Record<ErrorMutation["severity"], string>
-> = {
+const ERROR_SEVERITY_LABELS = {
   critical: "Critical",
   high: "High",
   medium: "Medium",
   low: "Low",
-};
+} as const satisfies Readonly<Record<ErrorMutation["severity"], string>>;
+
+/** Ordered Notion labels for Error severities. */
+export const ERROR_SEVERITY_OPTIONS: readonly string[] = Object.values(
+  ERROR_SEVERITY_LABELS,
+);
 
 /** Maps Notion Error-severity labels back to canonical values. */
 const ERROR_SEVERITIES = reverse(ERROR_SEVERITY_LABELS);

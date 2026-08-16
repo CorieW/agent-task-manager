@@ -322,7 +322,7 @@ export function validateDefinitionSet(
   return issues;
 }
 
-/** Parses a agent invocation policy. */
+/** Parses an agent invocation policy. */
 function parseInvocation(value: JsonObject): InvocationPolicy {
   assertExactKeys(value, ["mode", "scheduleResource"], "invocation");
   if (
@@ -340,7 +340,7 @@ function parseInvocation(value: JsonObject): InvocationPolicy {
   };
 }
 
-/** Parses a agent Task-selection policy. */
+/** Parses an agent Task-selection policy. */
 function parseSelection(value: JsonObject): SelectionPolicy {
   assertExactKeys(
     value,
@@ -392,7 +392,7 @@ function parseSelection(value: JsonObject): SelectionPolicy {
   };
 }
 
-/** Parses a agent retry policy. */
+/** Parses an agent retry policy. */
 function parseRetry(value: JsonObject): RetryPolicy {
   assertExactKeys(value, ["maxAttempts", "noVerdict"], "retry");
   if (value.noVerdict !== "block" && value.noVerdict !== "retry")
