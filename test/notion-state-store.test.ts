@@ -669,6 +669,12 @@ class ResourceTransport implements NotionTransport {
       const filter = objectValue(objectValue(request.body).filter);
       /** Identifies the Notion property constrained by the query. */
       const property = String(filter.property);
+      if (
+        request.path === `/v1/data_sources/${NOTION_TABLES.operations}/query` &&
+        property === "Kind" &&
+        filter.rich_text === undefined
+      )
+        throw new Error("database property text does not match filter select");
       /** Builds the canonical schema expected after provisioning. */
       const expected = String(
         objectValue(filter.title).equals ??

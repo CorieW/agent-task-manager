@@ -143,6 +143,20 @@ export class NotionPageStore {
     return pages.map((page) => located(page));
   }
 
+  /** Returns pages whose rich-text property exactly matches a canonical value in deterministic order. */
+  public async listByRichText(
+    table: TableKind,
+    property: string,
+    value: string,
+  ): Promise<readonly LocatedPage[]> {
+    /** Provider pages returned by the rich-text equality filter. */
+    const pages = await this.filteredPages(table, {
+      property,
+      rich_text: { equals: value },
+    });
+    return pages.map((page) => located(page));
+  }
+
   /** Creates or updates a Resource in the representation selected by its kind. */
   public async createResource(record: ResourceMutation): Promise<WriteReceipt> {
     assertResourceBodyDigest(record);

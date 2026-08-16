@@ -350,6 +350,28 @@ test("supports the child-agent context Resource kind", () => {
   ]);
 });
 
+test("queries Operation kinds through rich-text equality", async () => {
+  /** Captures the exact Notion filter emitted by the page store. */
+  const transport = new MutableTransport();
+  /** Exercises the Operations rich-text query boundary. */
+  const store = new NotionPageStore(TABLES, transport, () => new Date(0));
+
+  assert.deepEqual(
+    await store.listByRichText("operations", "Kind", "lease"),
+    [],
+  );
+
+  /** Query request whose property type must match the Operations schema. */
+  const request = required(
+    transport.requests.find((candidate) => candidate.path.endsWith("/query")),
+  );
+  /** Closed filter sent to Notion for the Operation kind lookup. */
+  const filter = objectValue(objectValue(request.body).filter);
+  assert.equal(filter.property, "Kind");
+  assert.equal(objectValue(filter.rich_text).equals, "lease");
+  assert.equal(filter.select, undefined);
+});
+
 test("rejects a noncanonical Resource before provider mutation", async () => {
   /** Captures Notion requests to prove rejection happens preflight. */
   const transport = new MutableTransport();

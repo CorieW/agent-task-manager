@@ -450,8 +450,12 @@ export class NotionStateStore {
 
   /** Loads and validates every persisted lease record. */
   private async loadLeases(): Promise<readonly LeaseRecord[]> {
-    /** Result of `this.pages.listBySelect`, retained for `loadLeases`. */
-    const pages = await this.pages.listBySelect("operations", "Kind", "lease");
+    /** Operations whose rich-text Kind identifies lease records. */
+    const pages = await this.pages.listByRichText(
+      "operations",
+      "Kind",
+      "lease",
+    );
     /** Mutable leases collection accumulated during `loadLeases`. */
     const leases: LeaseRecord[] = [];
     for (const page of pages) {
