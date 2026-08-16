@@ -159,9 +159,11 @@ export class OutcomeTransitionBroker {
     if (taskSnapshot.archived)
       throw new Error("Cannot route an outcome for an archived Task");
     if (
-      (input.expectedTaskVersion !== undefined &&
+      (input.kind !== "human_resolution" &&
+        input.expectedTaskVersion !== undefined &&
         taskSnapshot.version !== input.expectedTaskVersion) ||
-      (input.expectedTaskStatus !== undefined &&
+      (input.kind !== "human_resolution" &&
+        input.expectedTaskStatus !== undefined &&
         taskSnapshot.status !== input.expectedTaskStatus)
     )
       throw new Error("Task changed after the Agent result was authorized");

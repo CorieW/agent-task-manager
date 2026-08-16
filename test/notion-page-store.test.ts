@@ -35,6 +35,8 @@ class MutableTransport implements NotionTransport {
   public readonly pages = new Map<string, JsonObject>();
   /** Records every page-store request for preflight assertions. */
   public readonly requests: NotionRequest[] = [];
+  /** Keeps a patched Task at its prior opaque version to model Notion timestamp coalescing. */
+  public freezeTaskVersion = false;
   /** Advances fake Notion versions after each mutation. */
   #version = 0;
 
@@ -156,6 +158,8 @@ class MutableTransport implements NotionTransport {
         String(objectValue(page.parent).data_source_id),
         { ...priorProperties, ...updates },
       );
+      if (this.freezeTaskVersion && pageMatch[1] === "task-1")
+        next.last_edited_time = String(page.last_edited_time);
       this.pages.set(pageMatch[1], next);
       return next;
     }
@@ -484,6 +488,7 @@ test("uses one canonical Status value for Task mutation and verification", async
   /** Captures and simulates Notion requests for the scenario. */
   const transport = new MutableTransport();
   transport.seedTask();
+  transport.freezeTaskVersion = true;
   /** Exercises provider-backed persistence for the scenario. */
   const store = new NotionPageStore(TABLES, transport, () => new Date(0));
   await store.applyTaskMutation({

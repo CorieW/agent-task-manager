@@ -652,12 +652,29 @@ export async function completeHarnessAssignment(input: {
   const target = requiredActivated(activated, definition.id);
   if (target.digest !== assignment.context.activationDigest)
     throw new Error("Agent definition or Resources changed after preparation");
-  await verifyLiveAssignment({
-    activated: target,
-    activationRuntime: runtime,
-    promotion: assignment.promotion,
-    provider: input.provider,
-  });
+  try {
+    await verifyLiveAssignment({
+      activated: target,
+      activationRuntime: runtime,
+      promotion: assignment.promotion,
+      provider: input.provider,
+    });
+  } catch (error) {
+    /** Current Task used only to recognize a partially committed human request. */
+    const currentTask = await input.provider.getTaskSnapshot(
+      assignment.context.task.id,
+    );
+    /** Whether a prior completion attempt already changed the assigned Task. */
+    const taskChanged =
+      currentTask.version !== assignment.promotion.taskVersion ||
+      currentTask.status !== assignment.promotion.taskStatus;
+    if (
+      input.completion.humanResolution === null ||
+      !definition.humanResolutionOutcomes.includes(result.outcome) ||
+      !taskChanged
+    )
+      throw error;
+  }
   /** Durable provider transition derived from the validated Agent result. */
   const transition = await applyOutcome(
     input.provider,

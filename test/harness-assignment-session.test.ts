@@ -8,6 +8,7 @@ import {
   prepareHarnessAssignment,
   prepareHarnessSelection,
   type AgentDefinition,
+  type ConditionalTaskMutation,
   type HarnessAssignmentCompletion,
   type LeaseRelease,
   type ProviderEnvironment,
@@ -61,6 +62,25 @@ class StrictSystemResourceProvider extends InMemoryProvider {
     if (!record.key.startsWith("system/") || !record.kind.startsWith("system/"))
       throw new Error("Manager-owned Resources require system/ key and kind");
     return super.putSystemResource(record);
+  }
+}
+
+/** Simulates a committed human-slot write whose provider response is lost. */
+class InterruptedHumanRequestProvider extends StrictSystemResourceProvider {
+  /** Ensures only the first Task mutation loses its response. */
+  private interrupted = false;
+
+  /** Commits one Task mutation before reporting a transport-style failure. */
+  public override async applyTaskMutation(
+    mutation: ConditionalTaskMutation,
+  ): Promise<WriteReceipt> {
+    /** Durable receipt created before the simulated response loss. */
+    const receipt = await super.applyTaskMutation(mutation);
+    if (!this.interrupted) {
+      this.interrupted = true;
+      throw new Error("Injected human-request mutation interruption");
+    }
+    return receipt;
   }
 }
 
@@ -199,6 +219,77 @@ test("persists a blocked harness completion within the system namespace", async 
   assert.equal((await provider.getTaskSnapshot("task-1")).status, "Blocked");
   assert.equal((await provider.getAgentActivity("planner")).status, "Offline");
   assert.deepEqual((await provider.getAgentActivity("planner")).taskIds, []);
+});
+
+test("resumes a human completion after its Task slot write commits", async () => {
+  /** Provider that loses the response after installing the human slot. */
+  const provider = await preparedProvider(
+    [],
+    new InterruptedHumanRequestProvider(environment, target),
+    true,
+  );
+  await prepareHarnessAssignment({
+    agentId: "planner",
+    assignmentDepth: 0,
+    environmentId: "demo",
+    expiresAt: EXPIRY,
+    input: {},
+    operationKey: "issue-001-human-replay",
+    provider,
+    taskId: "task-1",
+  });
+  /** Stable blocking result replayed after the simulated response loss. */
+  const completion: HarnessAssignmentCompletion = {
+    effectAttestations: [],
+    humanResolution: {
+      createdAt: "2026-08-16T19:00:00.000Z",
+      error: {
+        description: "Product scope is not approved.",
+        errorKey: "planning/product-scope",
+        relatedAgentId: "planner",
+        relatedRunId: "run-1",
+        resolution: "Approve the product scope, then resume planning.",
+        severity: "high",
+        status: "Not Fixed",
+        title: "Product scope approval required",
+      },
+      generation: 1,
+      prompt: "Approve the primary user, MVP boundaries, and success metrics.",
+      requestedBy: "planner",
+      resumeStatus: "Ready",
+    },
+    result: {
+      outcome: "needs_human",
+      payload: { summary: "Planning requires approved product scope." },
+      proposedIntents: [],
+      schema: "harness-agent-result-v1",
+    },
+    reviewFindingKeys: null,
+    schema: "harness-assignment-completion-v1",
+    testFailureKeys: null,
+  };
+
+  await assert.rejects(
+    completeHarnessAssignment({
+      completion,
+      environmentId: "demo",
+      operationKey: "issue-001-human-replay",
+      provider,
+    }),
+    /mutation interruption/u,
+  );
+  assert.equal((await provider.getTaskSnapshot("task-1")).status, "Ready");
+
+  /** Terminal replay that recognizes and completes the installed slot. */
+  const report = await completeHarnessAssignment({
+    completion,
+    environmentId: "demo",
+    operationKey: "issue-001-human-replay",
+    provider,
+  });
+  assert.equal(report.outcome, "needs_human");
+  assert.equal((await provider.getTaskSnapshot("task-1")).status, "Blocked");
+  assert.equal((await provider.getAgentActivity("planner")).status, "Offline");
 });
 
 test("returns a read-only provider-defined candidate basis", async () => {

@@ -431,8 +431,6 @@ export class NotionPageStore {
     });
     /** Read-after-write Task snapshot used to verify body and properties. */
     const verified = await this.getPage(mutation.taskId);
-    if (verified.version === current.version)
-      throw new Error("Task write did not advance last_edited_time");
     for (const [name, expected] of Object.entries(targetProperties)) {
       if (!propertyMatches(verified.page, name, expected)) {
         throw new Error(`Task property ${name} post-verification failed`);

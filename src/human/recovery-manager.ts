@@ -2,7 +2,7 @@
 import { canonicalize } from "../core/canonical-json.js";
 import { digestJson, sha256 } from "../core/digest.js";
 import { taskPropertiesWithStatus } from "../core/task-properties.js";
-import { toJsonValue } from "../domain/json.js";
+import { toJsonValue, type JsonValue } from "../domain/json.js";
 import type {
   ErrorMutation,
   ResourceMutation,
@@ -276,7 +276,7 @@ export class HumanRecoveryManager {
         existing,
         record.slot.slotId,
       );
-      if (serializeHumanSlotBaseline(parsed) !== body)
+      if (!sameHumanSlotBaseline(parsed, record))
         throw new Error("Human slot baseline is immutable");
       return;
     }
@@ -351,6 +351,75 @@ export class HumanRecoveryManager {
     )
       throw new Error(`Human recovery Resource did not verify: ${record.key}`);
   }
+}
+
+/** Compares immutable baselines while ignoring provider ordering of identity sets. */
+function sameHumanSlotBaseline(
+  left: HumanSlotBaselineRecord,
+  right: HumanSlotBaselineRecord,
+): boolean {
+  /** Canonical left-hand properties with unordered identity collections normalized. */
+  const leftProperties = normalizePropertyCollections(left.taskProperties);
+  /** Canonical right-hand properties with unordered identity collections normalized. */
+  const rightProperties = normalizePropertyCollections(right.taskProperties);
+  return (
+    canonicalize(
+      toJsonValue({
+        ...left,
+        taskProperties: leftProperties,
+        taskPropertiesDigest: digestJson(leftProperties),
+      }),
+    ) ===
+    canonicalize(
+      toJsonValue({
+        ...right,
+        taskProperties: rightProperties,
+        taskPropertiesDigest: digestJson(rightProperties),
+      }),
+    )
+  );
+}
+
+/** Normalizes set-like Task property collections without reordering ordinary arrays. */
+function normalizePropertyCollections(value: JsonValue): JsonValue {
+  if (Array.isArray(value)) {
+    /** Recursively normalized collection entries used for stable comparison. */
+    const normalized = value.map(normalizePropertyCollections);
+    if (normalized.every((item) => typeof item === "string"))
+      return [...normalized].sort();
+    if (
+      normalized.every(
+        (item) =>
+          item !== null &&
+          typeof item === "object" &&
+          !Array.isArray(item) &&
+          typeof item.id === "string",
+      )
+    )
+      return [...normalized].sort((left, right) => {
+        if (
+          left === null ||
+          right === null ||
+          Array.isArray(left) ||
+          Array.isArray(right) ||
+          typeof left !== "object" ||
+          typeof right !== "object" ||
+          typeof left.id !== "string" ||
+          typeof right.id !== "string"
+        )
+          return 0;
+        return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
+      });
+    return normalized;
+  }
+  if (value !== null && typeof value === "object")
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [
+        key,
+        normalizePropertyCollections(item),
+      ]),
+    );
+  return value;
 }
 
 /** Verifies that a replayed consumption belongs to the same response and Task. */

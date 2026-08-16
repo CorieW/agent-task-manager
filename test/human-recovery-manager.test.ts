@@ -86,6 +86,52 @@ test("creates a stable Error and resolution slot before Needs Human Resolution",
   ]);
 });
 
+test("replays a slot baseline after provider identity-set reordering", async () => {
+  /** Provider retaining the baseline and mutable Task snapshot. */
+  const provider = prepared();
+  provider.seedTask({
+    archived: false,
+    body: "Original body",
+    dependencies: [],
+    id: "task-set-order",
+    priority: 1,
+    properties: { Related: ["task-b", "task-a"], Status: "Todo" },
+    status: "Todo",
+    title: "Set ordering",
+    version: "v1",
+  });
+  /** Human recovery manager exercising the immutable baseline replay. */
+  const manager = new HumanRecoveryManager(provider);
+  /** Stable request reused after the provider reorders a relation collection. */
+  const request = {
+    createdAt: "2026-08-16T19:00:00.000Z",
+    error: null,
+    generation: 1,
+    kind: "answer" as const,
+    prompt: "Choose an option.",
+    requestedBy: "planner",
+    routes: { continue: "Todo" },
+    sourceErrorKey: null,
+    taskId: "task-set-order",
+    waitingStatus: "Needs Human Resolution",
+  };
+  await manager.request(request);
+  /** Installed Task snapshot whose relation order is provider-controlled. */
+  const installed = await provider.getTaskSnapshot("task-set-order");
+  await provider.applyTaskMutation({
+    expectedVersion: installed.version,
+    idempotencyKey: "provider-reorders-relations",
+    nextBody: null,
+    nextProperties: { ...installed.properties, Related: ["task-a", "task-b"] },
+    nextStatus: null,
+    taskId: installed.id,
+  });
+
+  /** Exact semantic replay accepted despite the provider's relation ordering. */
+  const replay = await manager.request(request);
+  assert.equal(replay.status, "Needs Human Resolution");
+});
+
 test("consumes one allowed human response and replays without another transition", async () => {
   /** Provides isolated provider state for the scenario. */
   const provider = prepared();
