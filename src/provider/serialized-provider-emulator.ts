@@ -21,11 +21,12 @@ import type {
 import type {
   ProviderCapabilities,
   ProviderEnvironment,
+  ProviderOperationIntent,
   ReconciliationResult,
   ValidationReport,
   WriteReceipt,
 } from "../domain/provider.js";
-import { toJsonValue } from "../domain/json.js";
+import { toJsonValue, type JsonValue } from "../domain/json.js";
 import type {
   TableValidationReport,
   WorkspaceMigrationPlan,
@@ -265,6 +266,47 @@ export class SerializedProviderEmulator implements SeedableAgentTaskProvider {
   ): Promise<ReconciliationResult> {
     return crossBoundary(
       await this.backing.reconcileIntent(crossBoundary(intentId)),
+    );
+  }
+
+  /** Returns a durable logical-operation intent. */
+  public async getOperationIntent(
+    intentId: string,
+  ): Promise<ProviderOperationIntent | null> {
+    return crossBoundary(
+      await this.backing.getOperationIntent(crossBoundary(intentId)),
+    );
+  }
+
+  /** Creates or validates a pending logical-operation intent. */
+  public async beginOperationIntent(
+    intentId: string,
+    operation: string,
+    payload: JsonValue,
+  ): Promise<ProviderOperationIntent> {
+    return crossBoundary(
+      await this.backing.beginOperationIntent(
+        crossBoundary(intentId),
+        crossBoundary(operation),
+        crossBoundary(payload),
+      ),
+    );
+  }
+
+  /** Completes a matching logical-operation intent. */
+  public async completeOperationIntent(
+    intentId: string,
+    operation: string,
+    payload: JsonValue,
+    result: JsonValue,
+  ): Promise<ProviderOperationIntent> {
+    return crossBoundary(
+      await this.backing.completeOperationIntent(
+        crossBoundary(intentId),
+        crossBoundary(operation),
+        crossBoundary(payload),
+        crossBoundary(result),
+      ),
     );
   }
 }

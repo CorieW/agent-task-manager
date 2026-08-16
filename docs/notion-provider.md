@@ -18,7 +18,8 @@ fails closed.
 | Resources | `Resource` title; `Kind` and `State` selects; `Version`, `Digest`, and `Dependencies` rich text                                                          |
 
 Notion presents provider-owned select values as human-readable labels. Resource
-`Kind` uses labels such as `Policy`, `Prompt`, `Task Query`, and `JSON Schema`;
+`Kind` uses labels such as `Policy`, `Prompt`, `Task Query`, `JSON Schema`, and
+`Agent / Context`;
 system records use `System / ...` labels. Resource `State` uses `Active`,
 `Draft`, and `Retired`, while Error `Severity` uses `Critical`, `High`,
 `Medium`, and `Low`. The adapter maps these labels to stable lowercase
@@ -74,6 +75,12 @@ body matches the pinned Resource digest; the next authorized write replaces
 that representation with native Markdown. Machine-oriented JSON, schemas,
 journals, and Error bodies retain code blocks because exact byte-oriented
 editing is more useful than rich presentation for those records.
+
+Every Resource write canonicalizes its target body and verifies the supplied
+digest before creating a durable intent or changing Notion. Representation
+changes rebuild the complete manager-owned body, while interrupted
+property-first writes resume only when the raw staged metadata exactly matches
+the frozen target.
 
 `Status` accepts `Not Fixed`, `Fixing`, and `Fixed`. Built-in failure paths
 create `Not Fixed`; a later write for the same `Error Key`, using a new

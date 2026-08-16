@@ -222,6 +222,70 @@ test("preflights a complete result before applying its first effect", async () =
   assert.equal(applications, 0);
 });
 
+test("stops an ordered effect sequence after a failed predecessor", async () => {
+  const provider = new InMemoryProvider(environment, target);
+  let publicationApplications = 0;
+  const command = testHandler({
+    id: "command-handler",
+    kind: "command.run",
+    async apply() {
+      return {
+        evidence: { exitCode: 1 },
+        externalIdentity: {},
+        state: "failed",
+      };
+    },
+  });
+  const publication = testHandler({
+    id: "publication-handler",
+    kind: "publication.draft_pr",
+    async apply() {
+      publicationApplications += 1;
+      return applied("pr-1");
+    },
+  });
+  const config = {
+    adapters: null,
+    effects: {
+      handlers: {
+        "command.run": command.id,
+        "publication.draft_pr": publication.id,
+      },
+      settings: {},
+    },
+    environmentId: "test",
+    provider: environment,
+    raw: {},
+    runtime: null,
+    schema: "agent-task-manager-environment-v1" as const,
+  };
+  const broker = new ExternalEffectBroker(
+    resolveExternalEffectEnvironment(config, [command, publication]),
+    new ProviderEffectJournal(provider),
+    { async verify() {} },
+  );
+  const result = finalizeAgentResult({
+    contextDigest: "a".repeat(64),
+    definitionDigest: "c".repeat(64),
+    outcome: "succeeded",
+    payload: {},
+    proposedIntents: [
+      { kind: "command.run", payload: {} },
+      { kind: "publication.draft_pr", payload: {} },
+    ],
+    runId: "run",
+    schema: "agent-result-v1",
+  });
+
+  const executions = await broker.executeResult(result, deadline());
+
+  assert.deepEqual(
+    executions.map((execution) => execution.state),
+    ["failed"],
+  );
+  assert.equal(publicationApplications, 0);
+});
+
 test("persists replay quarantine before invoking an external apply", async () => {
   /** Defines the provider fixture for “persists replay quarantine before invoking an external apply”. */
   const provider = new InMemoryProvider(environment, target);

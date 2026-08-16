@@ -9,6 +9,11 @@ tokens. Mutation idempotency identities bind both the operation and its
 complete payload: exact replay returns the original result, while conflicting
 reuse fails.
 
+State-dependent operations first persist their complete canonical plan through
+the provider operation-intent methods. Pending plans remain readable after a
+restart, exact completion replays the original result, and a changed payload
+under the same idempotency key fails before another mutation.
+
 Leases are exclusive, expiry-aware, replayable, and released only against the
 exact inspected version. Activity projection is conditionally replaced from
 live leases. Resource reads enforce exact pins; Error entity identity remains

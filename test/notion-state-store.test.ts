@@ -89,6 +89,71 @@ test("persists replayable leases and restart-visible intent outcomes", async () 
   );
 });
 
+test("persists restart-visible logical operation plans and results", async () => {
+  const transport = new ResourceTransport();
+  const now = () => new Date("2026-01-01T00:00:00.000Z");
+  const first = new NotionProvider({
+    environment: notionEnvironment(),
+    environmentId: `operation-${randomUUID()}`,
+    now,
+    transport,
+  });
+  const payload = { mutation: { taskId: "task-1" }, schema: "plan-v1" };
+
+  const pending = await first.beginOperationIntent(
+    "logical-operation",
+    "transition",
+    payload,
+  );
+  assert.equal(pending.state, "pending");
+  const completed = await first.completeOperationIntent(
+    "logical-operation",
+    "transition",
+    payload,
+    { targetStatus: "Review" },
+  );
+  assert.equal(completed.state, "applied");
+
+  const restarted = new NotionProvider({
+    environment: notionEnvironment(),
+    environmentId: `operation-${randomUUID()}`,
+    now,
+    transport,
+  });
+  assert.deepEqual(
+    (await restarted.getOperationIntent("logical-operation"))?.result,
+    { targetStatus: "Review" },
+  );
+});
+
+test("rejects an invalid Resource before persisting its intent", async () => {
+  const transport = new ResourceTransport();
+  const provider = new NotionProvider({
+    environment: notionEnvironment(),
+    environmentId: `resource-preflight-${randomUUID()}`,
+    transport,
+  });
+  const record: ResourceMutation = {
+    body: "Line one\r\nLine two",
+    dependencies: [],
+    digest: sha256("Line one\r\nLine two"),
+    idempotencyKey: "resource-preflight",
+    key: "prompt/preflight",
+    kind: "prompt",
+    state: "active",
+    version: "v1",
+  };
+
+  await assert.rejects(
+    provider.putResource(record),
+    /Digest must match its canonical body/u,
+  );
+  assert.equal(
+    (await provider.reconcileIntent(record.idempotencyKey)).state,
+    "not_applied",
+  );
+});
+
 test("does not strand stale lease release preconditions in a pending intent", async () => {
   /** Defines the current fixture for “does not strand stale lease release preconditions in a pending intent”. */
   let current = Date.parse("2026-01-01T00:00:00.000Z");
@@ -342,6 +407,54 @@ test("repairs a pending Notion Resource intent from its exact target state", asy
   );
 });
 
+test("repairs an exact Resource target after its body rebuild is interrupted", async () => {
+  const transport = new ResourceTransport();
+  const provider = new NotionProvider({
+    environment: notionEnvironment(),
+    environmentId: `resource-rebuild-${randomUUID()}`,
+    transport,
+  });
+  const firstBody = '{"type":"string"}';
+  await provider.putResource({
+    body: firstBody,
+    dependencies: [],
+    digest: sha256(firstBody),
+    idempotencyKey: "resource-rebuild-first",
+    key: "schema/rebuild",
+    kind: "json-schema",
+    state: "active",
+    version: "v1",
+  });
+  const nextBody = '{"type":"number"}';
+  const update: ResourceMutation = {
+    body: nextBody,
+    dependencies: [],
+    digest: sha256(nextBody),
+    idempotencyKey: "resource-rebuild-update",
+    key: "schema/rebuild",
+    kind: "json-schema",
+    state: "active",
+    version: "v2",
+  };
+  transport.failNextResourceBlockAppend = true;
+
+  await assert.rejects(
+    provider.putResource(update),
+    /simulated Resource body interruption/u,
+  );
+  await provider.putResource(update);
+
+  assert.deepEqual(await provider.getOptionalResource(update.key), {
+    body: nextBody,
+    dependencies: [],
+    digest: update.digest,
+    key: update.key,
+    kind: update.kind,
+    state: update.state,
+    version: update.version,
+  });
+});
+
 test("does not repair an old pending Resource intent over newer state", async () => {
   /** Defines the transport fixture for “does not repair an old pending Resource intent over newer state”. */
   const transport = new ResourceTransport();
@@ -449,6 +562,8 @@ class ResourceTransport implements NotionTransport {
   #clock = 0;
   /** Contains fail next task property patch for resource transport. */
   public failNextTaskPropertyPatch = false;
+  /** Simulates an interrupted machine Resource body append. */
+  public failNextResourceBlockAppend = false;
 
   /** Seeds task. */
   public seedTask(parent = "tasks"): void {
@@ -560,6 +675,10 @@ class ResourceTransport implements NotionTransport {
       };
     }
     if (children?.[1] !== undefined && request.method === "PATCH") {
+      if (this.failNextResourceBlockAppend) {
+        this.failNextResourceBlockAppend = false;
+        throw new Error("simulated Resource body interruption");
+      }
       /** Defines the existing fixture used by request. */
       const existing = this.#blocks.get(children[1]) ?? [];
       /** Defines the added fixture used by request. */
@@ -591,6 +710,10 @@ class ResourceTransport implements NotionTransport {
           (candidate) => candidate.id === block[1],
         );
         if (index >= 0) {
+          if (objectValue(request.body).in_trash === true) {
+            blocks.splice(index, 1);
+            return { id: block[1], in_trash: true };
+          }
           blocks[index] = {
             ...required(blocks[index]),
             ...objectValue(request.body),

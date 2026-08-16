@@ -81,6 +81,20 @@ export interface ReconciliationResult {
   readonly state: ReconciliationState;
 }
 
+/** Durable provider intent used to prepare and replay a logical operation. */
+export interface ProviderOperationIntent {
+  /** Key that identifies retries of the same logical operation. */
+  readonly idempotencyKey: string;
+  /** Stable operation name bound to the idempotency key. */
+  readonly operation: string;
+  /** Canonical operation payload retained for restart-safe replay. */
+  readonly payload: JsonValue;
+  /** Canonical result after completion, or null while pending. */
+  readonly result: JsonValue;
+  /** Current durable intent state. */
+  readonly state: "applied" | "pending";
+}
+
 /** Structured issue discovered during provider validation. */
 export interface ValidationIssue {
   /** Code for validation issue. */

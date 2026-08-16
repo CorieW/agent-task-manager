@@ -5,6 +5,11 @@ import test from "node:test";
 import { sha256 } from "../src/core/digest.js";
 import type { JsonObject } from "../src/domain/json.js";
 import { NotionPageStore } from "../src/provider/notion/notion-page-store.js";
+import {
+  decodeResourceKindOption,
+  encodeResourceKindOption,
+  RESOURCE_KIND_OPTIONS,
+} from "../src/provider/notion/notion-option-codec.js";
 import type {
   NotionRequest,
   NotionTransport,
@@ -193,6 +198,10 @@ class MutableTransport implements NotionTransport {
           (candidate) => candidate.id === block[1],
         );
         if (index >= 0) {
+          if (objectValue(request.body).in_trash === true) {
+            blocks.splice(index, 1);
+            return { id: block[1], in_trash: true };
+          }
           /** Defines the current fixture used by request. */
           const current = required(blocks[index]);
           blocks[index] = { ...current, ...objectValue(request.body) };
@@ -300,6 +309,64 @@ test("creates one managed Resource row and verifies its content", async () => {
   const page = required(transport.pages.get(receipt.providerRecord.id));
   assert.equal(propertyValue(page, "Kind"), "Policy");
   assert.equal(propertyValue(page, "State"), "Active");
+});
+
+test("supports the child-agent context Resource kind", () => {
+  assert.equal(encodeResourceKindOption("agent/context"), "Agent / Context");
+  assert.equal(decodeResourceKindOption("Agent / Context"), "agent/context");
+  assert.equal(RESOURCE_KIND_OPTIONS.includes("Agent / Context"), true);
+});
+
+test("rejects a noncanonical Resource before provider mutation", async () => {
+  const transport = new MutableTransport();
+  const store = new NotionPageStore(TABLES, transport, () => new Date(0));
+  await assert.rejects(
+    store.createResource({
+      body: "Line one\r\nLine two",
+      dependencies: [],
+      digest: sha256("Line one\r\nLine two"),
+      idempotencyKey: "bad-digest",
+      key: "prompt/bad",
+      kind: "prompt",
+      state: "active",
+      version: "v1",
+    }),
+    /body and Digest must be canonical/u,
+  );
+  assert.equal(transport.requests.length, 0);
+});
+
+test("rebuilds readable Resources into machine-readable bodies", async () => {
+  const transport = new MutableTransport();
+  const store = new NotionPageStore(TABLES, transport, () => new Date(0));
+  await store.createResource({
+    body: "Readable policy.",
+    dependencies: [],
+    digest: sha256("Readable policy."),
+    idempotencyKey: "readable",
+    key: "policy/conversion",
+    kind: "policy",
+    state: "active",
+    version: "v1",
+  });
+  const machineBody = '{"type":"object"}';
+  await store.createResource({
+    body: machineBody,
+    dependencies: [],
+    digest: sha256(machineBody),
+    idempotencyKey: "machine",
+    key: "policy/conversion",
+    kind: "json-schema",
+    state: "active",
+    version: "v2",
+  });
+
+  const blocks = transport.blocks.get("page-1") ?? [];
+  assert.equal(blocks.length, 2);
+  assert.equal(
+    propertyValue(required(transport.pages.get("page-1")), "Kind"),
+    "JSON Schema",
+  );
 });
 
 test("migrates a legacy prompt snippet when the Resource is updated", async () => {

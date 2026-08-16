@@ -21,6 +21,7 @@ import type {
 import type {
   ProviderCapabilities,
   ProviderEnvironment,
+  ProviderOperationIntent,
   ReconciliationResult,
   ValidationReport,
   WriteReceipt,
@@ -31,7 +32,7 @@ import {
   type JsonObject,
   type JsonValue,
 } from "../../domain/json.js";
-import { digestJson } from "../../core/digest.js";
+import { digestJson, sha256 } from "../../core/digest.js";
 import type {
   TableValidationReport,
   WorkspaceMigrationPlan,
@@ -61,6 +62,10 @@ import { NotionWorkspaceManager } from "./notion-workspace-manager.js";
 import { NotionWorkspaceReader } from "./notion-workspace-reader.js";
 import { SingleHostMutex } from "./single-host-mutex.js";
 import { parseWriteReceipt } from "../write-receipt-codec.js";
+import {
+  canonicalResourceMarkdown,
+  isMarkdownResourceKind,
+} from "./notion-resource-markdown.js";
 
 /** Defines Notion provider options. */
 export interface NotionProviderOptions {
@@ -313,12 +318,14 @@ export class NotionProvider implements AgentTaskProvider {
       throw new Error(
         "system/ Resource keys are reserved by Agent Task Manager",
       );
+    /** Freezes the exact canonical body before an intent or page write. */
+    const prepared = prepareNotionResource(record);
     return this.executeRepairableReceiptIntent(
-      record.idempotencyKey,
+      prepared.idempotencyKey,
       "resource",
-      record,
-      (runtime) => runtime.pages.createResource(record),
-      (runtime) => this.repairPendingResourceIntent(runtime, record),
+      prepared,
+      (runtime) => runtime.pages.createResource(prepared),
+      (runtime) => this.repairPendingResourceIntent(runtime, prepared),
     );
   }
 
@@ -358,6 +365,65 @@ export class NotionProvider implements AgentTaskProvider {
     intentId: string,
   ): Promise<ReconciliationResult> {
     return (await this.runtime()).state.reconcileIntent(intentId);
+  }
+
+  /** Returns a durable logical-operation intent. */
+  public async getOperationIntent(
+    intentId: string,
+  ): Promise<ProviderOperationIntent | null> {
+    return (await this.runtime()).state.operationIntent(intentId);
+  }
+
+  /** Creates or validates a pending logical-operation intent. */
+  public async beginOperationIntent(
+    intentId: string,
+    operation: string,
+    payload: JsonValue,
+  ): Promise<ProviderOperationIntent> {
+    const runtime = await this.runtime();
+    return runtime.state.runExclusive(async () => {
+      const existing = await runtime.state.operationIntent(intentId);
+      if (existing !== null) {
+        assertOperationIntent(existing, operation, payload);
+        return existing;
+      }
+      await runtime.state.beginIntent(intentId, operation, payload);
+      const created = await runtime.state.operationIntent(intentId);
+      if (created === null)
+        throw new Error(`Intent ${intentId} was not created`);
+      return created;
+    });
+  }
+
+  /** Completes a matching logical-operation intent. */
+  public async completeOperationIntent(
+    intentId: string,
+    operation: string,
+    payload: JsonValue,
+    result: JsonValue,
+  ): Promise<ProviderOperationIntent> {
+    const runtime = await this.runtime();
+    return runtime.state.runExclusive(async () => {
+      const existing = await runtime.state.operationIntent(intentId);
+      if (existing === null) {
+        await runtime.state.beginIntent(intentId, operation, payload);
+      } else {
+        assertOperationIntent(existing, operation, payload);
+        if (existing.state === "applied") {
+          if (digestJson(existing.result) !== digestJson(result)) {
+            throw new Error(
+              `Intent ${intentId} result changed before completion`,
+            );
+          }
+          return existing;
+        }
+      }
+      await runtime.state.completeIntent(intentId, operation, payload, result);
+      const completed = await runtime.state.operationIntent(intentId);
+      if (completed === null)
+        throw new Error(`Intent ${intentId} was not completed`);
+      return completed;
+    });
   }
 
   /** Returns the Notion workspace bootstrap manager. */
@@ -503,8 +569,20 @@ export class NotionProvider implements AgentTaskProvider {
     runtime: RuntimeServices,
     record: ResourceMutation,
   ): Promise<WriteReceipt> {
-    /** Holds the `current` intermediate used by `repairPendingResourceIntent`. */
-    const current = await runtime.reader.getOptionalResource(record.key);
+    /** Reads a complete target when the normal aggregate remains decodable. */
+    let current: ResourceRecord | null;
+    try {
+      current = await runtime.reader.getOptionalResource(record.key);
+    } catch (error) {
+      /** Repairs only a property-staged target whose raw metadata matches exactly. */
+      if (!(await runtime.pages.resourceTargetMetadataMatches(record))) {
+        throw new IndeterminateProviderIntentError(
+          `Pending Resource intent cannot classify provider state: ${record.key}`,
+          { cause: error },
+        );
+      }
+      current = null;
+    }
     if (current !== null && !sameResource(current, record))
       throw new IndeterminateProviderIntentError(
         `Pending Resource intent conflicts with newer state: ${record.key}`,
@@ -655,6 +733,35 @@ function sameResource(
     digestJson(toJsonValue(current.dependencies)) ===
       digestJson(toJsonValue(requested.dependencies))
   );
+}
+
+/** Canonicalizes and digest-binds a Notion Resource before any provider write. */
+function prepareNotionResource(record: ResourceMutation): ResourceMutation {
+  const body = isMarkdownResourceKind(record.kind)
+    ? canonicalResourceMarkdown(record.body)
+    : normalizeText(record.body);
+  if (record.digest !== sha256(body)) {
+    throw new TypeError(
+      `Resource ${record.key} Digest must match its canonical body`,
+    );
+  }
+  return { ...structuredClone(record), body };
+}
+
+/** Rejects logical-operation intent reuse with a different payload. */
+function assertOperationIntent(
+  intent: ProviderOperationIntent,
+  operation: string,
+  payload: JsonValue,
+): void {
+  if (
+    intent.operation !== operation ||
+    digestJson(intent.payload) !== digestJson(payload)
+  ) {
+    throw new Error(
+      `Idempotency key ${intent.idempotencyKey} was reused with a different operation or payload`,
+    );
+  }
 }
 
 /** Reports whether a Task snapshot matches a conditional mutation target. */

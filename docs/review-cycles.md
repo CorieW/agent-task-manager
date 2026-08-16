@@ -12,6 +12,11 @@ hashes the complete set and prepares replacement Task properties.
 provider-defined status transition through `reviewCycle` or `testCycle` on an
 ordinary transition input.
 
+Before applying a guarded transition, the broker durably stores the exact
+source-versioned Task mutation and logical request through the provider intent
+boundary. An exact retry after an ambiguous or lost response reuses that frozen
+mutation and does not count as another remediation round.
+
 The default review property contract is:
 
 | Property                 | Meaning                                                     |
@@ -48,6 +53,9 @@ process/run IDs. For example:
 branch-audit:authorization:src/api.ts:authorize:owner-check
 unit:test-failure:test/api.test.ts:rejects-invalid-owner
 ```
+
+Key ordering is Unicode-normalized and locale-independent, so persisted arrays
+and digests remain stable across hosts and ICU configurations.
 
 The first review runs the complete configured review workflow. Later reviews
 use persisted finding keys as the remediation scope and inspect the remediation

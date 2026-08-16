@@ -15,7 +15,10 @@ import type {
   LeaseResult,
   LeaseSnapshot,
 } from "../../domain/records.js";
-import type { ReconciliationResult } from "../../domain/provider.js";
+import type {
+  ProviderOperationIntent,
+  ReconciliationResult,
+} from "../../domain/provider.js";
 import type { WriteReceipt } from "../../domain/provider.js";
 import type { NotionPageStore } from "./notion-page-store.js";
 import type { SingleHostMutex } from "./single-host-mutex.js";
@@ -29,6 +32,8 @@ interface IntentRecord {
   readonly operation: string;
   /** Binds intent record to canonical payload content. */
   readonly payloadDigest: string;
+  /** Retains the canonical payload needed to resume a prepared operation. */
+  readonly payload: JsonValue;
   /** Contains reconciliation state for intent record. */
   readonly reconciliationState: "applied" | "not_applied" | null;
   /** Contains result for intent record. */
@@ -108,6 +113,7 @@ export class NotionStateStore {
       {
         idempotencyKey,
         operation,
+        payload: toJsonValue(payload),
         payloadDigest,
         result: null,
         reconciliationState: null,
@@ -173,6 +179,22 @@ export class NotionStateStore {
         intent.state === "applied"
           ? (intent.reconciliationState ?? "indeterminate")
           : "indeterminate",
+    };
+  }
+
+  /** Returns a public snapshot of one persisted logical-operation intent. */
+  public async operationIntent(
+    idempotencyKey: string,
+  ): Promise<ProviderOperationIntent | null> {
+    const value = await this.readRecord(intentKey(idempotencyKey));
+    if (value === null) return null;
+    const intent = parseIntent(value);
+    return {
+      idempotencyKey: intent.idempotencyKey,
+      operation: intent.operation,
+      payload: intent.payload,
+      result: intent.result,
+      state: intent.state,
     };
   }
 
@@ -531,6 +553,7 @@ function parseIntent(value: JsonValue): IntentRecord {
     [
       "idempotencyKey",
       "operation",
+      "payload",
       "payloadDigest",
       "reconciliationState",
       "result",
@@ -553,6 +576,7 @@ function parseIntent(value: JsonValue): IntentRecord {
   return {
     idempotencyKey: stringValue(object.idempotencyKey, "Intent idempotencyKey"),
     operation: stringValue(object.operation, "Intent operation"),
+    payload: object.payload ?? null,
     payloadDigest: stringValue(object.payloadDigest, "Intent payloadDigest"),
     reconciliationState: object.reconciliationState,
     result: object.result ?? null,

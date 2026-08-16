@@ -222,6 +222,44 @@ for (const providerCase of providerCases) {
       );
     });
 
+    test("logical operation intents retain payloads and replay results", async () => {
+      const provider = createProvider(environment, target);
+      const payload = { mutation: { taskId: "task-1" }, schema: "plan-v1" };
+      const pending = await provider.beginOperationIntent(
+        "operation-1",
+        "transition",
+        payload,
+      );
+      assert.equal(pending.state, "pending");
+      assert.deepEqual(pending.payload, payload);
+      assert.deepEqual(
+        await provider.beginOperationIntent(
+          "operation-1",
+          "transition",
+          payload,
+        ),
+        pending,
+      );
+      await assert.rejects(
+        provider.beginOperationIntent("operation-1", "transition", {
+          ...payload,
+          schema: "changed",
+        }),
+        /different operation or payload/u,
+      );
+      const completed = await provider.completeOperationIntent(
+        "operation-1",
+        "transition",
+        payload,
+        { targetStatus: "Review" },
+      );
+      assert.equal(completed.state, "applied");
+      assert.deepEqual(
+        (await provider.getOperationIntent("operation-1"))?.result,
+        { targetStatus: "Review" },
+      );
+    });
+
     test("leases are exclusive, expiry-aware, and replayable", async () => {
       /** Defines the current fixture for “leases are exclusive, expiry-aware, and replayable”. */
       let current = Date.parse("2026-01-01T00:00:00.000Z");

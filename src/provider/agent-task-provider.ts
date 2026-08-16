@@ -18,9 +18,11 @@ import type {
   TaskSnapshot,
   TaskSummary,
 } from "../domain/records.js";
+import type { JsonValue } from "../domain/json.js";
 import type {
   ProviderCapabilities,
   ProviderEnvironment,
+  ProviderOperationIntent,
   ReconciliationResult,
   ValidationReport,
   WriteReceipt,
@@ -108,4 +110,19 @@ export interface AgentTaskProvider {
   createOrUpdateError(error: ErrorMutation): Promise<WriteReceipt>;
   /** Reconciles intent against provider state. */
   reconcileIntent(intentId: string): Promise<ReconciliationResult>;
+  /** Returns a durable logical-operation intent, if one exists. */
+  getOperationIntent(intentId: string): Promise<ProviderOperationIntent | null>;
+  /** Creates or validates a pending logical-operation intent. */
+  beginOperationIntent(
+    intentId: string,
+    operation: string,
+    payload: JsonValue,
+  ): Promise<ProviderOperationIntent>;
+  /** Completes a matching logical-operation intent. */
+  completeOperationIntent(
+    intentId: string,
+    operation: string,
+    payload: JsonValue,
+    result: JsonValue,
+  ): Promise<ProviderOperationIntent>;
 }

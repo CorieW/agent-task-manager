@@ -8,7 +8,7 @@ import { pageAfter } from "../core/pagination.js";
 import { compareWorkspaceSchema } from "../core/schema-diff.js";
 import { taskPropertiesWithStatus } from "../core/task-properties.js";
 import { taskSummaryMatchesPredicate } from "../core/task-query-contract.js";
-import { toJsonValue } from "../domain/json.js";
+import { toJsonValue, type JsonValue } from "../domain/json.js";
 import type {
   ActivityMutation,
   ConditionalTaskMutation,
@@ -31,6 +31,7 @@ import type {
 import type {
   ProviderCapabilities,
   ProviderEnvironment,
+  ProviderOperationIntent,
   ReconciliationResult,
   TableKind,
   ValidationIssue,
@@ -62,6 +63,12 @@ interface MemoryActivity {
   readonly runLeaseIds: readonly string[];
   /** Lists task IDs for memory activity. */
   readonly taskIds: readonly string[];
+}
+
+/** Stores one provider-neutral logical operation for durable-style replay. */
+interface MemoryOperationIntent extends ProviderOperationIntent {
+  /** Digest used to reject payload changes under one idempotency key. */
+  readonly payloadDigest: string;
 }
 
 /** Returns the Task ID required by a task-assignment lease. */
@@ -256,6 +263,8 @@ export class InMemoryProvider implements AgentTaskProvider {
   readonly #idempotency = new IdempotencyLedger();
   /** Contains intent outcomes for in-memory provider. */
   readonly #intentOutcomes = new Map<string, ReconciliationResult>();
+  /** Contains prepared logical-operation intents for in-memory provider. */
+  readonly #operationIntents = new Map<string, MemoryOperationIntent>();
   /** Contains leases for in-memory provider. */
   readonly #leases = new Map<string, MemoryLease>();
   /** Contains released leases for in-memory provider. */
@@ -1004,6 +1013,81 @@ export class InMemoryProvider implements AgentTaskProvider {
         state: "not_applied",
       },
     );
+  }
+
+  /** Returns a prepared logical-operation intent. */
+  public async getOperationIntent(
+    intentId: string,
+  ): Promise<ProviderOperationIntent | null> {
+    return clone(this.#operationIntents.get(intentId) ?? null);
+  }
+
+  /** Creates or validates a pending logical-operation intent. */
+  public async beginOperationIntent(
+    intentId: string,
+    operation: string,
+    payload: JsonValue,
+  ): Promise<ProviderOperationIntent> {
+    const canonicalPayload = toJsonValue(payload);
+    const payloadDigest = digestJson(canonicalPayload);
+    const existing = this.#operationIntents.get(intentId);
+    if (existing !== undefined) {
+      if (
+        existing.operation !== operation ||
+        existing.payloadDigest !== payloadDigest
+      ) {
+        throw new Error(
+          `Idempotency key ${intentId} was reused with a different operation or payload`,
+        );
+      }
+      return clone(existing);
+    }
+    const intent: MemoryOperationIntent = {
+      idempotencyKey: intentId,
+      operation,
+      payload: canonicalPayload,
+      payloadDigest,
+      result: null,
+      state: "pending",
+    };
+    this.#operationIntents.set(intentId, intent);
+    return clone(intent);
+  }
+
+  /** Completes a matching logical-operation intent. */
+  public async completeOperationIntent(
+    intentId: string,
+    operation: string,
+    payload: JsonValue,
+    result: JsonValue,
+  ): Promise<ProviderOperationIntent> {
+    const existing = await this.beginOperationIntent(
+      intentId,
+      operation,
+      payload,
+    );
+    if (existing.state === "applied") {
+      if (digestJson(existing.result) !== digestJson(result)) {
+        throw new Error(`Intent ${intentId} result changed before completion`);
+      }
+      return existing;
+    }
+    const completed: MemoryOperationIntent = {
+      ...existing,
+      payloadDigest: digestJson(existing.payload),
+      result: toJsonValue(result),
+      state: "applied",
+    };
+    this.#operationIntents.set(intentId, completed);
+    this.#intentOutcomes.set(intentId, {
+      evidence: {
+        operation,
+        payloadDigest: completed.payloadDigest,
+        result: completed.result,
+      },
+      state: "applied",
+    });
+    return clone(completed);
   }
 
   /** Projects a Task snapshot into its bounded summary. */

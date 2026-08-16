@@ -266,7 +266,7 @@ function canonicalizeKeys(
   });
   /** Produces the canonical set representation used for equality and hashing. */
   const canonical = [...new Set(keys)].sort((left, right) =>
-    left.localeCompare(right),
+    left < right ? -1 : left > right ? 1 : 0,
   );
   if (canonical.length !== keys.length) {
     throw new TypeError(`${cycleLabel} evidence keys must be unique`);

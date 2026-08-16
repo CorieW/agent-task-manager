@@ -7,6 +7,7 @@ helpers, and trial contracts.
 ## Providers and core
 
 - `AgentTaskProvider`, `ProviderRegistry`, and `InMemoryProvider`
+- provider operation-intent preparation, completion, lookup, and reconciliation
 - `SerializedProviderEmulator` and test-only `SeedableAgentTaskProvider`
 - `NotionProvider`, `NotionHttpTransport`, `NotionWorkspaceReader`,
   `NotionWorkspaceManager`, `NotionPageStore`, `NotionRecordReader`, and

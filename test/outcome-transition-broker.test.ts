@@ -136,6 +136,58 @@ test("persists review-cycle state with a changes-requested transition", async ()
   );
 });
 
+test("replays a committed review transition after its response is lost", async () => {
+  const provider = providerWithTask("Review");
+  const apply = provider.applyTaskMutation.bind(provider);
+  let loseResponse = true;
+  provider.applyTaskMutation = async (mutation) => {
+    const receipt = await apply(mutation);
+    if (loseResponse) {
+      loseResponse = false;
+      throw new Error("simulated response loss");
+    }
+    return receipt;
+  };
+  const broker = new OutcomeTransitionBroker(provider);
+  const input = {
+    definition: reviewDefinition(),
+    idempotencyKey: "review-lost-response",
+    kind: "task_transition" as const,
+    outcome: "changes_requested",
+    reviewCycle: { findingKeys: ["branch:src/a.ts:race"] },
+    taskId: "task-1",
+  };
+
+  await assert.rejects(broker.apply(input), /simulated response loss/u);
+  const replay = await broker.apply(input);
+
+  assert.equal(replay.targetStatus, "Coding");
+  const task = await provider.getTaskSnapshot("task-1");
+  assert.equal(task.properties[DEFAULT_REVIEW_CYCLE_POLICY.roundProperty], 1);
+  assert.equal(
+    task.properties[DEFAULT_REVIEW_CYCLE_POLICY.repeatCountProperty],
+    1,
+  );
+});
+
+test("uses locale-independent ordering for remediation evidence", async () => {
+  const provider = providerWithTask("Review");
+  await new OutcomeTransitionBroker(provider).apply({
+    definition: reviewDefinition(),
+    idempotencyKey: "unicode-order",
+    kind: "task_transition",
+    outcome: "changes_requested",
+    reviewCycle: { findingKeys: ["ä-rule", "z-rule"] },
+    taskId: "task-1",
+  });
+
+  const task = await provider.getTaskSnapshot("task-1");
+  assert.equal(
+    task.properties[DEFAULT_REVIEW_CYCLE_POLICY.findingKeysProperty],
+    '["z-rule","ä-rule"]',
+  );
+});
+
 test("persists review-cycle state when the routed status is unchanged", async () => {
   /** Defines a review outcome that deliberately remains in Review. */
   const reviewInPlaceDefinition = {
@@ -252,6 +304,40 @@ test("persists test-cycle state with a failed transition", async () => {
   assert.match(
     String(task.properties[DEFAULT_TEST_CYCLE_POLICY.failuresDigestProperty]),
     /^[a-f0-9]{64}$/u,
+  );
+});
+
+test("replays a committed test transition after its response is lost", async () => {
+  const provider = providerWithTask("In progress");
+  const apply = provider.applyTaskMutation.bind(provider);
+  let loseResponse = true;
+  provider.applyTaskMutation = async (mutation) => {
+    const receipt = await apply(mutation);
+    if (loseResponse) {
+      loseResponse = false;
+      throw new Error("simulated response loss");
+    }
+    return receipt;
+  };
+  const broker = new OutcomeTransitionBroker(provider);
+  const input = {
+    definition: testDefinition(),
+    idempotencyKey: "test-lost-response",
+    kind: "task_transition" as const,
+    outcome: "failed",
+    taskId: "task-1",
+    testCycle: { failureKeys: ["unit:src/a.test.ts:wrong-value"] },
+  };
+
+  await assert.rejects(broker.apply(input), /simulated response loss/u);
+  const replay = await broker.apply(input);
+
+  assert.equal(replay.targetStatus, "Planned");
+  const task = await provider.getTaskSnapshot("task-1");
+  assert.equal(task.properties[DEFAULT_TEST_CYCLE_POLICY.roundProperty], 1);
+  assert.equal(
+    task.properties[DEFAULT_TEST_CYCLE_POLICY.repeatCountProperty],
+    1,
   );
 });
 

@@ -25,6 +25,7 @@ import {
   resourcePageMarkdown,
 } from "./notion-resource-markdown.js";
 import {
+  decodeResourceKindOption,
   encodeErrorSeverityOption,
   encodeResourceKindOption,
   encodeResourceStateOption,
@@ -129,6 +130,7 @@ export class NotionPageStore {
 
   /** Creates resource. */
   public async createResource(record: ResourceMutation): Promise<WriteReceipt> {
+    assertResourceBodyDigest(record);
     /** Holds the `existing` intermediate used by `createResource`. */
     const existing = await this.findUniqueByTitle(
       "resources",
@@ -153,6 +155,7 @@ export class NotionPageStore {
     existing: LocatedPage,
     record: ResourceMutation,
   ): Promise<WriteReceipt> {
+    assertResourceBodyDigest(record);
     await this.transport.request({
       body: { properties: resourceProperties(record) },
       method: "PATCH",
@@ -161,13 +164,41 @@ export class NotionPageStore {
     if (isMarkdownResourceKind(record.kind)) {
       await this.replaceManagedResourceMarkdown(existing.id, record.body);
     } else {
-      await this.replaceManagedText(existing.id, "Resource body", record.body);
+      await this.replaceManagedResourceBlocks(existing.id, record.body);
     }
     /** Holds the `verified` intermediate used by `updateResource`. */
     const verified = await this.getPage(existing.id);
     verifyPropertyText(verified.page, "Resource", record.key);
     verifyPropertyText(verified.page, "Digest", record.digest);
     return this.receipt("resources", verified, record.idempotencyKey);
+  }
+
+  /** Reports whether raw Resource properties equal a staged mutation target. */
+  public async resourceTargetMetadataMatches(
+    record: ResourceMutation,
+  ): Promise<boolean> {
+    const existing = await this.findUniqueByTitle(
+      "resources",
+      "Resource",
+      record.key,
+    );
+    if (existing === null) return false;
+    try {
+      return (
+        propertyText(existing.page, "Resource") === record.key &&
+        propertyText(existing.page, "Digest") === record.digest &&
+        decodeResourceKindOption(
+          propertyOption(existing.page, "Kind") ?? "",
+        ) === record.kind &&
+        propertyOption(existing.page, "State") ===
+          encodeResourceStateOption(record.state) &&
+        propertyText(existing.page, "Version") === record.version &&
+        propertyText(existing.page, "Dependencies") ===
+          JSON.stringify(record.dependencies)
+      );
+    } catch {
+      return false;
+    }
   }
 
   /** Creates or updates the Error identified by Error Key. */
@@ -532,6 +563,32 @@ export class NotionPageStore {
     }
   }
 
+  /** Rebuilds the complete machine-readable Resource body idempotently. */
+  private async replaceManagedResourceBlocks(
+    pageId: string,
+    text: string,
+  ): Promise<void> {
+    for (const block of await this.childBlocks(pageId)) {
+      await this.transport.request({
+        body: { in_trash: true },
+        method: "PATCH",
+        path: `/v1/blocks/${requiredString(block.id, "Resource block id")}`,
+      });
+    }
+    await this.transport.request({
+      body: {
+        children: [managedHeading("Resource body"), managedCode(text)],
+      },
+      method: "PATCH",
+      path: `/v1/blocks/${pageId}/children`,
+    });
+    if (
+      (await this.managedText(pageId, "Resource body")) !== normalizeText(text)
+    ) {
+      throw new Error("Updated ## Resource body content did not verify");
+    }
+  }
+
   /** Reads and validates the complete native Markdown projection of a Resource. */
   private async readResourceMarkdown(pageId: string): Promise<string> {
     /** Retrieves canonical Markdown plus truncation and unknown-block evidence. */
@@ -758,6 +815,18 @@ function resourceProperties(record: ResourceMutation): JsonObject {
     State: selectProperty(encodeResourceStateOption(record.state)),
     Version: richTextProperty(record.version),
   };
+}
+
+/** Rejects a Resource whose digest does not bind its canonical stored body. */
+function assertResourceBodyDigest(record: ResourceMutation): void {
+  const body = isMarkdownResourceKind(record.kind)
+    ? canonicalResourceMarkdown(record.body)
+    : normalizeText(record.body);
+  if (body !== record.body || sha256(body) !== record.digest) {
+    throw new TypeError(
+      `Resource ${record.key} body and Digest must be canonical`,
+    );
+  }
 }
 
 /** Encodes an Error mutation as Notion page properties. */

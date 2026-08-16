@@ -77,8 +77,12 @@ export class ExternalEffectBroker {
 
     /** Preserves proposal order in the returned effect executions. */
     const executions: ExternalEffectExecution[] = [];
-    for (const request of requests)
-      executions.push(await this.execute(request, deadlineAt));
+    for (const request of requests) {
+      /** Stops dependent effects unless every predecessor was applied. */
+      const execution = await this.execute(request, deadlineAt);
+      executions.push(execution);
+      if (execution.state !== "applied") break;
+    }
     return executions;
   }
 
