@@ -245,6 +245,17 @@ class MutableTransport implements NotionTransport {
           rich_text: [],
           type: "rich_text",
         },
+        Labels: {
+          id: "labels",
+          multi_select: [{ name: "Product" }, { name: "Planning" }],
+          type: "multi_select",
+        },
+        "Created At": {
+          created_time: "2026-01-01T00:00:00.000Z",
+          id: "created-at",
+          type: "created_time",
+        },
+        Owner: { id: "owner", people: [], type: "people" },
         Status: { id: "status", select: { name: "Todo" }, type: "select" },
         Task: {
           id: "title",
@@ -479,13 +490,25 @@ test("uses one canonical Status value for Task mutation and verification", async
     expectedVersion: "2026-01-01T00:00:01.000Z",
     idempotencyKey: "task-status",
     nextBody: null,
-    nextProperties: { Status: "Todo" },
+    nextProperties: {
+      "Created At": "2026-01-01T00:00:00.000Z",
+      Labels: [
+        { color: "default", id: "product", name: "Product" },
+        { color: "default", id: "planning", name: "Planning" },
+      ],
+      Owner: [],
+      Status: "Todo",
+    },
     nextStatus: "Coding",
     taskId: "task-1",
   });
   /** Reads the persisted Notion row used as the assertion oracle. */
   const page = transport.pages.get("task-1");
   assert.equal(propertyValue(required(page), "Status"), "Coding");
+  assert.deepEqual(
+    objectValue(objectValue(required(page).properties).Labels).multi_select,
+    [{ name: "Product" }, { name: "Planning" }],
+  );
   assert.match(
     propertyValue(required(page), "Manager Mutation"),
     /^[a-f0-9]{64}$/u,

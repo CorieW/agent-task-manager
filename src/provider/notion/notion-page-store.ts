@@ -36,6 +36,18 @@ import {
   type NotionTransport,
 } from "./notion-transport.js";
 
+/** Notion property values that can be verified but not updated through a page patch. */
+const READ_ONLY_PROPERTY_TYPES = new Set([
+  "created_by",
+  "created_time",
+  "formula",
+  "last_edited_by",
+  "last_edited_time",
+  "rollup",
+  "unique_id",
+  "verification",
+]);
+
 /** Provider-neutral Notion mutable table IDs contract. */
 export interface NotionMutableTableIds {
   /** Errors table data-source identifier. */
@@ -858,16 +870,17 @@ function encodeGenericProperties(
   properties: JsonObject,
   page: JsonObject,
 ): JsonObject {
-  return Object.fromEntries(
-    Object.entries(properties).map(([name, value]) => {
-      /** Existing Task property used to preserve the provider property type. */
-      const current = pageProperty(page, name);
-      return [
-        name,
-        encodeProperty(value, requiredString(current.type, `${name} type`)),
-      ];
-    }),
-  );
+  /** Writable Notion updates derived from the provider-neutral mutation. */
+  const encoded: Record<string, JsonValue> = {};
+  for (const [name, value] of Object.entries(properties)) {
+    /** Existing Task property used to preserve the provider property type. */
+    const current = pageProperty(page, name);
+    /** Provider property type controlling whether and how the value can be patched. */
+    const type = requiredString(current.type, `${name} type`);
+    if (!READ_ONLY_PROPERTY_TYPES.has(type))
+      encoded[name] = encodeProperty(value, type);
+  }
+  return encoded;
 }
 
 /** Encodes property. */
@@ -888,6 +901,14 @@ function encodeProperty(value: JsonValue, type: string): JsonObject {
   }
   if (type === "url" && (typeof value === "string" || value === null))
     return { url: value };
+  if (type === "multi_select" && Array.isArray(value))
+    return {
+      multi_select: multiSelectOptionNames(value).map((name) => ({ name })),
+    };
+  if (type === "people" && Array.isArray(value))
+    return {
+      people: propertyReferenceIds(value, "People").map((id) => ({ id })),
+    };
   if (
     type === "relation" &&
     Array.isArray(value) &&
@@ -914,18 +935,80 @@ function propertyMatches(
   const property = pageProperty(page, name);
   /** Notion property type that determines comparison semantics. */
   const type = property.type;
+  if (READ_ONLY_PROPERTY_TYPES.has(String(type)))
+    return (
+      digestJson(toJsonValue(property[String(type)] ?? null)) ===
+      digestJson(expected)
+    );
   if (type === "checkbox") return property.checkbox === expected;
   if (type === "number") return property.number === expected;
+  if (type === "url" || type === "email" || type === "phone_number")
+    return property[type] === expected;
+  if (type === "date" || type === "files")
+    return (
+      digestJson(toJsonValue(property[type] ?? null)) === digestJson(expected)
+    );
   if (type === "rich_text" || type === "title")
     return propertyText(page, name) === expected;
   if (type === "select" || type === "status")
     return propertyOption(page, name) === expected;
+  if (type === "multi_select" && Array.isArray(expected))
+    return sameSet(
+      multiSelectNames(property),
+      multiSelectOptionNames(expected),
+    );
+  if (type === "people" && Array.isArray(expected))
+    return sameSet(
+      propertyReferenceIds(property.people, "People"),
+      propertyReferenceIds(expected, "People"),
+    );
   if (type === "relation" && Array.isArray(expected))
     return sameSet(
       relationIds(property),
       expected.filter((item): item is string => typeof item === "string"),
     );
   return false;
+}
+
+/** Extracts option names from a Notion multi-select property. */
+function multiSelectNames(property: JsonObject): readonly string[] {
+  if (!Array.isArray(property.multi_select))
+    throw new TypeError("Notion multi_select property must contain an array");
+  return property.multi_select.map((item, index) =>
+    requiredString(
+      objectValue(item, `Multi-select item ${index}`).name,
+      `Multi-select item ${index} name`,
+    ),
+  );
+}
+
+/** Normalizes caller-supplied multi-select names or decoded Notion options. */
+function multiSelectOptionNames(
+  value: readonly JsonValue[],
+): readonly string[] {
+  return value.map((item, index) => {
+    if (typeof item === "string") return item;
+    return requiredString(
+      objectValue(item, `Multi-select option ${index}`).name,
+      `Multi-select option ${index} name`,
+    );
+  });
+}
+
+/** Extracts IDs from provider references or caller-supplied identity strings. */
+function propertyReferenceIds(
+  value: JsonValue | undefined,
+  label: string,
+): readonly string[] {
+  if (!Array.isArray(value)) throw new TypeError(`${label} must be an array`);
+  return value.map((item, index) =>
+    typeof item === "string"
+      ? item
+      : requiredString(
+          objectValue(item, `${label} item ${index}`).id,
+          `${label} item ${index} id`,
+        ),
+  );
 }
 
 /** Builds a located page with its opaque version. */
