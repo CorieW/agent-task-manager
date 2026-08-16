@@ -153,6 +153,7 @@ test("builds bounded candidate sets, least-privilege grants, and data-defined ro
   const query = parseTaskQueryContract(taskQueryBody());
   assert.deepEqual(taskQueryForDefinition(query, definition), {
     cursor: null,
+    dependencySatisfiedStatuses: ["Done"],
     limit: 5,
     predicate: { status: "Security Review" },
   });

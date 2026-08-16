@@ -729,10 +729,23 @@ export class InMemoryProvider implements AgentTaskProvider {
         throw new Error(`Unsupported task predicate: ${key}`);
     }
 
-    /** Task summaries satisfying the provider-neutral predicate. */
+    /** Task snapshots satisfying the predicate and dependency policy. */
     const matching = [...this.#tasks.values()]
-      .map((task) => this.taskSummary(task))
-      .filter((task) => taskSummaryMatchesPredicate(task, query.predicate));
+      .filter((task) =>
+        taskSummaryMatchesPredicate(this.taskSummary(task), query.predicate),
+      )
+      .filter((task) =>
+        task.dependencies.every((dependencyId) => {
+          /** Current dependency state used to determine candidate eligibility. */
+          const dependency = this.#tasks.get(dependencyId);
+          return (
+            dependency !== undefined &&
+            !dependency.archived &&
+            query.dependencySatisfiedStatuses.includes(dependency.status)
+          );
+        }),
+      )
+      .map((task) => this.taskSummary(task));
     return pageAfter(matching, query, (task) => task.id).map((task) =>
       clone(task),
     );

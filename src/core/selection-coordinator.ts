@@ -123,7 +123,7 @@ export async function verifyAssignmentPromotion(
 ): Promise<void> {
   /** Resource loaded during verify assignment promotion. */
   const resource = await provider.getOptionalResource(
-    `assignment-intent/${promotion.operationDigest}`,
+    `system/assignment-intent/${promotion.operationDigest}`,
   );
   if (
     resource === null ||
@@ -560,7 +560,7 @@ async function acquireAndProject(input: {
   readonly taskVersion: string;
 }): Promise<AssignmentPromotion> {
   /** Intent key used during acquire and project. */
-  const intentKey = `assignment-intent/${input.operationDigest}`;
+  const intentKey = `system/assignment-intent/${input.operationDigest}`;
   /** Prior intent loaded during acquire and project. */
   const priorIntent = await readAssignmentIntent(
     input.provider,
@@ -856,7 +856,7 @@ async function reserveAssignmentBudget(
   operationDigest: string,
 ): Promise<void> {
   /** Key used during reserve assignment budget. */
-  const key = `assignment-budget/${definition.id}/${runIdentity}`;
+  const key = `system/assignment-budget/${definition.id}/${runIdentity}`;
   /** Prior loaded during reserve assignment budget. */
   const prior = await provider.getOptionalResource(key);
   /** Operations used during reserve assignment budget. */

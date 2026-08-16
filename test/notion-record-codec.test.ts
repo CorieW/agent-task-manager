@@ -20,6 +20,9 @@ const TABLES = {
 
 /** Implements records transport. */
 class RecordsTransport implements NotionTransport {
+  /** Status returned for both prerequisite Task pages. */
+  public dependencyStatus = "Done";
+
   /** Most recent Tasks query observed by the transport fixture. */
   public lastTaskQuery: NotionRequest | null = null;
 
@@ -36,6 +39,10 @@ class RecordsTransport implements NotionTransport {
       return { has_more: false, next_cursor: null, results: [resourcePage()] };
     }
     if (request.path === "/v1/pages/task-1") return taskPage();
+    if (request.path === "/v1/pages/dep-1")
+      return dependencyPage("dep-1", this.dependencyStatus);
+    if (request.path === "/v1/pages/dep-2")
+      return dependencyPage("dep-2", this.dependencyStatus);
     if (request.path === "/v1/pages/outside-task")
       return {
         ...taskPage(),
@@ -78,6 +85,7 @@ test("decodes task summaries and exhausts relation property pagination", async (
   /** Collects decoded Task summaries returned by the provider. */
   const summaries = await reader.listTaskSummaries({
     cursor: null,
+    dependencySatisfiedStatuses: ["Done"],
     limit: 10,
     predicate: { status: "Todo" },
   });
@@ -101,6 +109,7 @@ test("translates a multi-status Task query into a bounded Notion filter", async 
   /** Collects decoded summaries for the translated multi-status query. */
   const summaries = await reader.listTaskSummaries({
     cursor: null,
+    dependencySatisfiedStatuses: ["Done"],
     limit: 10,
     predicate: { status: ["Todo", "Ready"] },
   });
@@ -114,6 +123,24 @@ test("translates a multi-status Task query into a bounded Notion filter", async 
       { property: "Status", select: { equals: "Ready" } },
     ],
   });
+});
+
+test("excludes Task candidates with unresolved dependencies", async () => {
+  /** Transport whose prerequisite Tasks are not in an accepted status. */
+  const transport = new RecordsTransport();
+  transport.dependencyStatus = "Ready";
+  /** Reader applying the provider-neutral dependency policy before pagination. */
+  const reader = new NotionRecordReader(TABLES, transport);
+
+  /** Candidate page filtered out because its prerequisites remain Ready. */
+  const summaries = await reader.listTaskSummaries({
+    cursor: null,
+    dependencySatisfiedStatuses: ["Done"],
+    limit: 10,
+    predicate: { status: "Todo" },
+  });
+
+  assert.deepEqual(summaries, []);
 });
 
 test("loads strict Agent definitions from their managed range", async () => {
@@ -165,6 +192,32 @@ function taskPage(): JsonObject {
       Task: {
         id: "title",
         title: [{ plain_text: "First task" }],
+        type: "title",
+      },
+    },
+  };
+}
+
+/** Builds a dependency Task with the status used by candidate filtering. */
+function dependencyPage(id: string, status: string): JsonObject {
+  return {
+    archived: false,
+    id,
+    last_edited_time: "2026-01-01T00:00:00.000Z",
+    object: "page",
+    parent: { data_source_id: "tasks", type: "data_source_id" },
+    properties: {
+      Dependencies: {
+        has_more: false,
+        id: "dependencies",
+        relation: [],
+        type: "relation",
+      },
+      Priority: { id: "priority", number: 1, type: "number" },
+      Status: { id: "status", status: { name: status }, type: "status" },
+      Task: {
+        id: "title",
+        title: [{ plain_text: `Dependency ${id}` }],
         type: "title",
       },
     },

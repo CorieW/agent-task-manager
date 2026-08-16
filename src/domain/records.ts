@@ -31,6 +31,8 @@ export interface TaskSnapshot extends TaskSummary {
 export interface TaskQuery {
   /** Opaque cursor after which the next page begins. */
   readonly cursor: string | null;
+  /** Statuses that satisfy a candidate Task's dependencies. */
+  readonly dependencySatisfiedStatuses: readonly string[];
   /** Limit for task query. */
   readonly limit: number;
   /** Predicate for task query. */

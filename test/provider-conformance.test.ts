@@ -70,11 +70,15 @@ const target: WorkspaceSchemaDescriptor = {
 };
 
 /** Creates a Task snapshot fixture. */
-function task(id: string, status: string): TaskSnapshot {
+function task(
+  id: string,
+  status: string,
+  dependencies: readonly string[] = [],
+): TaskSnapshot {
   return {
     archived: false,
     body: `body-${id}`,
-    dependencies: [],
+    dependencies,
     id,
     priority: null,
     properties: { nested: { value: id } },
@@ -121,11 +125,13 @@ for (const providerCase of providerCases) {
       const provider = createProvider(environment, target);
       provider.seedTask(task("a", "open"));
       provider.seedTask(task("b", "closed"));
-      provider.seedTask(task("c", "open"));
+      provider.seedTask(task("c", "open", ["b"]));
+      provider.seedTask(task("d", "open", ["a"]));
 
       /** Collects decoded Task summaries returned by the provider. */
       const summaries = await provider.listTaskSummaries({
         cursor: "a",
+        dependencySatisfiedStatuses: ["closed"],
         limit: 10,
         predicate: { status: "open" },
       });
@@ -136,6 +142,7 @@ for (const providerCase of providerCases) {
       /** Defines summaries selected from either authorized status. */
       const multiStatusSummaries = await provider.listTaskSummaries({
         cursor: null,
+        dependencySatisfiedStatuses: ["closed"],
         limit: 10,
         predicate: { status: ["open", "closed"] },
       });
@@ -152,12 +159,18 @@ for (const providerCase of providerCases) {
         "version",
       ]);
       await assert.rejects(
-        provider.listTaskSummaries({ cursor: null, limit: 0, predicate: {} }),
+        provider.listTaskSummaries({
+          cursor: null,
+          dependencySatisfiedStatuses: [],
+          limit: 0,
+          predicate: {},
+        }),
         /limit/,
       );
       await assert.rejects(
         provider.listTaskSummaries({
           cursor: null,
+          dependencySatisfiedStatuses: [],
           limit: 1,
           predicate: { body: "secret" },
         }),

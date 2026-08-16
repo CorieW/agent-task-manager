@@ -52,6 +52,18 @@ class InterruptedReleaseProvider extends InMemoryProvider {
   }
 }
 
+/** Enforces the same manager-owned Resource namespace as the Notion provider. */
+class StrictSystemResourceProvider extends InMemoryProvider {
+  /** Rejects manager writes whose key or kind escapes the reserved namespace. */
+  public override async putSystemResource(
+    record: ResourceMutation,
+  ): Promise<WriteReceipt> {
+    if (!record.key.startsWith("system/") || !record.kind.startsWith("system/"))
+      throw new Error("Manager-owned Resources require system/ key and kind");
+    return super.putSystemResource(record);
+  }
+}
+
 test("prepares context for a harness and completes without model dispatch", async () => {
   /** Isolated provider state owned entirely by the manager boundary. */
   const provider = await preparedProvider();
@@ -143,6 +155,28 @@ test("returns a read-only provider-defined candidate basis", async () => {
     properties: { Status: "Backlog" },
     status: "Backlog",
     title: "Backlog task",
+    version: "v1",
+  });
+  provider.seedTask({
+    archived: false,
+    body: "Unfinished dependency",
+    dependencies: [],
+    id: "dependency-ready",
+    priority: 3,
+    properties: { Status: "Backlog" },
+    status: "Backlog",
+    title: "Unfinished dependency",
+    version: "v1",
+  });
+  provider.seedTask({
+    archived: false,
+    body: "Blocked by unfinished work",
+    dependencies: ["dependency-ready"],
+    id: "task-dependent",
+    priority: 1,
+    properties: { Status: "Ready" },
+    status: "Ready",
+    title: "Dependent task",
     version: "v1",
   });
   /** Candidate basis compiled from the Agent's Task Query Resource. */
@@ -357,7 +391,10 @@ test("resumes lease cleanup after a terminal completion interruption", async () 
 /** Creates a provider populated with one role, its Resources, and one Ready Task. */
 async function preparedProvider(
   allowedIntents: readonly string[] = [],
-  provider: InMemoryProvider = new InMemoryProvider(environment, target),
+  provider: InMemoryProvider = new StrictSystemResourceProvider(
+    environment,
+    target,
+  ),
 ): Promise<InMemoryProvider> {
   /** Provider-defined role used by the external harness. */
   const definition = agentDefinition(allowedIntents);

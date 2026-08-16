@@ -145,7 +145,12 @@ export function taskQueryForDefinition(
     throw new Error(
       "Task query exceeds the definition candidate-summary limit",
     );
-  return { cursor: null, limit: contract.limit, predicate: contract.predicate };
+  return {
+    cursor: null,
+    dependencySatisfiedStatuses: contract.dependencySatisfiedStatuses,
+    limit: contract.limit,
+    predicate: contract.predicate,
+  };
 }
 
 /** Sorts Task summaries and binds them to the task-query digest. */

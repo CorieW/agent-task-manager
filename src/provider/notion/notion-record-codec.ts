@@ -103,16 +103,50 @@ export class NotionRecordReader {
       taskPredicateFilter(query.predicate),
       1_000,
     );
-    /** Result of `pages.map`, retained for `listTaskSummaries`. */
-    const summaries = pages.map((page) => this.taskSummary(page));
     for (const key of Object.keys(query.predicate)) {
       if (!TASK_SUMMARY_KEYS.has(key))
         throw new Error(`Unsupported task predicate: ${key}`);
     }
-    /** Result of `summaries.filter`, retained for `listTaskSummaries`. */
-    const matches = summaries.filter((summary) =>
-      taskSummaryMatchesPredicate(summary, query.predicate),
+    /** Candidate pages satisfying the provider-neutral summary predicate. */
+    const candidatePages = pages.filter((page) =>
+      taskSummaryMatchesPredicate(this.taskSummary(page), query.predicate),
     );
+    /** Dependency pages reused across candidates that share prerequisites. */
+    const dependencyPages = new Map<string, Promise<JsonObject>>();
+    /** Summaries whose complete dependency set satisfies the query policy. */
+    const matches: TaskSummary[] = [];
+    for (const page of candidatePages) {
+      /** Stable IDs of the candidate's prerequisite Tasks. */
+      const dependencyIds = await this.relationIds(page, "Dependencies");
+      /** Current prerequisite pages loaded from the configured Tasks table. */
+      const dependencies = await Promise.all(
+        dependencyIds.map((dependencyId) => {
+          /** Shared read for one prerequisite referenced by multiple candidates. */
+          let pending = dependencyPages.get(dependencyId);
+          if (pending === undefined) {
+            pending = this.getPageInTable(
+              dependencyId,
+              this.tables.tasks,
+              "Task",
+            );
+            dependencyPages.set(dependencyId, pending);
+          }
+          return pending;
+        }),
+      );
+      if (
+        dependencies.every((dependencyPage) => {
+          /** Bounded dependency state used for candidate eligibility. */
+          const dependency = this.taskSummary(dependencyPage);
+          return (
+            !dependency.archived &&
+            query.dependencySatisfiedStatuses.includes(dependency.status)
+          );
+        })
+      ) {
+        matches.push(this.taskSummary(page));
+      }
+    }
     return pageAfter(matches, query, (summary) => summary.id);
   }
 
