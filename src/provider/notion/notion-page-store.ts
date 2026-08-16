@@ -19,10 +19,11 @@ import {
 } from "./notion-schema.js";
 import { activeTaskBodyGeneration } from "./notion-task-body-generation.js";
 import {
-  canonicalPromptMarkdown,
-  promptBodyFromMarkdownResponse,
-  promptPageMarkdown,
-} from "./notion-prompt-markdown.js";
+  canonicalResourceMarkdown,
+  isMarkdownResourceKind,
+  resourceBodyFromMarkdownResponse,
+  resourcePageMarkdown,
+} from "./notion-resource-markdown.js";
 import {
   collectNotionPages,
   type NotionTransport,
@@ -130,15 +131,14 @@ export class NotionPageStore {
     );
     if (existing !== null) return this.updateResource(existing, record);
     /** Holds the `created` intermediate used by `createResource`. */
-    const created =
-      record.kind === "prompt"
-        ? await this.createPromptResourcePage(record)
-        : await this.createManagedPage(
-            "resources",
-            resourceProperties(record),
-            "Resource body",
-            record.body,
-          );
+    const created = isMarkdownResourceKind(record.kind)
+      ? await this.createMarkdownResourcePage(record)
+      : await this.createManagedPage(
+          "resources",
+          resourceProperties(record),
+          "Resource body",
+          record.body,
+        );
     return this.receipt("resources", created, record.idempotencyKey);
   }
 
@@ -152,8 +152,8 @@ export class NotionPageStore {
       method: "PATCH",
       path: `/v1/pages/${existing.id}`,
     });
-    if (record.kind === "prompt") {
-      await this.replaceManagedPromptMarkdown(existing.id, record.body);
+    if (isMarkdownResourceKind(record.kind)) {
+      await this.replaceManagedResourceMarkdown(existing.id, record.body);
     } else {
       await this.replaceManagedText(existing.id, "Resource body", record.body);
     }
@@ -475,64 +475,64 @@ export class NotionPageStore {
     return blockText(section.content);
   }
 
-  /** Creates a prompt Resource through Notion's native Markdown surface. */
-  private async createPromptResourcePage(
+  /** Creates a readable Resource through Notion's native Markdown surface. */
+  private async createMarkdownResourcePage(
     record: ResourceMutation,
   ): Promise<LocatedPage> {
     /** Rejects a non-canonical or unsafe body before the external mutation. */
-    const canonicalBody = canonicalPromptMarkdown(record.body);
+    const canonicalBody = canonicalResourceMarkdown(record.body);
     /** Creates properties and canonical Markdown in one provider request. */
     const response = await this.transport.request({
       body: {
-        markdown: promptPageMarkdown(canonicalBody),
+        markdown: resourcePageMarkdown(canonicalBody),
         parent: { data_source_id: this.tables.resources },
         properties: resourceProperties(record),
       },
       method: "POST",
       path: "/v1/pages",
     });
-    /** Identifies the newly created prompt Resource page. */
-    const id = requiredString(response.id, "Created prompt Resource page id");
-    if ((await this.readPromptMarkdown(id)) !== canonicalBody) {
-      throw new Error("Created prompt Resource Markdown did not verify");
+    /** Identifies the newly created readable Resource page. */
+    const id = requiredString(response.id, "Created readable Resource page id");
+    if ((await this.readResourceMarkdown(id)) !== canonicalBody) {
+      throw new Error("Created readable Resource Markdown did not verify");
     }
     return this.getPage(id);
   }
 
-  /** Replaces a prompt Resource through Notion's native Markdown surface. */
-  private async replaceManagedPromptMarkdown(
+  /** Replaces a readable Resource through Notion's native Markdown surface. */
+  private async replaceManagedResourceMarkdown(
     pageId: string,
     text: string,
   ): Promise<void> {
     /** Rejects a non-canonical or unsafe body before the external mutation. */
-    const canonicalBody = canonicalPromptMarkdown(text);
-    /** Replaces the complete manager-owned prompt page body. */
+    const canonicalBody = canonicalResourceMarkdown(text);
+    /** Replaces the complete manager-owned readable Resource body. */
     const response = await this.transport.request({
       body: {
-        replace_content: { new_str: promptPageMarkdown(canonicalBody) },
+        replace_content: { new_str: resourcePageMarkdown(canonicalBody) },
         type: "replace_content",
       },
       method: "PATCH",
       path: `/v1/pages/${pageId}/markdown`,
     });
-    if (promptBodyFromMarkdownResponse(response) !== canonicalBody) {
+    if (resourceBodyFromMarkdownResponse(response) !== canonicalBody) {
       throw new Error(
-        "Updated prompt Resource Markdown response did not verify",
+        "Updated readable Resource Markdown response did not verify",
       );
     }
-    if ((await this.readPromptMarkdown(pageId)) !== canonicalBody) {
-      throw new Error("Updated prompt Resource Markdown did not verify");
+    if ((await this.readResourceMarkdown(pageId)) !== canonicalBody) {
+      throw new Error("Updated readable Resource Markdown did not verify");
     }
   }
 
-  /** Reads and validates the complete native Markdown projection of a prompt. */
-  private async readPromptMarkdown(pageId: string): Promise<string> {
+  /** Reads and validates the complete native Markdown projection of a Resource. */
+  private async readResourceMarkdown(pageId: string): Promise<string> {
     /** Retrieves canonical Markdown plus truncation and unknown-block evidence. */
     const response = await this.transport.request({
       method: "GET",
       path: `/v1/pages/${pageId}/markdown`,
     });
-    return promptBodyFromMarkdownResponse(response);
+    return resourceBodyFromMarkdownResponse(response);
   }
 
   /** Creates managed page. */

@@ -282,19 +282,19 @@ test("creates one managed Resource row and verifies its content", async () => {
   const store = new NotionPageStore(TABLES, transport, () => new Date(0));
   /** Defines the receipt fixture for “creates one managed Resource row and verifies its content”. */
   const receipt = await store.createResource({
-    body: "prompt body",
+    body: "### Policy\n- First rule",
     dependencies: [],
-    digest: sha256("prompt body"),
+    digest: sha256("### Policy\n- First rule"),
     idempotencyKey: "write-1",
-    key: "prompt/example",
-    kind: "prompt",
+    key: "policy/example",
+    kind: "policy",
     state: "active",
     version: "v1",
   });
   assert.equal(receipt.providerRecord.table, "resources");
   assert.equal(
     transport.markdown.get(receipt.providerRecord.id),
-    "## Resource body\nprompt body",
+    "## Resource body\n### Policy\n- First rule",
   );
   assert.equal(transport.pages.size, 1);
 });

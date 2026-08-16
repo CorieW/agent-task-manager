@@ -21,7 +21,10 @@ import {
 } from "./notion-transport.js";
 import { NOTION_TASK_MUTATION_PROPERTY } from "./notion-schema.js";
 import { activeTaskBodyGeneration } from "./notion-task-body-generation.js";
-import { promptBodyFromMarkdownResponse } from "./notion-prompt-markdown.js";
+import {
+  isMarkdownResourceKind,
+  resourceBodyFromMarkdownResponse,
+} from "./notion-resource-markdown.js";
 
 /** Defines Notion table IDs. */
 export interface NotionTableIds {
@@ -325,15 +328,14 @@ export class NotionRecordReader {
   private async resourceRecord(page: JsonObject): Promise<ResourceRecord> {
     /** Holds the `id` intermediate used by `resourceRecord`. */
     const id = requiredString(page.id, "Resource page id");
-    /** Reads the expected digest before selecting legacy prompt compatibility. */
+    /** Reads the expected digest before selecting legacy Markdown compatibility. */
     const digest = propertyText(page, "Digest");
     /** Identifies the Resource representation selected by the provider row. */
     const kind = propertyOption(page, "Kind");
     /** Holds the `body` intermediate used by `resourceRecord`. */
-    const body =
-      kind === "prompt"
-        ? await this.managedPromptMarkdown(id, digest)
-        : await this.managedText(id, "Resource body");
+    const body = isMarkdownResourceKind(kind)
+      ? await this.managedResourceMarkdown(id, digest)
+      : await this.managedText(id, "Resource body");
     /** Holds the `dependencyValue` intermediate used by `resourceRecord`. */
     const dependencyValue = propertyText(page, "Dependencies");
     /** Holds the `parsed` intermediate used by `resourceRecord`. */
@@ -402,8 +404,8 @@ export class NotionRecordReader {
     return blockText(content).replace(/\r\n?/gu, "\n").normalize("NFC");
   }
 
-  /** Reads a prompt Resource through Notion's native enhanced-Markdown endpoint. */
-  private async managedPromptMarkdown(
+  /** Reads a readable Resource through Notion's native enhanced-Markdown endpoint. */
+  private async managedResourceMarkdown(
     pageId: string,
     expectedDigest: string,
   ): Promise<string> {
@@ -412,7 +414,7 @@ export class NotionRecordReader {
       method: "GET",
       path: `/v1/pages/${pageId}/markdown`,
     });
-    return promptBodyFromMarkdownResponse(response, expectedDigest);
+    return resourceBodyFromMarkdownResponse(response, expectedDigest);
   }
 
   /** Reads IDs. */

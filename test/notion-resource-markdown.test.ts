@@ -1,15 +1,22 @@
-/** Verifies canonical safe enhanced Markdown and legacy prompt compatibility. */
+/** Verifies canonical safe enhanced Markdown for readable Resources and legacy compatibility. */
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import { sha256 } from "../src/core/digest.js";
 import {
-  canonicalPromptMarkdown,
-  promptBodyFromMarkdownResponse,
-  promptPageMarkdown,
-} from "../src/provider/notion/notion-prompt-markdown.js";
+  canonicalResourceMarkdown,
+  isMarkdownResourceKind,
+  resourceBodyFromMarkdownResponse,
+  resourcePageMarkdown,
+} from "../src/provider/notion/notion-resource-markdown.js";
 
-test("accepts the safe enhanced-Markdown prompt subset", () => {
+test("selects prompt and policy Resources for native Markdown", () => {
+  assert.equal(isMarkdownResourceKind("prompt"), true);
+  assert.equal(isMarkdownResourceKind("policy"), true);
+  assert.equal(isMarkdownResourceKind("json-schema"), false);
+});
+
+test("accepts the safe enhanced-Markdown Resource subset", () => {
   /** Provides representative supported prompt formatting. */
   const body = [
     "# Role",
@@ -24,22 +31,25 @@ test("accepts the safe enhanced-Markdown prompt subset", () => {
     "```",
   ].join("\n");
 
-  assert.equal(canonicalPromptMarkdown(body), body);
-  assert.equal(promptPageMarkdown(body), `## Resource body\n${body}`);
+  assert.equal(canonicalResourceMarkdown(body), body);
+  assert.equal(resourcePageMarkdown(body), `## Resource body\n${body}`);
 });
 
-test("rejects unknown, external, and non-canonical prompt content", () => {
+test("rejects unknown, external, and non-canonical Resource content", () => {
   assert.throws(
     () =>
-      canonicalPromptMarkdown('<page url="https://notion.so/page">Page</page>'),
+      canonicalResourceMarkdown(
+        '<page url="https://notion.so/page">Page</page>',
+      ),
     /unsafe Notion block tag/u,
   );
   assert.throws(
-    () => canonicalPromptMarkdown("![diagram](https://example.invalid/a.png)"),
+    () =>
+      canonicalResourceMarkdown("![diagram](https://example.invalid/a.png)"),
     /contains an image/u,
   );
   assert.throws(
-    () => canonicalPromptMarkdown("First paragraph\n\nSecond paragraph"),
+    () => canonicalResourceMarkdown("First paragraph\n\nSecond paragraph"),
     /must use <empty-block\/>/u,
   );
 });
@@ -47,7 +57,7 @@ test("rejects unknown, external, and non-canonical prompt content", () => {
 test("validates native Markdown completeness evidence", () => {
   assert.throws(
     () =>
-      promptBodyFromMarkdownResponse({
+      resourceBodyFromMarkdownResponse({
         markdown: "## Resource body\nPrompt",
         object: "page_markdown",
         truncated: true,
@@ -57,7 +67,7 @@ test("validates native Markdown completeness evidence", () => {
   );
   assert.throws(
     () =>
-      promptBodyFromMarkdownResponse({
+      resourceBodyFromMarkdownResponse({
         markdown: '## Resource body\n<unknown alt="form"/>',
         object: "page_markdown",
         truncated: false,
@@ -79,11 +89,11 @@ test("unwraps a legacy whole-prompt snippet only for its pinned digest", () => {
   };
 
   assert.equal(
-    promptBodyFromMarkdownResponse(response, sha256(legacyBody)),
+    resourceBodyFromMarkdownResponse(response, sha256(legacyBody)),
     legacyBody,
   );
   assert.equal(
-    promptBodyFromMarkdownResponse(response),
+    resourceBodyFromMarkdownResponse(response),
     `\`\`\`plain text\n${legacyBody}\n\`\`\``,
   );
 });

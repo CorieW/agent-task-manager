@@ -38,26 +38,27 @@ description or resolution body instead of a dedicated property.
 Provider-managed page bodies use exact level-two headings:
 
 - Agent definitions: `## Agent definition`
-- Prompt Resources: native enhanced Markdown beginning with
+- Prompt and policy Resources: native enhanced Markdown beginning with
   `## Resource body`
 - Other Resources and internal journals: `## Resource body`, followed by one
   code block
 - Errors: `## Error Description` and `## Error Resolution`
 
-Prompt Markdown is the sole authoritative prompt, not a rendered copy of a
-hidden payload. The adapter reads and replaces it through Notion's native
+Readable Resource Markdown is the sole authoritative body, not a rendered copy
+of a hidden payload. The adapter reads and replaces prompt and policy Resources
+through Notion's native
 enhanced-Markdown endpoints, removes the exact managed heading, normalizes line
 endings and Unicode, and verifies the Resource `Digest` against the resulting
 canonical body. Top-level blocks are separated by one line; use `<br>` for a
 line break inside one block and `<empty-block/>` for an intentional empty
 block.
 
-The accepted prompt subset covers readable text, headings, lists, to-do items,
+The accepted readable subset covers text, headings, lists, to-do items,
 quotes, dividers, fenced code, inline formatting, links, and equations. It
 rejects truncated responses, unknown blocks, nested pages or databases,
 attachments, embeds, mentions, images, synced blocks, tables, columns, and
 other identity-bearing or externally resolved Notion markup. Legacy
-whole-prompt `plain text` code blocks remain readable only when their unwrapped
+whole-body `plain text` code blocks remain readable only when their unwrapped
 body matches the pinned Resource digest; the next authorized write replaces
 that representation with native Markdown. Machine-oriented JSON, schemas,
 journals, and Error bodies retain code blocks because exact byte-oriented
@@ -97,8 +98,8 @@ target or original precondition is still visible.
 30-second deadline. It does not retry automatically. HTTP failures, caller
 aborts, and deadline expiry surface as `NotionApiError`; hosts decide whether
 and when to retry using its status, code, and `retryAfterSeconds` evidence.
-Prompt Resources use the version-pinned page Markdown create, retrieve, and
-update endpoints through this same transport.
+Prompt and policy Resources use the version-pinned page Markdown create,
+retrieve, and update endpoints through this same transport.
 
 ## Deployment constraint
 

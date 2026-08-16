@@ -1,33 +1,40 @@
-/** Defines the safe canonical enhanced-Markdown boundary for Notion prompt Resources. */
+/** Defines the safe canonical enhanced-Markdown boundary for readable Notion Resources. */
 import { sha256 } from "../../core/digest.js";
 import type { JsonObject, JsonValue } from "../../domain/json.js";
 
-/** Exact managed heading that precedes every prompt Resource body. */
+/** Exact managed heading that precedes every readable Resource body. */
 const RESOURCE_BODY_HEADING = "## Resource body";
 
 /** Enhanced-Markdown tags that can carry external or nested Notion objects. */
 const UNSAFE_BLOCK_TAG =
   /<(?:audio|bookmark|breadcrumb|callout|columns?|database|details|embed|file|meeting-notes|page|pdf|synced_block|table|video)\b/iu;
 
-/** Enhanced-Markdown attributes excluded from the canonical prompt subset. */
+/** Enhanced-Markdown attributes excluded from the canonical readable subset. */
 const UNSAFE_BLOCK_ATTRIBUTE = /\{(?:color|toggle)=/iu;
 
-/** Encodes one canonical prompt body as a complete managed Notion page body. */
-export function promptPageMarkdown(body: string): string {
-  /** Validates and normalizes the caller-supplied canonical prompt. */
-  const canonicalBody = canonicalPromptMarkdown(body);
+/** Reports whether a Resource kind uses the readable Markdown representation. */
+export function isMarkdownResourceKind(kind: string): boolean {
+  return kind === "prompt" || kind === "policy";
+}
+
+/** Encodes one canonical Resource body as a complete managed Notion page body. */
+export function resourcePageMarkdown(body: string): string {
+  /** Validates and normalizes the caller-supplied canonical Resource body. */
+  const canonicalBody = canonicalResourceMarkdown(body);
   return canonicalBody === ""
     ? RESOURCE_BODY_HEADING
     : `${RESOURCE_BODY_HEADING}\n${canonicalBody}`;
 }
 
-/** Validates one canonical prompt body against the supported Markdown subset. */
-export function canonicalPromptMarkdown(body: string): string {
+/** Validates one canonical Resource body against the supported Markdown subset. */
+export function canonicalResourceMarkdown(body: string): string {
   /** Normalizes line endings and Unicode before structural validation. */
   const normalized = normalizeMarkdown(body);
   if (normalized === "") return normalized;
   if (normalized.startsWith("\n") || normalized.endsWith("\n")) {
-    throw new Error("Prompt Markdown must not start or end with a blank line");
+    throw new Error(
+      "Resource Markdown must not start or end with a blank line",
+    );
   }
 
   /** Tracks whether validation is currently inside a fenced code block. */
@@ -40,52 +47,52 @@ export function canonicalPromptMarkdown(body: string): string {
     if (codeFenceOpen) continue;
     if (line === "") {
       throw new Error(
-        "Prompt Markdown must use <empty-block/> for an intentional empty block",
+        "Resource Markdown must use <empty-block/> for an intentional empty block",
       );
     }
     /** Removes list nesting before checking reserved top-level syntax. */
     const content = line.replace(/^\t+/u, "");
     if (content === RESOURCE_BODY_HEADING) {
-      throw new Error("Prompt Markdown must not redefine ## Resource body");
+      throw new Error("Resource Markdown must not redefine ## Resource body");
     }
     assertSafeMarkdownLine(content);
   }
   if (codeFenceOpen) {
-    throw new Error("Prompt Markdown contains an unclosed code fence");
+    throw new Error("Resource Markdown contains an unclosed code fence");
   }
   return normalized;
 }
 
-/** Extracts and validates a prompt body from a native Notion Markdown response. */
-export function promptBodyFromMarkdownResponse(
+/** Extracts and validates a Resource body from a native Notion Markdown response. */
+export function resourceBodyFromMarkdownResponse(
   response: JsonObject,
   expectedLegacyDigest: string | null = null,
 ): string {
   if (response.object !== "page_markdown") {
-    throw new TypeError("Notion prompt response must be page_markdown");
+    throw new TypeError("Notion Resource response must be page_markdown");
   }
   if (response.truncated !== false) {
-    throw new Error("Notion prompt Markdown response is truncated");
+    throw new Error("Notion Resource Markdown response is truncated");
   }
   if (
     !Array.isArray(response.unknown_block_ids) ||
     response.unknown_block_ids.some((id) => typeof id !== "string")
   ) {
     throw new TypeError(
-      "Notion prompt Markdown response has invalid unknown block evidence",
+      "Notion Resource Markdown response has invalid unknown block evidence",
     );
   }
   if (response.unknown_block_ids.length !== 0) {
-    throw new Error("Notion prompt Markdown contains unknown blocks");
+    throw new Error("Notion Resource Markdown contains unknown blocks");
   }
-  return promptBodyFromPageMarkdown(
-    requiredString(response.markdown, "Notion prompt Markdown"),
+  return resourceBodyFromPageMarkdown(
+    requiredString(response.markdown, "Notion Resource Markdown"),
     expectedLegacyDigest,
   );
 }
 
-/** Extracts one managed prompt body from complete native Notion Markdown. */
-export function promptBodyFromPageMarkdown(
+/** Extracts one managed Resource body from complete native Notion Markdown. */
+export function resourceBodyFromPageMarkdown(
   markdown: string,
   expectedLegacyDigest: string | null = null,
 ): string {
@@ -99,7 +106,7 @@ export function promptBodyFromPageMarkdown(
   }
   /** Selects the canonical Markdown following the managed heading. */
   const body = normalized.slice(RESOURCE_BODY_HEADING.length + 1);
-  /** Detects the prior whole-prompt plain-text code-block representation. */
+  /** Detects the prior whole-body plain-text code-block representation. */
   const legacy = /^```(?:plain text|text)\n([\s\S]*)\n```$/u.exec(body);
   if (
     legacy?.[1] !== undefined &&
@@ -108,25 +115,25 @@ export function promptBodyFromPageMarkdown(
   ) {
     return normalizeMarkdown(legacy[1]);
   }
-  return canonicalPromptMarkdown(body);
+  return canonicalResourceMarkdown(body);
 }
 
 /** Rejects one non-code line outside the approved enhanced-Markdown subset. */
 function assertSafeMarkdownLine(line: string): void {
   if (UNSAFE_BLOCK_TAG.test(line)) {
-    throw new Error("Prompt Markdown contains an unsafe Notion block tag");
+    throw new Error("Resource Markdown contains an unsafe Notion block tag");
   }
   if (/<(?:unknown|mention-)/iu.test(line)) {
-    throw new Error("Prompt Markdown contains an unresolved Notion identity");
+    throw new Error("Resource Markdown contains an unresolved Notion identity");
   }
   if (/!\[[^\]]*\]\(/u.test(line)) {
-    throw new Error("Prompt Markdown contains an image");
+    throw new Error("Resource Markdown contains an image");
   }
   if (UNSAFE_BLOCK_ATTRIBUTE.test(line)) {
-    throw new Error("Prompt Markdown contains unsupported block attributes");
+    throw new Error("Resource Markdown contains unsupported block attributes");
   }
   if (/<(?!\/?(?:br|empty-block)\/?\s*>)[A-Za-z/]/u.test(line)) {
-    throw new Error("Prompt Markdown contains unsupported markup");
+    throw new Error("Resource Markdown contains unsupported markup");
   }
 }
 
