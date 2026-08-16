@@ -4,11 +4,15 @@ import test from "node:test";
 
 import {
   DEFAULT_REVIEW_CYCLE_POLICY,
+  DEFAULT_TEST_CYCLE_POLICY,
   InMemoryProvider,
   OutcomeTransitionBroker,
   ReviewCycleLimitError,
+  TestCycleLimitError,
+  advanceTestCycle,
   type ProviderEnvironment,
   type AgentDefinition,
+  type JsonObject,
   type WorkspaceSchemaDescriptor,
 } from "../src/index.js";
 
@@ -116,6 +120,7 @@ test("persists review-cycle state with a changes-requested transition", async ()
   /** Reads the atomically advanced Task state. */
   const task = await provider.getTaskSnapshot("task-1");
   assert.equal(task.status, "Coding");
+  assert.equal(task.properties["Remediation Source"], "Review");
   assert.equal(task.properties[DEFAULT_REVIEW_CYCLE_POLICY.roundProperty], 1);
   assert.equal(
     task.properties[DEFAULT_REVIEW_CYCLE_POLICY.repeatCountProperty],
@@ -216,16 +221,114 @@ test("blocks review cycles after three changes-requested rounds", async () => {
   assert.equal((await provider.getTaskSnapshot("task-1")).status, "Review");
 });
 
+test("persists test-cycle state with a failed transition", async () => {
+  /** Defines the provider fixture for the failed test transition. */
+  const provider = providerWithTask("In progress");
+  /** Defines the broker fixture for the failed test transition. */
+  const broker = new OutcomeTransitionBroker(provider);
+
+  await broker.apply({
+    definition: testDefinition(),
+    idempotencyKey: "test-round-1",
+    kind: "task_transition",
+    outcome: "failed",
+    taskId: "task-1",
+    testCycle: { failureKeys: ["unit:src/a.test.ts:returns-wrong-value"] },
+  });
+
+  /** Reads the atomically advanced Task state. */
+  const task = await provider.getTaskSnapshot("task-1");
+  assert.equal(task.status, "Planned");
+  assert.equal(task.properties["Remediation Source"], "Test");
+  assert.equal(task.properties[DEFAULT_TEST_CYCLE_POLICY.roundProperty], 1);
+  assert.equal(
+    task.properties[DEFAULT_TEST_CYCLE_POLICY.repeatCountProperty],
+    1,
+  );
+  assert.equal(
+    task.properties[DEFAULT_TEST_CYCLE_POLICY.failureKeysProperty],
+    '["unit:src/a.test.ts:returns-wrong-value"]',
+  );
+  assert.match(
+    String(task.properties[DEFAULT_TEST_CYCLE_POLICY.failuresDigestProperty]),
+    /^[a-f0-9]{64}$/u,
+  );
+});
+
+test("blocks a repeated test failure set before another coding round", async () => {
+  /** Builds one valid prior failure state without duplicating digest logic. */
+  const prior = advanceTestCycle({ Status: "In progress" }, [
+    "unit:src/a.test.ts:returns-wrong-value",
+  ]).nextProperties;
+  /** Defines the provider fixture for repeated test failures. */
+  const provider = providerWithTask("In progress", prior);
+  /** Defines the broker fixture for repeated test failures. */
+  const broker = new OutcomeTransitionBroker(provider);
+
+  await assert.rejects(
+    broker.apply({
+      definition: testDefinition(),
+      idempotencyKey: "test-repeat",
+      kind: "task_transition",
+      outcome: "failed",
+      taskId: "task-1",
+      testCycle: { failureKeys: ["unit:src/a.test.ts:returns-wrong-value"] },
+    }),
+    (error: unknown) =>
+      error instanceof TestCycleLimitError &&
+      error.reason === "identical_failures_repeated",
+  );
+  assert.equal(
+    (await provider.getTaskSnapshot("task-1")).status,
+    "In progress",
+  );
+});
+
+test("blocks test cycles after three failed rounds", async () => {
+  /** Builds a valid prior failure state at the automatic test-round ceiling. */
+  const prior = {
+    ...advanceTestCycle({ Status: "In progress" }, [
+      "unit:src/a.test.ts:returns-wrong-value",
+    ]).nextProperties,
+    "Test Round": 3,
+  };
+  /** Defines the provider fixture at the automatic test-round ceiling. */
+  const provider = providerWithTask("In progress", prior);
+  /** Defines the broker fixture at the automatic test-round ceiling. */
+  const broker = new OutcomeTransitionBroker(provider);
+
+  await assert.rejects(
+    broker.apply({
+      definition: testDefinition(),
+      idempotencyKey: "test-round-limit",
+      kind: "task_transition",
+      outcome: "failed",
+      taskId: "task-1",
+      testCycle: { failureKeys: ["integration:api:timeout"] },
+    }),
+    (error: unknown) =>
+      error instanceof TestCycleLimitError &&
+      error.reason === "test_round_limit",
+  );
+  assert.equal(
+    (await provider.getTaskSnapshot("task-1")).status,
+    "In progress",
+  );
+});
+
 /** Creates the provider with task test fixture. */
 function providerWithTask(
   status = "Coding",
-  properties: Record<string, string | number> = {},
+  properties: JsonObject = {},
 ): InMemoryProvider {
   /** Defines the provider fixture used by provider with task. */
   const provider = new InMemoryProvider(environment, target);
   provider.seedTaskStatusOptions([
     "Coding",
+    "Completed",
+    "In progress",
     "Needs Human Resolution",
+    "Planned",
     "Review",
   ]);
   provider.seedTask({
@@ -240,6 +343,21 @@ function providerWithTask(
     version: "v1",
   });
   return provider;
+}
+
+/** Creates the Code Tester definition fixture. */
+function testDefinition(): AgentDefinition {
+  return {
+    ...definition(),
+    humanResolutionOutcomes: ["blocked"],
+    id: "tester",
+    name: "Tester",
+    transitions: {
+      blocked: "Needs Human Resolution",
+      failed: "Planned",
+      succeeded: "Completed",
+    },
+  };
 }
 
 /** Creates the review Agent definition fixture. */

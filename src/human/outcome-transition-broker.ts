@@ -8,6 +8,7 @@ import {
   advanceReviewCycle,
   type ReviewCyclePolicy,
 } from "./review-cycle-guard.js";
+import { advanceTestCycle, type TestCyclePolicy } from "./test-cycle-guard.js";
 
 /** Defines the data and behavior required by blocked outcome resolution. */
 export interface BlockedOutcomeResolution {
@@ -58,6 +59,13 @@ export interface OrdinaryTransitionInput extends OutcomeTransitionBase {
     readonly findingKeys: readonly string[];
     /** Provider-neutral Task-property names and loop limits. */
     readonly policy?: ReviewCyclePolicy;
+  };
+  /** Optional confirmed failure identities recorded atomically with a failed test. */
+  readonly testCycle?: {
+    /** Stable canonical identities for every confirmed failure in this test result. */
+    readonly failureKeys: readonly string[];
+    /** Provider-neutral Task-property names and loop limits. */
+    readonly policy?: TestCyclePolicy;
   };
 }
 
@@ -148,22 +156,37 @@ export class OutcomeTransitionBroker {
       throw new Error(
         `Outcome ${input.outcome} requires a durable human resolution request`,
       );
-    if (targetStatus === task.status && input.reviewCycle === undefined)
+    if (input.reviewCycle !== undefined && input.testCycle !== undefined) {
+      throw new TypeError(
+        "An outcome transition cannot advance review and test cycles together",
+      );
+    }
+    if (
+      targetStatus === task.status &&
+      input.reviewCycle === undefined &&
+      input.testCycle === undefined
+    )
       return {
         humanSlotId: null,
         kind: "task_transition",
         targetStatus,
         taskVersion: task.version,
       };
-    /** Advances review state in the same conditional write as the status transition. */
+    /** Advances remediation state in the same conditional write as the status transition. */
     const nextTaskProperties =
-      input.reviewCycle === undefined
-        ? task.properties
-        : advanceReviewCycle(
+      input.reviewCycle !== undefined
+        ? advanceReviewCycle(
             task.properties,
             input.reviewCycle.findingKeys,
             input.reviewCycle.policy,
-          ).nextProperties;
+          ).nextProperties
+        : input.testCycle !== undefined
+          ? advanceTestCycle(
+              task.properties,
+              input.testCycle.failureKeys,
+              input.testCycle.policy,
+            ).nextProperties
+          : task.properties;
     await this.provider.applyTaskMutation({
       expectedVersion: task.version,
       idempotencyKey: input.idempotencyKey,

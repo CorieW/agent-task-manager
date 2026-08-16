@@ -1,6 +1,12 @@
-/** Tracks bounded code-review remediation rounds in provider-owned Task properties. */
-import { digestJson } from "../core/digest.js";
-import { toJsonValue, type JsonObject } from "../domain/json.js";
+/** Exposes code-review-specific names over the shared remediation-cycle state machine. */
+import type { JsonObject } from "../domain/json.js";
+import {
+  advanceCycle,
+  CycleLimitError,
+  readCycleState,
+  type CyclePolicy,
+  type CycleState,
+} from "./cycle-guard.js";
 
 /** Names and limits used to persist one review cycle without provider-specific storage. */
 export interface ReviewCyclePolicy {
@@ -8,23 +14,26 @@ export interface ReviewCyclePolicy {
   readonly findingKeysProperty: string;
   /** Task property containing the SHA-256 digest of the canonical finding keys. */
   readonly findingsDigestProperty: string;
-  /** Maximum number of changes-requested transitions before human resolution is required. */
-  readonly maxChangesRequestedRounds: number;
   /** Consecutive occurrence count that stops automatic remediation. */
   readonly identicalFindingSetLimit: number;
+  /** Maximum number of changes-requested transitions before human resolution is required. */
+  readonly maxChangesRequestedRounds: number;
   /** Task property containing the consecutive occurrence count for the current finding set. */
   readonly repeatCountProperty: string;
   /** Task property containing the completed changes-requested round count. */
   readonly roundProperty: string;
+  /** Task property identifying the stage that most recently requested remediation. */
+  readonly remediationSourceProperty: string;
 }
 
 /** Default Task-property contract used by the bundled Notion workflow. */
 export const DEFAULT_REVIEW_CYCLE_POLICY: ReviewCyclePolicy = {
   findingKeysProperty: "Review Finding Keys",
   findingsDigestProperty: "Review Findings Digest",
-  maxChangesRequestedRounds: 3,
   identicalFindingSetLimit: 2,
+  maxChangesRequestedRounds: 3,
   repeatCountProperty: "Review Repeat Count",
+  remediationSourceProperty: "Remediation Source",
   roundProperty: "Review Round",
 };
 
@@ -48,7 +57,7 @@ export interface ReviewCycleAdvance {
   readonly state: ReviewCycleState;
 }
 
-/** Reasons that require human resolution instead of another automatic remediation round. */
+/** Reasons that require human resolution instead of another automatic review remediation. */
 export type ReviewCycleLimitReason =
   "identical_findings_repeated" | "review_round_limit";
 
@@ -60,11 +69,14 @@ export class ReviewCycleLimitError extends Error {
     public readonly reason: ReviewCycleLimitReason,
     /** Review-cycle state observed before the rejected advancement. */
     public readonly state: ReviewCycleState,
+    /** Preserves the shared state-machine failure for diagnostics. */
+    cause?: unknown,
   ) {
     super(
       reason === "review_round_limit"
         ? "Code review reached the maximum automatic remediation rounds"
         : "Code review repeated the same finding set",
+      { cause },
     );
   }
 }
@@ -74,42 +86,7 @@ export function readReviewCycleState(
   properties: JsonObject,
   policy: ReviewCyclePolicy = DEFAULT_REVIEW_CYCLE_POLICY,
 ): ReviewCycleState {
-  assertPolicy(policy);
-  /** Reads the persisted review round, defaulting only a wholly absent state to zero. */
-  const round = optionalCount(
-    properties[policy.roundProperty],
-    policy.roundProperty,
-  );
-  /** Reads the persisted repeated-finding count. */
-  const repeatCount = optionalCount(
-    properties[policy.repeatCountProperty],
-    policy.repeatCountProperty,
-  );
-  /** Reads the persisted finding digest. */
-  const findingsDigest = optionalDigest(
-    properties[policy.findingsDigestProperty],
-    policy.findingsDigestProperty,
-  );
-  /** Reads and canonicalizes the persisted finding keys. */
-  const findingKeys = optionalFindingKeys(
-    properties[policy.findingKeysProperty],
-    policy.findingKeysProperty,
-  );
-  /** Rebuilds the digest when prior findings exist. */
-  const rebuiltDigest =
-    findingKeys.length === 0 ? null : digestJson(toJsonValue(findingKeys));
-
-  if (findingsDigest !== rebuiltDigest) {
-    throw new TypeError("Review-cycle finding keys do not match their digest");
-  }
-  if (
-    (round === 0 && (repeatCount !== 0 || findingKeys.length !== 0)) ||
-    (round > 0 && (repeatCount === 0 || findingKeys.length === 0))
-  ) {
-    throw new TypeError("Review-cycle Task properties are incomplete");
-  }
-
-  return { findingKeys, findingsDigest, repeatCount, round };
+  return reviewState(readCycleState(properties, sharedPolicy(policy)));
 }
 
 /** Records one distinct changes-requested result or rejects a looping review cycle. */
@@ -118,140 +95,50 @@ export function advanceReviewCycle(
   findingKeys: readonly string[],
   policy: ReviewCyclePolicy = DEFAULT_REVIEW_CYCLE_POLICY,
 ): ReviewCycleAdvance {
-  /** Captures the verified prior review-cycle state. */
-  const prior = readReviewCycleState(properties, policy);
-  if (prior.round >= policy.maxChangesRequestedRounds) {
-    throw new ReviewCycleLimitError("review_round_limit", prior);
-  }
-
-  /** Canonicalizes the confirmed finding identities before hashing or persistence. */
-  const canonicalFindingKeys = canonicalizeFindingKeys(findingKeys);
-  /** Binds the exact confirmed finding set independently of prose order. */
-  const findingsDigest = digestJson(toJsonValue(canonicalFindingKeys));
-  /** Counts consecutive appearances of the same complete finding set. */
-  const repeatCount =
-    findingsDigest === prior.findingsDigest ? prior.repeatCount + 1 : 1;
-  if (repeatCount >= policy.identicalFindingSetLimit) {
-    throw new ReviewCycleLimitError("identical_findings_repeated", prior);
-  }
-
-  /** Defines the advanced review-cycle state persisted with the status transition. */
-  const state: ReviewCycleState = {
-    findingKeys: canonicalFindingKeys,
-    findingsDigest,
-    repeatCount,
-    round: prior.round + 1,
-  };
-  return {
-    nextProperties: {
-      ...structuredClone(properties),
-      [policy.findingKeysProperty]: JSON.stringify(state.findingKeys),
-      [policy.findingsDigestProperty]: state.findingsDigest,
-      [policy.repeatCountProperty]: state.repeatCount,
-      [policy.roundProperty]: state.round,
-    },
-    state,
-  };
-}
-
-/** Validates policy names and limits before reading provider-controlled properties. */
-function assertPolicy(policy: ReviewCyclePolicy): void {
-  /** Collects the configured provider-visible property names. */
-  const propertyNames = [
-    policy.findingKeysProperty,
-    policy.findingsDigestProperty,
-    policy.repeatCountProperty,
-    policy.roundProperty,
-  ];
-  if (
-    propertyNames.some((name) => name === "" || name.length > 100) ||
-    new Set(propertyNames).size !== propertyNames.length
-  ) {
-    throw new TypeError(
-      "Review-cycle property names must be distinct and bounded",
+  try {
+    /** Advances the shared state machine using review-specific property names. */
+    const advanced = advanceCycle(
+      properties,
+      findingKeys,
+      sharedPolicy(policy),
+    );
+    return {
+      nextProperties: advanced.nextProperties,
+      state: reviewState(advanced.state),
+    };
+  } catch (error) {
+    if (!(error instanceof CycleLimitError)) throw error;
+    throw new ReviewCycleLimitError(
+      error.reason === "round_limit"
+        ? "review_round_limit"
+        : "identical_findings_repeated",
+      reviewState(error.state),
+      error,
     );
   }
-  if (
-    !Number.isSafeInteger(policy.maxChangesRequestedRounds) ||
-    policy.maxChangesRequestedRounds < 1 ||
-    !Number.isSafeInteger(policy.identicalFindingSetLimit) ||
-    policy.identicalFindingSetLimit < 2
-  ) {
-    throw new TypeError("Review-cycle limits are invalid");
-  }
 }
 
-/** Returns a non-negative integer property, defaulting an absent value to zero. */
-function optionalCount(value: unknown, label: string): number {
-  if (value === undefined || value === null) return 0;
-  if (!Number.isSafeInteger(value) || (value as number) < 0) {
-    throw new TypeError(`${label} must be a non-negative safe integer`);
-  }
-  return value as number;
+/** Maps the public review policy onto the shared remediation policy. */
+function sharedPolicy(policy: ReviewCyclePolicy): CyclePolicy {
+  return {
+    digestProperty: policy.findingsDigestProperty,
+    identicalSetLimit: policy.identicalFindingSetLimit,
+    keysProperty: policy.findingKeysProperty,
+    label: "Code review",
+    maxRounds: policy.maxChangesRequestedRounds,
+    repeatCountProperty: policy.repeatCountProperty,
+    roundProperty: policy.roundProperty,
+    sourceProperty: policy.remediationSourceProperty,
+    sourceValue: "Review",
+  };
 }
 
-/** Returns a SHA-256 property, defaulting an absent or empty value to null. */
-function optionalDigest(value: unknown, label: string): string | null {
-  if (value === undefined || value === null || value === "") return null;
-  if (typeof value !== "string" || !/^[a-f0-9]{64}$/u.test(value)) {
-    throw new TypeError(`${label} must be a SHA-256 digest`);
-  }
-  return value;
-}
-
-/** Parses one persisted canonical finding-key array. */
-function optionalFindingKeys(value: unknown, label: string): readonly string[] {
-  if (value === undefined || value === null || value === "") return [];
-  if (typeof value !== "string") {
-    throw new TypeError(`${label} must be a JSON string`);
-  }
-  /** Parses the provider value before applying the closed finding-key contract. */
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(value);
-  } catch (error) {
-    throw new TypeError(`${label} must contain valid JSON`, { cause: error });
-  }
-  if (!Array.isArray(parsed)) {
-    throw new TypeError(`${label} must contain a JSON array`);
-  }
-  /** Reuses canonical validation while rejecting non-canonical persisted ordering. */
-  const canonical = canonicalizeFindingKeys(parsed);
-  if (JSON.stringify(parsed) !== JSON.stringify(canonical)) {
-    throw new TypeError(`${label} must contain canonical finding keys`);
-  }
-  return canonical;
-}
-
-/** Validates, deduplicates, and sorts stable finding identities. */
-function canonicalizeFindingKeys(
-  values: readonly unknown[],
-): readonly string[] {
-  if (values.length === 0 || values.length > 100) {
-    throw new TypeError("Review findings must contain between 1 and 100 keys");
-  }
-  /** Validates normalized key strings before deterministic sorting. */
-  const keys = values.map((value) => {
-    if (typeof value !== "string") {
-      throw new TypeError("Review finding keys must be strings");
-    }
-    /** Normalizes Unicode without silently changing surrounding whitespace. */
-    const normalized = value.normalize("NFC");
-    if (
-      normalized === "" ||
-      normalized.length > 512 ||
-      normalized.trim() !== normalized
-    ) {
-      throw new TypeError("Review finding keys must be non-empty and bounded");
-    }
-    return normalized;
-  });
-  /** Produces the canonical set representation used for equality and hashing. */
-  const canonical = [...new Set(keys)].sort((left, right) =>
-    left.localeCompare(right),
-  );
-  if (canonical.length !== keys.length) {
-    throw new TypeError("Review finding keys must be unique");
-  }
-  return canonical;
+/** Maps generic evidence state onto the public review vocabulary. */
+function reviewState(state: CycleState): ReviewCycleState {
+  return {
+    findingKeys: state.keys,
+    findingsDigest: state.digest,
+    repeatCount: state.repeatCount,
+    round: state.round,
+  };
 }
