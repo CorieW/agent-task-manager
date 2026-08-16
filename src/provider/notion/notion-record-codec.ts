@@ -2,6 +2,7 @@
 import { sha256 } from "../../core/digest.js";
 import { pageAfter } from "../../core/pagination.js";
 import { parseAgentDefinitionManifest } from "../../core/agent-definition.js";
+import { taskSummaryMatchesPredicate } from "../../core/task-query-contract.js";
 import {
   toJsonValue,
   type JsonObject,
@@ -110,9 +111,7 @@ export class NotionRecordReader {
     }
     /** Holds the `matches` intermediate used by `listTaskSummaries`. */
     const matches = summaries.filter((summary) =>
-      Object.entries(query.predicate).every(([key, expected]) =>
-        Object.is(summary[key as keyof TaskSummary], expected),
-      ),
+      taskSummaryMatchesPredicate(summary, query.predicate),
     );
     return pageAfter(matches, query, (summary) => summary.id);
   }
@@ -551,6 +550,13 @@ function taskPredicateFilter(predicate: JsonObject): JsonObject | undefined {
   const filters: JsonObject[] = [];
   if (typeof predicate.status === "string")
     filters.push({ property: "Status", select: { equals: predicate.status } });
+  if (Array.isArray(predicate.status))
+    filters.push({
+      or: predicate.status.map((status) => ({
+        property: "Status",
+        select: { equals: status },
+      })),
+    });
   if (typeof predicate.title === "string")
     filters.push({ property: "Task", title: { equals: predicate.title } });
   if (typeof predicate.priority === "number")

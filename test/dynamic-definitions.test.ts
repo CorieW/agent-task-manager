@@ -11,6 +11,7 @@ import {
   parseTaskQueryContract,
   resolveDefinition,
   routeOutcome,
+  taskSummaryMatchesPredicate,
   taskQueryForDefinition,
   type ProviderEnvironment,
   type JsonObject,
@@ -212,6 +213,46 @@ test("builds bounded candidate sets, least-privilege grants, and data-defined ro
       validStatuses: ["Testing"],
     }),
     "Security Review",
+  );
+});
+
+test("accepts bounded multi-status Task queries", () => {
+  /** Defines a Task query spanning only human-authorized workflow stages. */
+  const query = parseTaskQueryContract(
+    JSON.stringify({
+      dependencySatisfiedStatuses: ["Completed"],
+      limit: 25,
+      predicate: { status: ["Ready", "Planned"] },
+      schema: "task-query-v1",
+    }),
+  );
+  /** Defines a representative Ready Task candidate. */
+  const readyTask = {
+    archived: false,
+    id: "ready-task",
+    priority: 1,
+    status: "Ready",
+    title: "Ready Task",
+    version: "1",
+  };
+
+  assert.equal(taskSummaryMatchesPredicate(readyTask, query.predicate), true);
+  assert.equal(
+    taskSummaryMatchesPredicate(
+      { ...readyTask, id: "backlog-task", status: "Backlog" },
+      query.predicate,
+    ),
+    false,
+  );
+  assert.throws(
+    () =>
+      parseTaskQueryContract(
+        JSON.stringify({
+          ...query,
+          predicate: { status: [] },
+        }),
+      ),
+    /at least one value/,
   );
 });
 

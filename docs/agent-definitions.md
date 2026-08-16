@@ -114,6 +114,11 @@ A referenced query has kind `task-query` and a closed `task-query-v1` body:
 }
 ```
 
+Predicate fields use exact scalar equality. `status` additionally accepts a
+non-empty list of up to 20 unique status names, which matches a Task whose
+status is any listed value. This lets a coordinator cover several authorized
+workflow stages without making unapproved stages eligible.
+
 Selection and output Resources have kind `json-schema` and recursively closed
 object schemas. Prompt, input, query, schedule, and schema dependencies resolve
 transitively and are digest-bound.

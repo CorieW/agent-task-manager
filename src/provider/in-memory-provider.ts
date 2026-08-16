@@ -7,6 +7,7 @@ import { finalizeMigrationPlan } from "../core/migration-plan.js";
 import { pageAfter } from "../core/pagination.js";
 import { compareWorkspaceSchema } from "../core/schema-diff.js";
 import { taskPropertiesWithStatus } from "../core/task-properties.js";
+import { taskSummaryMatchesPredicate } from "../core/task-query-contract.js";
 import { toJsonValue } from "../domain/json.js";
 import type {
   ActivityMutation,
@@ -721,11 +722,7 @@ export class InMemoryProvider implements AgentTaskProvider {
     /** Holds the `matching` intermediate used by `listTaskSummaries`. */
     const matching = [...this.#tasks.values()]
       .map((task) => this.taskSummary(task))
-      .filter((task) =>
-        Object.entries(query.predicate).every(([key, expected]) =>
-          Object.is(task[key as keyof TaskSummary], expected),
-        ),
-      );
+      .filter((task) => taskSummaryMatchesPredicate(task, query.predicate));
     return pageAfter(matching, query, (task) => task.id).map((task) =>
       clone(task),
     );

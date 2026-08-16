@@ -20,9 +20,13 @@ const TABLES = {
 
 /** Implements records transport. */
 class RecordsTransport implements NotionTransport {
+  /** Most recent Tasks query observed by the transport fixture. */
+  public lastTaskQuery: NotionRequest | null = null;
+
   /** Executes one provider request. */
   public async request(request: NotionRequest): Promise<JsonObject> {
     if (request.path === "/v1/data_sources/tasks/query") {
+      this.lastTaskQuery = request;
       return { has_more: false, next_cursor: null, results: [taskPage()] };
     }
     if (request.path === "/v1/data_sources/agents/query") {
@@ -86,6 +90,29 @@ test("decodes task summaries and exhausts relation property pagination", async (
     reader.getTaskSnapshot("outside-task"),
     /configured table/,
   );
+});
+
+test("translates a multi-status Task query into a bounded Notion filter", async () => {
+  /** Captures the exact Notion request produced by the reader. */
+  const transport = new RecordsTransport();
+  /** Reads Task summaries through the capturing transport. */
+  const reader = new NotionRecordReader(TABLES, transport);
+
+  const summaries = await reader.listTaskSummaries({
+    cursor: null,
+    limit: 10,
+    predicate: { status: ["Todo", "Ready"] },
+  });
+
+  assert.equal(summaries.length, 1);
+  /** Contains the JSON request body sent to Notion. */
+  const requestBody = transport.lastTaskQuery?.body as JsonObject | undefined;
+  assert.deepEqual(requestBody?.filter, {
+    or: [
+      { property: "Status", select: { equals: "Todo" } },
+      { property: "Status", select: { equals: "Ready" } },
+    ],
+  });
 });
 
 test("loads strict Agent definitions from their managed range", async () => {

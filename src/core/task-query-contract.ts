@@ -21,6 +21,9 @@ const TASK_QUERY_FIELDS = new Set([
   "version",
 ]);
 
+/** Maximum number of workflow statuses accepted by one Task query. */
+const MAX_STATUS_PREDICATE_VALUES = 20;
+
 /** Canonical fields for task query contract. */
 export interface TaskQueryContract {
   /** Dependency satisfied statuses included in task query contract. */
@@ -72,6 +75,18 @@ export function parseTaskQueryContract(body: string): TaskQueryContract {
   for (const [key, expected] of Object.entries(predicate)) {
     if (!TASK_QUERY_FIELDS.has(key))
       throw new TypeError(`Task query predicate field is unsupported: ${key}`);
+    if (key === "status" && Array.isArray(expected)) {
+      stringArray(expected, "Task query predicate status");
+      if (expected.length === 0)
+        throw new TypeError(
+          "Task query predicate status must contain at least one value",
+        );
+      if (expected.length > MAX_STATUS_PREDICATE_VALUES)
+        throw new TypeError(
+          `Task query predicate status cannot exceed ${MAX_STATUS_PREDICATE_VALUES} values`,
+        );
+      continue;
+    }
     if (
       expected !== null &&
       typeof expected !== "boolean" &&
@@ -87,6 +102,29 @@ export function parseTaskQueryContract(body: string): TaskQueryContract {
     predicate,
     schema: value.schema,
   };
+}
+
+/** Reports whether a Task summary satisfies a validated Task-query predicate. */
+export function taskSummaryMatchesPredicate(
+  summary: TaskSummary,
+  predicate: JsonObject,
+): boolean {
+  return Object.entries(predicate).every(([key, expected]) => {
+    const actual = summary[key as keyof TaskSummary];
+    if (!Array.isArray(expected)) return Object.is(actual, expected);
+    if (
+      key !== "status" ||
+      expected.length === 0 ||
+      expected.length > MAX_STATUS_PREDICATE_VALUES ||
+      expected.some(
+        (candidate) => typeof candidate !== "string" || candidate === "",
+      ) ||
+      new Set(expected).size !== expected.length
+    ) {
+      throw new TypeError(`Unsupported task predicate: ${key}`);
+    }
+    return expected.some((candidate) => Object.is(actual, candidate));
+  });
 }
 
 /** Constrains a Task query to the definition's candidate-summary budget. */

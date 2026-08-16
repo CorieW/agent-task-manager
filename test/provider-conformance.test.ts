@@ -133,6 +133,16 @@ for (const providerCase of providerCases) {
         summaries.map((summary) => summary.id),
         ["c"],
       );
+      /** Defines summaries selected from either authorized status. */
+      const multiStatusSummaries = await provider.listTaskSummaries({
+        cursor: null,
+        limit: 10,
+        predicate: { status: ["open", "closed"] },
+      });
+      assert.deepEqual(
+        multiStatusSummaries.map((summary) => summary.id),
+        ["a", "b", "c"],
+      );
       assert.deepEqual(Object.keys(summaries[0] ?? {}).sort(), [
         "archived",
         "id",
