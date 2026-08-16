@@ -34,6 +34,11 @@ import {
   collectNotionPages,
   type NotionTransport,
 } from "./notion-transport.js";
+import {
+  ERROR_SEVERITY_OPTIONS,
+  RESOURCE_KIND_OPTIONS,
+  RESOURCE_STATE_OPTIONS,
+} from "./notion-option-codec.js";
 
 /** Defines the module-level `TABLE_ORDER` value. */
 const TABLE_ORDER: readonly TableKind[] = [
@@ -994,31 +999,11 @@ function simulateWorkspaceStep(
 /** Builds options. */
 function selectOptions(table: TableKind, property: string): readonly string[] {
   if (table === "resources" && property === "State")
-    return ["active", "draft", "retired"];
+    return RESOURCE_STATE_OPTIONS;
   if (table === "resources" && property === "Kind")
-    return [
-      "prompt",
-      "policy",
-      "task-query",
-      "json-schema",
-      "invocation-schedule",
-      "system/bootstrap",
-      "system/schema",
-      "system/workspace-step",
-      "system/environment-patch",
-      "system/bootstrap-session",
-      "system/human-interaction-slot",
-      "system/human-consumption",
-      "system/external-effect-intent",
-      "system/child-agent-node-intent",
-      "system/workspace-ownership",
-      "system/lease",
-      "system/intent",
-      "system/assignment-intent",
-      "system/assignment-budget",
-    ];
+    return RESOURCE_KIND_OPTIONS;
   if (table === "errors" && property === "Severity")
-    return ["critical", "high", "medium", "low"];
+    return ERROR_SEVERITY_OPTIONS;
   if (table === "errors" && property === "Status")
     return ["Not Fixed", "Fixing", "Fixed"];
   if (table === "agents" && property === "Status") return ["Online", "Offline"];

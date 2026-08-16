@@ -17,6 +17,14 @@ fails closed.
 | Errors    | `Error` title; `Error Key` rich text; `Severity` and `Status` selects; `Task` and `Agent` relations; optional `Run ID`                                   |
 | Resources | `Resource` title; `Kind` and `State` selects; `Version`, `Digest`, and `Dependencies` rich text                                                          |
 
+Notion presents provider-owned select values as human-readable labels. Resource
+`Kind` uses labels such as `Policy`, `Prompt`, `Task Query`, and `JSON Schema`;
+system records use `System / ...` labels. Resource `State` uses `Active`,
+`Draft`, and `Retired`, while Error `Severity` uses `Critical`, `High`,
+`Medium`, and `Low`. The adapter maps these labels to stable lowercase
+provider-neutral values internally. Option labels are exact and must not be
+renamed independently in Notion.
+
 Project-specific columns are additive and remain provider data rather than core
 role logic. The Perfect Project v4 workspace additionally uses Task governance
 fields (`Type`, `Scope`, `Acceptance Criteria`, `GitHub Links`, `Owner`,

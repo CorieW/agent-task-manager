@@ -25,6 +25,12 @@ import {
   resourcePageMarkdown,
 } from "./notion-resource-markdown.js";
 import {
+  encodeErrorSeverityOption,
+  encodeResourceKindOption,
+  encodeResourceStateOption,
+  encodeSelectFilter,
+} from "./notion-option-codec.js";
+import {
   collectNotionPages,
   type NotionTransport,
 } from "./notion-transport.js";
@@ -116,7 +122,7 @@ export class NotionPageStore {
     /** Holds the `pages` intermediate used by `listBySelect`. */
     const pages = await this.filteredPages(table, {
       property,
-      select: { equals: value },
+      select: { equals: encodeSelectFilter(table, property, value) },
     });
     return pages.map((page) => located(page));
   }
@@ -225,7 +231,8 @@ export class NotionPageStore {
     const exact =
       propertyText(current.page, "Error") === error.title &&
       propertyText(current.page, "Error Key") === error.errorKey &&
-      propertyOption(current.page, "Severity") === error.severity &&
+      propertyOption(current.page, "Severity") ===
+        encodeErrorSeverityOption(error.severity) &&
       propertyOption(current.page, "Status") === error.status &&
       propertyText(current.page, "Run ID") === (error.relatedRunId ?? "") &&
       sameSet(
@@ -746,9 +753,9 @@ function resourceProperties(record: ResourceMutation): JsonObject {
   return {
     Dependencies: richTextProperty(JSON.stringify(record.dependencies)),
     Digest: richTextProperty(record.digest),
-    Kind: selectProperty(record.kind),
+    Kind: selectProperty(encodeResourceKindOption(record.kind)),
     Resource: titleProperty(record.key),
-    State: selectProperty(record.state),
+    State: selectProperty(encodeResourceStateOption(record.state)),
     Version: richTextProperty(record.version),
   };
 }
@@ -759,7 +766,7 @@ function errorProperties(error: ErrorMutation): JsonObject {
     Error: titleProperty(error.title),
     "Error Key": richTextProperty(error.errorKey),
     "Run ID": richTextProperty(error.relatedRunId ?? ""),
-    Severity: selectProperty(error.severity),
+    Severity: selectProperty(encodeErrorSeverityOption(error.severity)),
     Status: selectProperty(error.status),
     Agent: relationProperty(
       error.relatedAgentId === null ? [] : [error.relatedAgentId],

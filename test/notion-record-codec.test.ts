@@ -180,13 +180,13 @@ function resourcePage(): JsonObject {
         rich_text: [{ plain_text: sha256("resource text\nSecond paragraph") }],
         type: "rich_text",
       },
-      Kind: { id: "kind", select: { name: "policy" }, type: "select" },
+      Kind: { id: "kind", select: { name: "Policy" }, type: "select" },
       Resource: {
         id: "title",
         title: [{ plain_text: "prompt/coordinator" }],
         type: "title",
       },
-      State: { id: "state", select: { name: "active" }, type: "select" },
+      State: { id: "state", select: { name: "Active" }, type: "select" },
       Version: {
         id: "version",
         rich_text: [{ plain_text: "v1" }],

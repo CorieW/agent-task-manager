@@ -314,7 +314,7 @@ test("repairs a pending Notion Resource intent from its exact target state", asy
     digest: sha256(body),
     idempotencyKey: "resource-interrupted",
     key: "test/recovered",
-    kind: "test",
+    kind: "json-schema",
     state: "active",
     version: "v1",
   };
@@ -366,7 +366,7 @@ test("does not repair an old pending Resource intent over newer state", async ()
     digest: sha256(oldBody),
     idempotencyKey: "resource-old",
     key: "test/conflict",
-    kind: "test",
+    kind: "json-schema",
     state: "active",
     version: "v1",
   };

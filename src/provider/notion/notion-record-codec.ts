@@ -25,6 +25,10 @@ import {
   isMarkdownResourceKind,
   resourceBodyFromMarkdownResponse,
 } from "./notion-resource-markdown.js";
+import {
+  decodeResourceKindOption,
+  decodeResourceStateOption,
+} from "./notion-option-codec.js";
 
 /** Defines Notion table IDs. */
 export interface NotionTableIds {
@@ -331,7 +335,7 @@ export class NotionRecordReader {
     /** Reads the expected digest before selecting legacy Markdown compatibility. */
     const digest = propertyText(page, "Digest");
     /** Identifies the Resource representation selected by the provider row. */
-    const kind = propertyOption(page, "Kind");
+    const kind = decodeResourceKindOption(propertyOption(page, "Kind"));
     /** Holds the `body` intermediate used by `resourceRecord`. */
     const body = isMarkdownResourceKind(kind)
       ? await this.managedResourceMarkdown(id, digest)
@@ -350,7 +354,7 @@ export class NotionRecordReader {
       digest,
       key: propertyText(page, "Resource"),
       kind,
-      state: parseResourceState(propertyOption(page, "State")),
+      state: decodeResourceStateOption(propertyOption(page, "State")),
       version: propertyText(page, "Version"),
     };
     if (record.digest !== sha256(body)) {
@@ -729,13 +733,6 @@ function parseResourceRefs(value: JsonValue): readonly ResourceRef[] {
           : requiredString(object.version, `Dependency ${index}.version`),
     };
   });
-}
-
-/** Parses and validates resource state. */
-function parseResourceState(value: string): ResourceRecord["state"] {
-  if (value !== "active" && value !== "draft" && value !== "retired")
-    throw new TypeError(`Invalid Resource state: ${value}`);
-  return value;
 }
 
 /** Rejects values that violate the exact keys contract. */

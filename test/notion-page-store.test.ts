@@ -297,6 +297,9 @@ test("creates one managed Resource row and verifies its content", async () => {
     "## Resource body\n### Policy\n- First rule",
   );
   assert.equal(transport.pages.size, 1);
+  const page = required(transport.pages.get(receipt.providerRecord.id));
+  assert.equal(propertyValue(page, "Kind"), "Policy");
+  assert.equal(propertyValue(page, "State"), "Active");
 });
 
 test("migrates a legacy prompt snippet when the Resource is updated", async () => {
@@ -310,7 +313,7 @@ test("migrates a legacy prompt snippet when the Resource is updated", async () =
     digest: sha256("legacy prompt"),
     idempotencyKey: "write-legacy",
     key: "prompt/example",
-    kind: "schema",
+    kind: "json-schema",
     state: "active",
     version: "v1",
   });
@@ -412,6 +415,13 @@ test("recognizes the exact Error target after an interrupted intent", async () =
       "Status",
     ),
     "Not Fixed",
+  );
+  assert.equal(
+    propertyValue(
+      required(transport.pages.get(created.providerRecord.id)),
+      "Severity",
+    ),
+    "High",
   );
   await assert.rejects(
     store.errorTargetReceipt({ ...error, description: "Different details" }),
