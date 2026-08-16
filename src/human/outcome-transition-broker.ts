@@ -44,10 +44,6 @@ interface OutcomeTransitionBase {
     AgentDefinition,
     "humanResolutionOutcomes" | "transitions"
   >;
-  /** Optional first-application status precondition; omission skips only this stale-basis check. */
-  readonly expectedTaskStatus?: string;
-  /** Optional first-application version precondition; omission skips only this stale-basis check. */
-  readonly expectedTaskVersion?: string;
   /** Agent result outcome to resolve through the definition routes. */
   readonly outcome: string;
   /** Task whose status or recovery state will advance. */
@@ -158,20 +154,12 @@ export class OutcomeTransitionBroker {
     const taskSnapshot = await this.provider.getTaskSnapshot(input.taskId);
     if (taskSnapshot.archived)
       throw new Error("Cannot route an outcome for an archived Task");
-    if (
-      input.kind === "task_transition" &&
-      ((input.expectedTaskVersion !== undefined &&
-        taskSnapshot.version !== input.expectedTaskVersion) ||
-        (input.expectedTaskStatus !== undefined &&
-          taskSnapshot.status !== input.expectedTaskStatus))
-    )
-      throw new Error("Task changed after the Agent result was authorized");
 
     /** Provider-defined statuses accepted by the outcome route. */
     const validStatuses = await this.provider.listTaskStatusOptions();
     /** Status selected from the definition and source Task snapshot. */
     const targetStatus = routeOutcome({
-      currentStatus: input.expectedTaskStatus ?? taskSnapshot.status,
+      currentStatus: taskSnapshot.status,
       definition: input.definition,
       outcome: input.outcome,
       validStatuses,
@@ -190,12 +178,6 @@ export class OutcomeTransitionBroker {
         createdAt: input.resolution.createdAt,
         error: input.resolution.error,
         generation: input.resolution.generation,
-        ...(input.expectedTaskStatus === undefined
-          ? {}
-          : { expectedTaskStatus: input.expectedTaskStatus }),
-        ...(input.expectedTaskVersion === undefined
-          ? {}
-          : { expectedTaskVersion: input.expectedTaskVersion }),
         prompt: input.resolution.prompt,
         requestedBy: input.resolution.requestedBy,
         resumeStatus: input.resolution.resumeStatus,

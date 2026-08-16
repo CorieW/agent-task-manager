@@ -651,31 +651,6 @@ test("CLI help lists only implemented commands", () => {
   assert.doesNotMatch(result.stdout, /start|dispatch|tasks eligible/);
 });
 
-test("CLI rejects malformed run arguments before configuration access", () => {
-  /** Resolves the built CLI entry point invoked by the test. */
-  const cli = fileURLToPath(new URL("../src/cli.js", import.meta.url));
-  /** Omits --agent while naming a configuration file that must not be read. */
-  const result = spawnSync(
-    process.execPath,
-    [
-      cli,
-      "run",
-      "--task",
-      "task-1",
-      "--operation-key",
-      "run-1",
-      "--host",
-      "host.mjs",
-      "--config",
-      "missing-environment.json",
-    ],
-    { encoding: "utf8" },
-  );
-  assert.equal(result.status, 1);
-  assert.match(result.stderr, /--agent requires a value/u);
-  assert.doesNotMatch(result.stderr, /ENOENT|missing-environment/u);
-});
-
 test("serialized provider emulator rejects lossy non-JSON values", async () => {
   /** Provides isolated provider state for the scenario. */
   const provider = new SerializedProviderEmulator(

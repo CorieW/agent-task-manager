@@ -340,7 +340,6 @@ export async function verifyLiveAssignment(input: {
   /** Result of `activateDefinitions`, retained for the verify live assignment operation. */
   const fresh = await activateDefinitions({
     ...input.activationRuntime,
-    definitionIds: [definitionId],
     provider: input.provider,
   });
   /** Result of `fresh.filter`, retained for the verify live assignment operation. */

@@ -37,10 +37,6 @@ export interface HumanRequestInput extends NewHumanInteractionSlot {
     ErrorMutation,
     "idempotencyKey" | "relatedTaskId"
   > | null;
-  /** Optional first-install status precondition; omission skips only this stale-basis check. */
-  readonly expectedTaskStatus?: string;
-  /** Optional first-install version precondition; omission skips only this stale-basis check. */
-  readonly expectedTaskVersion?: string;
   /** Names the Task status that owns the unanswered slot. */
   readonly waitingStatus: string;
 }
@@ -83,14 +79,6 @@ export class HumanRecoveryManager {
     const existingSlot = parseHumanInteractionSlots(task.body).find(
       (candidate) => candidate.slotId === slot.slotId,
     );
-    if (
-      existingSlot === undefined &&
-      ((input.expectedTaskVersion !== undefined &&
-        task.version !== input.expectedTaskVersion) ||
-        (input.expectedTaskStatus !== undefined &&
-          task.status !== input.expectedTaskStatus))
-    )
-      throw new Error("Task changed before the human request was installed");
     if (existingSlot !== undefined) {
       if (
         existingSlot.response === null &&

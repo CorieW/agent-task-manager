@@ -25,15 +25,12 @@ helpers, and trial contracts.
 
 ## Runtime
 
-- `runExplicitAgentTask`, `loadAgentExecutionHost`, and
-  `materializeAgentContexts`
 - `RuntimeAdapterRegistry` and adapter/session/process interfaces
 - `resolveRuntimeEnvironment` and `compileToolIsolationPolicy`
 - context, result, receipt, and schema helpers
 - `superviseProcess` and `dispatchActivatedAgent`
 - `NoToolModelTransportAdapter`, `NoToolIsolationAdapter`, and
   `NoToolAgentRunnerAdapter`
-- `HttpNoToolModelClient` for a direct trusted HTTPS model gateway
 
 ## External effects
 
