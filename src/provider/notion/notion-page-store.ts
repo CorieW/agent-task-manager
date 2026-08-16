@@ -10,6 +10,7 @@ import type {
   ActivityMutation,
   ConditionalTaskMutation,
   ErrorMutation,
+  OperationMutation,
   ResourceMutation,
 } from "../../domain/records.js";
 import type { TableKind, WriteReceipt } from "../../domain/provider.js";
@@ -54,6 +55,8 @@ export interface NotionMutableTableIds {
   readonly errors: string;
   /** Resources table data-source identifier. */
   readonly resources: string;
+  /** Operations table data-source identifier. */
+  readonly operations?: string;
   /** Agents table data-source identifier. */
   readonly agents: string;
   /** Tasks table data-source identifier. */
@@ -160,6 +163,37 @@ export class NotionPageStore {
           record.body,
         );
     return this.receipt("resources", created, record.idempotencyKey);
+  }
+
+  /** Creates or updates one manager-owned operational record. */
+  public async createOperation(
+    record: OperationMutation,
+  ): Promise<WriteReceipt> {
+    assertOperationBodyDigest(record);
+    const existing = await this.findUniqueByTitle(
+      "operations",
+      "Operation",
+      record.key,
+    );
+    if (existing !== null) {
+      await this.transport.request({
+        body: { properties: operationProperties(record) },
+        method: "PATCH",
+        path: `/v1/pages/${existing.id}`,
+      });
+      await this.replaceManagedText(existing.id, "Operation body", record.body);
+      const verified = await this.getPage(existing.id);
+      verifyPropertyText(verified.page, "Operation", record.key);
+      verifyPropertyText(verified.page, "Digest", record.digest);
+      return this.receipt("operations", verified, record.idempotencyKey);
+    }
+    const created = await this.createManagedPage(
+      "operations",
+      operationProperties(record),
+      "Operation body",
+      record.body,
+    );
+    return this.receipt("operations", created, record.idempotencyKey);
   }
 
   /** Replaces Resource metadata and its complete manager-owned body. */
@@ -633,7 +667,12 @@ export class NotionPageStore {
     const response = await this.transport.request({
       body: {
         children,
-        parent: { data_source_id: this.tables[table] },
+        parent: {
+          data_source_id: requiredString(
+            this.tables[table],
+            `${table} data source id`,
+          ),
+        },
         properties,
       },
       method: "POST",
@@ -787,7 +826,7 @@ export class NotionPageStore {
           ...(cursor === null ? {} : { start_cursor: cursor }),
         },
         method: "POST",
-        path: `/v1/data_sources/${this.tables[table]}/query`,
+        path: `/v1/data_sources/${requiredString(this.tables[table], `${table} data source id`)}/query`,
       }),
     );
   }
@@ -828,6 +867,31 @@ function resourceProperties(record: ResourceMutation): JsonObject {
     State: selectProperty(encodeResourceStateOption(record.state)),
     Version: richTextProperty(record.version),
   };
+}
+
+/** Encodes an operational mutation as Notion page properties. */
+function operationProperties(record: OperationMutation): JsonObject {
+  return {
+    Dependencies: richTextProperty(JSON.stringify(record.dependencies)),
+    Digest: richTextProperty(record.digest),
+    Kind: richTextProperty(record.kind),
+    Operation: titleProperty(record.key),
+    State: selectProperty(encodeResourceStateOption(record.state)),
+    Version: richTextProperty(record.version),
+  };
+}
+
+/** Rejects operational state whose digest does not bind its canonical body. */
+function assertOperationBodyDigest(record: OperationMutation): void {
+  const canonicalBody = normalizeText(record.body);
+  if (
+    canonicalBody !== record.body ||
+    sha256(canonicalBody) !== record.digest
+  ) {
+    throw new TypeError(
+      `Operation ${record.key} body and Digest must be canonical`,
+    );
+  }
 }
 
 /** Rejects a Resource whose digest does not bind its canonical stored body. */

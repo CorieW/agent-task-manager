@@ -1,14 +1,14 @@
-/** Complete external-effect intents and receipts in provider Resources. */
+/** Completes external-effect intents and receipts in provider Operations. */
 import { canonicalize } from "../core/canonical-json.js";
 import { randomUUID } from "node:crypto";
 import { sha256 } from "../core/digest.js";
 import { toJsonValue } from "../domain/json.js";
-import type { ResourceRecord } from "../domain/records.js";
+import type { OperationRecord } from "../domain/records.js";
 import type { AgentTaskProvider } from "../provider/agent-task-provider.js";
 import type { ExternalEffectIntentRecord } from "./contracts.js";
 
-/** Effect resource version snapshot used consistently during the the current operation operation. */
-const EFFECT_RESOURCE_VERSION = "v2";
+/** Version of the durable external-effect journal representation. */
+const EFFECT_OPERATION_VERSION = "v2";
 
 /** Implements provider effect journal and its boundary checks. */
 export class ProviderEffectJournal {
@@ -21,13 +21,13 @@ export class ProviderEffectJournal {
   public async read(
     effectId: string,
   ): Promise<ExternalEffectIntentRecord | null> {
-    /** Result of `this.provider.getOptionalResource`, retained for the read operation. */
-    const resource = await this.provider.getOptionalResource(
-      effectResourceKey(effectId),
+    /** Durable operation associated with the effect identity. */
+    const operation = await this.provider.getOptionalOperation(
+      effectOperationKey(effectId),
     );
-    if (resource === null) return null;
-    validateResource(resource, effectId);
-    return parseIntent(resource.body);
+    if (operation === null) return null;
+    validateOperation(operation, effectId);
+    return parseIntent(operation.body);
   }
 
   /** Persists and verifies the durable provider effect journal record. */
@@ -35,15 +35,15 @@ export class ProviderEffectJournal {
     validateIntent(record);
     /** Result of `canonicalize`, retained for the write operation. */
     const body = canonicalize(toJsonValue(record));
-    await this.provider.putSystemResource({
+    await this.provider.putOperation({
       body,
       dependencies: [],
       digest: sha256(body),
       idempotencyKey: `external-effect:${record.effectId}:${sha256(body)}`,
-      key: effectResourceKey(record.effectId),
-      kind: "system/external-effect-intent",
+      key: effectOperationKey(record.effectId),
+      kind: "effect/intent",
       state: "active",
-      version: EFFECT_RESOURCE_VERSION,
+      version: EFFECT_OPERATION_VERSION,
     });
     /** Reads the persisted record back to verify the provider write. */
     const verified = await this.read(record.effectId);
@@ -67,8 +67,8 @@ export class ProviderEffectJournal {
       idempotencyKey: `external-effect-claim:${effectId}:${ownerId}`,
       ownerId,
       scope: "task_assignment",
-      agentId: "system/external-effect-broker",
-      taskId: `system/external-effect/${effectId}`,
+      agentId: "manager/external-effect-broker",
+      taskId: `manager/external-effect/${effectId}`,
     });
     if (!acquired.acquired || acquired.leaseId === null)
       throw new Error(`External effect is already claimed: ${effectId}`);
@@ -91,20 +91,20 @@ export class ProviderEffectJournal {
 }
 
 /** Builds the deterministic provider key for this durable record. */
-export function effectResourceKey(effectId: string): string {
-  return `external-effect-intent/${effectId}`;
+export function effectOperationKey(effectId: string): string {
+  return `effect/intent/${effectId}`;
 }
 
-/** Rejects invalid resource before it crosses the boundary. */
-function validateResource(resource: ResourceRecord, effectId: string): void {
+/** Rejects invalid operational state before it crosses the boundary. */
+function validateOperation(operation: OperationRecord, effectId: string): void {
   if (
-    resource.key !== effectResourceKey(effectId) ||
-    resource.kind !== "system/external-effect-intent" ||
-    resource.state !== "active" ||
-    resource.version !== EFFECT_RESOURCE_VERSION ||
-    resource.digest !== sha256(resource.body)
+    operation.key !== effectOperationKey(effectId) ||
+    operation.kind !== "effect/intent" ||
+    operation.state !== "active" ||
+    operation.version !== EFFECT_OPERATION_VERSION ||
+    operation.digest !== sha256(operation.body)
   ) {
-    throw new Error(`External-effect Resource is invalid: ${effectId}`);
+    throw new Error(`External-effect Operation is invalid: ${effectId}`);
   }
 }
 

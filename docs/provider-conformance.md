@@ -17,7 +17,8 @@ under the same idempotency key fails before another mutation.
 Leases are exclusive, expiry-aware, replayable, and released only against the
 exact inspected version. Activity projection is conditionally replaced from
 live leases. Resource reads enforce exact pins; Error entity identity remains
-separate from mutation identity; and workspace migration receipts form a
+separate from mutation identity; operational records remain isolated from
+content Resources; and workspace migration receipts form a
 digest- and dependency-verified chain. Reconciliation reports durable observed
 evidence without guessing or replaying an indeterminate write.
 

@@ -19,6 +19,7 @@ import { SingleHostMutex } from "../src/provider/notion/single-host-mutex.js";
 /** Maps logical tables to stable fake provider identifiers. */
 const TABLES = {
   errors: "errors",
+  operations: "operations",
   resources: "resources",
   agents: "agents",
   tasks: "tasks",
@@ -27,6 +28,7 @@ const TABLES = {
 /** Maps logical tables to stable fake Notion identifiers. */
 const NOTION_TABLES = {
   errors: "11111111-1111-1111-1111-111111111111",
+  operations: "55555555-5555-5555-5555-555555555555",
   resources: "22222222-2222-2222-2222-222222222222",
   agents: "33333333-3333-3333-3333-333333333333",
   tasks: "44444444-4444-4444-4444-444444444444",
@@ -165,7 +167,7 @@ test("rejects an invalid Resource before persisting its intent", async () => {
   );
 });
 
-test("reserves system Resources for manager-owned writes", async () => {
+test("separates manager-owned Operations from content Resources", async () => {
   /** Simulated Notion transport that records Resource pages. */
   const transport = new ResourceTransport();
   /** Provider exposing separate caller and manager Resource boundaries. */
@@ -176,29 +178,33 @@ test("reserves system Resources for manager-owned writes", async () => {
   });
   /** Manager-owned assignment progress persisted through the reserved path. */
   const body = '{"schema":"assignment-intent-v1"}';
-  /** Canonical system Resource mutation used by both boundary assertions. */
+  /** Legacy system-shaped Resource used to verify the content boundary. */
   const record: ResourceMutation = {
     body,
     dependencies: [],
     digest: sha256(body),
     idempotencyKey: "system-resource-write",
-    key: "system/assignment-test",
-    kind: "system/assignment-intent",
+    key: "assignment/test",
+    kind: "assignment/intent",
     state: "active",
     version: "v1",
   };
 
   await assert.rejects(
     provider.putResource(record),
-    /reserved by Agent Task Manager/u,
+    /Resource kind is invalid/u,
   );
-  await provider.putSystemResource(record);
-  assert.deepEqual(await provider.getOptionalResource(record.key), {
+  await provider.putOperation({
+    ...record,
+    key: "assignment/test",
+    kind: "assignment/intent",
+  });
+  assert.deepEqual(await provider.getOptionalOperation("assignment/test"), {
     body,
     dependencies: [],
     digest: record.digest,
-    key: record.key,
-    kind: record.kind,
+    key: "assignment/test",
+    kind: "assignment/intent",
     state: record.state,
     version: record.version,
   });

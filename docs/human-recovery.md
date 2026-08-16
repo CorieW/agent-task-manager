@@ -14,9 +14,10 @@ action-to-status routes; no role name or workflow status is hardcoded.
 
 Each slot is a closed `human-interaction-slot-v1` JSON object inside exact
 `agent-task-manager:human-slot:<sha256>` markers in the Task body. Before a
-blank response is exposed, the manager stores the complete immutable baseline
-as `human-slot/<slotId>` in Resources. Only `response.action` and
-`response.text` may differ from that baseline.
+blank response is exposed, the Task stores the visible request and response.
+Operations stores the immutable recovery baseline at
+`human/request/<slotId>`. Only `response.action` and `response.text` may differ
+from that baseline.
 
 ```json
 "response": {
@@ -33,7 +34,7 @@ Consumption:
    provider-neutral property projection against the baseline;
 2. permits changes only in the selected response;
 3. resolves the action through the slot's frozen route map;
-4. stores `human-consumption/<slotId>` as pending;
+4. stores `human/consumption/<slotId>` in Operations as pending;
 5. conditionally changes Task Status; and
 6. finalizes the consumption record.
 

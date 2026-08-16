@@ -612,7 +612,13 @@ function runtimeEnvironment(
     provider: {
       bootstrapParent: null,
       connection: {},
-      tables: { errors: "e", resources: "r", agents: "a", tasks: "t" },
+      tables: {
+        errors: "e",
+        operations: "o",
+        resources: "r",
+        agents: "a",
+        tasks: "t",
+      },
       type: "memory",
     },
     runtime: {

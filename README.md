@@ -5,8 +5,10 @@ such as a ChatGPT Scheduled Task, owns model interaction and child-agent
 creation. The CLI narrows its provider access to selection, leases, immutable
 context, validated completion, and recovery.
 
-Authoritative workflow data is restricted to four provider table types:
-Tasks, Agents, Errors, and Resources. Configuration describes only the
+Authoritative workflow data is restricted to five provider table types:
+Tasks, Agents, Errors, Resources, and Operations. Resources contain prompts,
+policies, schemas, and context; the Operations table contains manager-owned
+execution state. Configuration describes only the
 environment, and local runtime artifacts are disposable. Notion is the first
 concrete provider.
 

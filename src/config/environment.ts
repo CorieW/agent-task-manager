@@ -210,6 +210,7 @@ export function parseEnvironmentConfig(value: JsonValue): EnvironmentConfig {
   const tableObject = isObject(tablesValue) ? tablesValue : {};
   rejectUnknownKeys(tableObject, TABLE_KINDS, "provider.tables", issues);
   for (const kind of TABLE_KINDS) {
+    if (kind === "operations") continue;
     if (!Object.hasOwn(tableObject, kind))
       issues.push(`provider.tables.${kind} is required`);
   }

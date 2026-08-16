@@ -32,6 +32,7 @@
       "tasks": null,
       "agents": null,
       "errors": null,
+      "operations": null,
       "resources": null
     }
   },

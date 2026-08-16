@@ -5,7 +5,7 @@ import { taskPropertiesWithStatus } from "../core/task-properties.js";
 import { toJsonValue, type JsonValue } from "../domain/json.js";
 import type {
   ErrorMutation,
-  ResourceMutation,
+  OperationMutation,
   TaskSnapshot,
 } from "../domain/records.js";
 import type { AgentTaskProvider } from "../provider/agent-task-provider.js";
@@ -15,10 +15,10 @@ import type {
   HumanSlotBaselineRecord,
 } from "./contracts.js";
 import {
-  humanConsumptionResourceKey,
-  humanSlotResourceKey,
-  parseHumanConsumptionResource,
-  parseHumanSlotBaselineResource,
+  humanConsumptionOperationKey,
+  humanRequestOperationKey,
+  parseHumanConsumptionOperation,
+  parseHumanRequestOperation,
   serializeHumanSlotBaseline,
 } from "./resource-codec.js";
 import {
@@ -59,7 +59,7 @@ export interface HumanRequestReceipt {
 export class HumanRecoveryManager {
   /** Creates a recovery manager over the authoritative provider. */
   public constructor(
-    /** Conditional Task writes and durable Resource records. */ private readonly provider: AgentTaskProvider,
+    /** Conditional Task writes and durable operational records. */ private readonly provider: AgentTaskProvider,
   ) {}
 
   /** Installs a human slot and moves its Task to the requested waiting status. */
@@ -198,7 +198,7 @@ export class HumanRecoveryManager {
     /** Derives the only status transition authorized by the response. */
     const authority = verifyAllowedHumanDelta(baseline.slot, edited);
     /** Addresses the durable exactly-once consumption record. */
-    const key = humanConsumptionResourceKey(slotId);
+    const key = humanConsumptionOperationKey(slotId);
     /** Loads a prior consumption attempt for crash-safe replay. */
     let consumption = await this.readConsumption(slotId);
     if (consumption === null) {
@@ -264,30 +264,27 @@ export class HumanRecoveryManager {
   private async writeSlotBaseline(
     record: HumanSlotBaselineRecord,
   ): Promise<void> {
-    /** Serializes the baseline into its canonical Resource body. */
+    /** Serializes the baseline into its canonical Operation body. */
     const body = serializeHumanSlotBaseline(record);
-    /** Derives the stable Resource key from the slot identity. */
-    const key = humanSlotResourceKey(record.slot.slotId);
-    /** Detects retries before creating a new baseline Resource. */
-    const existing = await this.provider.getOptionalResource(key);
+    /** Derives the stable Operation key from the slot identity. */
+    const key = humanRequestOperationKey(record.slot.slotId);
+    /** Detects retries before creating a new baseline Operation. */
+    const existing = await this.provider.getOptionalOperation(key);
     if (existing !== null) {
-      /** Parses the existing Resource before exact replay comparison. */
-      const parsed = parseHumanSlotBaselineResource(
-        existing,
-        record.slot.slotId,
-      );
+      /** Parses the existing Operation before exact replay comparison. */
+      const parsed = parseHumanRequestOperation(existing, record.slot.slotId);
       if (!sameHumanSlotBaseline(parsed, record))
         throw new Error("Human slot baseline is immutable");
       return;
     }
 
-    await this.putAndVerifyResource({
+    await this.putAndVerifyOperation({
       body,
       dependencies: [],
       digest: sha256(body),
       idempotencyKey: `human-slot:${record.slot.slotId}:${sha256(body)}`,
       key,
-      kind: "system/human-interaction-slot",
+      kind: "human/request-baseline",
       state: "active",
       version: "v2",
     });
@@ -298,12 +295,12 @@ export class HumanRecoveryManager {
     slotId: string,
   ): Promise<HumanSlotBaselineRecord> {
     /** Loads the provider record addressed by the slot identity. */
-    const resource = await this.provider.getOptionalResource(
-      humanSlotResourceKey(slotId),
+    const operation = await this.provider.getOptionalOperation(
+      humanRequestOperationKey(slotId),
     );
-    if (resource === null)
-      throw new Error("Human slot baseline Resource is missing");
-    return parseHumanSlotBaselineResource(resource, slotId);
+    if (operation === null)
+      throw new Error("Human request baseline Operation is missing");
+    return parseHumanRequestOperation(operation, slotId);
   }
 
   /** Reads a prior consumption record when one has been reserved. */
@@ -311,12 +308,12 @@ export class HumanRecoveryManager {
     slotId: string,
   ): Promise<HumanConsumptionRecord | null> {
     /** Loads the provider record addressed by the consumption identity. */
-    const resource = await this.provider.getOptionalResource(
-      humanConsumptionResourceKey(slotId),
+    const operation = await this.provider.getOptionalOperation(
+      humanConsumptionOperationKey(slotId),
     );
-    return resource === null
+    return operation === null
       ? null
-      : parseHumanConsumptionResource(resource, slotId);
+      : parseHumanConsumptionOperation(operation, slotId);
   }
 
   /** Persists and verifies a pending or applied consumption record. */
@@ -326,30 +323,32 @@ export class HumanRecoveryManager {
   ): Promise<void> {
     /** Canonicalizes the record for stable hashing and replay. */
     const body = canonicalize(toJsonValue(record));
-    await this.putAndVerifyResource({
+    await this.putAndVerifyOperation({
       body,
       dependencies: [],
       digest: sha256(body),
       idempotencyKey: `${key}:${record.state}:${sha256(body)}`,
       key,
-      kind: "system/human-consumption",
+      kind: "human/consumption",
       state: "active",
       version: "v1",
     });
   }
 
-  /** Writes a Resource and verifies its body and digest by read-back. */
-  private async putAndVerifyResource(record: ResourceMutation): Promise<void> {
-    await this.provider.putSystemResource(record);
+  /** Writes operational state and verifies its body and digest by read-back. */
+  private async putAndVerifyOperation(
+    record: OperationMutation,
+  ): Promise<void> {
+    await this.provider.putOperation(record);
 
-    /** The authoritative post-write Resource for verification. */
-    const verified = await this.provider.getOptionalResource(record.key);
+    /** The authoritative post-write Operation used for verification. */
+    const verified = await this.provider.getOptionalOperation(record.key);
     if (
       verified === null ||
       verified.digest !== record.digest ||
       verified.body !== record.body
     )
-      throw new Error(`Human recovery Resource did not verify: ${record.key}`);
+      throw new Error(`Human recovery operation did not verify: ${record.key}`);
   }
 }
 

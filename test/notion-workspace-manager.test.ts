@@ -31,7 +31,7 @@ class EmptyWorkspaceTransport implements NotionTransport {
   }
 }
 
-test("plans Resources-first bootstrap with deferred relations and no writes", async () => {
+test("plans Operations-first bootstrap with deferred relations and no writes", async () => {
   /** Captures and simulates Notion requests for the scenario. */
   const transport = new EmptyWorkspaceTransport();
   /** Supplies the canonical workspace schema target. */
@@ -57,7 +57,7 @@ test("plans Resources-first bootstrap with deferred relations and no writes", as
     plan.steps
       .filter((step) => step.kind === "create_table")
       .map((step) => step.payload.kind),
-    ["resources", "errors", "tasks", "agents"],
+    ["operations", "resources", "errors", "tasks", "agents"],
   );
   /** Tracks the last page-creation request for assertions. */
   const lastCreate = plan.steps.findLastIndex(

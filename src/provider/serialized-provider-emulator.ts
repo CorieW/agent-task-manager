@@ -11,6 +11,8 @@ import type {
   LeaseSnapshot,
   ResourceMutation,
   ResourceRecord,
+  OperationMutation,
+  OperationRecord,
   ResourceRef,
   AgentActivity,
   AgentDefinition,
@@ -232,12 +234,19 @@ export class SerializedProviderEmulator implements SeedableAgentTaskProvider {
     return crossBoundary(await this.backing.putResource(crossBoundary(record)));
   }
 
-  /** Persists a manager-owned Resource across the serialization boundary. */
-  public async putSystemResource(
-    record: ResourceMutation,
-  ): Promise<WriteReceipt> {
+  /** Returns operational state across the serialization boundary. */
+  public async getOptionalOperation(
+    key: string,
+  ): Promise<OperationRecord | null> {
     return crossBoundary(
-      await this.backing.putSystemResource(crossBoundary(record)),
+      await this.backing.getOptionalOperation(crossBoundary(key)),
+    );
+  }
+
+  /** Persists operational state across the serialization boundary. */
+  public async putOperation(record: OperationMutation): Promise<WriteReceipt> {
+    return crossBoundary(
+      await this.backing.putOperation(crossBoundary(record)),
     );
   }
 

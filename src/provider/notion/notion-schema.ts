@@ -16,6 +16,19 @@ export const NOTION_TASK_MUTATION_CAPTION_PREFIX =
 /** Provider table kinds stored in deterministic order. */
 const TABLES: readonly TableDescriptor[] = [
   {
+    kind: "operations",
+    managedRanges: [],
+    properties: [
+      property("key", "Operation", "title"),
+      property("kind", "Kind", "rich_text"),
+      property("version", "Version", "rich_text"),
+      property("digest", "Digest", "rich_text"),
+      property("state", "State", "select"),
+      property("dependencies", "Dependencies", "rich_text"),
+    ],
+    title: "Operations",
+  },
+  {
     kind: "resources",
     managedRanges: [],
     properties: [
@@ -76,7 +89,7 @@ export function createNotionWorkspaceSchema(): WorkspaceSchemaDescriptor {
   const core = {
     providerType: "notion",
     tables: TABLES,
-    version: "notion-workspace-schema-v2",
+    version: "notion-workspace-schema-v3",
   };
   return { ...core, digest: digestJson(toJsonValue(core)) };
 }

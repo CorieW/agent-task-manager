@@ -25,7 +25,7 @@ const target: WorkspaceSchemaDescriptor = {
   version: "v1",
 };
 
-test("persists and verifies workspace ownership through provider Resources", async () => {
+test("persists and verifies workspace ownership through Operations", async () => {
   /** Provides isolated provider state for the scenario. */
   const provider = new InMemoryProvider(environment, target);
   /** Exercises provider-backed persistence for the scenario. */

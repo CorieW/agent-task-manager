@@ -2,7 +2,13 @@
 import type { JsonObject, JsonValue } from "./json.js";
 
 /** Provider table kinds managed by the application. */
-export const TABLE_KINDS = ["tasks", "agents", "errors", "resources"] as const;
+export const TABLE_KINDS = [
+  "tasks",
+  "agents",
+  "errors",
+  "resources",
+  "operations",
+] as const;
 
 /** Allowed table kind literals. */
 export type TableKind = (typeof TABLE_KINDS)[number];
@@ -44,7 +50,12 @@ export interface ProviderEnvironment {
   /** Provider-specific connection settings. */
   readonly connection: JsonObject;
   /** Tables for provider environment. */
-  readonly tables: Readonly<Record<TableKind, string | null>>;
+  readonly tables: Readonly<
+    Record<Exclude<TableKind, "operations">, string | null> & {
+      /** Operations table; omitted only by legacy bootstrap inputs. */
+      readonly operations?: string | null;
+    }
+  >;
   /** Type for provider environment. */
   readonly type: string;
 }

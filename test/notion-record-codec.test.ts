@@ -13,6 +13,7 @@ import type {
 /** Maps logical tables to stable fake provider identifiers. */
 const TABLES = {
   errors: "errors",
+  operations: "operations",
   resources: "resources",
   agents: "agents",
   tasks: "tasks",

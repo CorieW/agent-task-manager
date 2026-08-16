@@ -9,6 +9,7 @@ import {
   type JsonValue,
 } from "../../domain/json.js";
 import type {
+  OperationRecord,
   ResourceRecord,
   ResourceRef,
   AgentDefinition,
@@ -37,6 +38,8 @@ export interface NotionTableIds {
   readonly errors: string;
   /** Resources table data-source identifier. */
   readonly resources: string;
+  /** Operations table data-source identifier. */
+  readonly operations?: string;
   /** Agents table data-source identifier. */
   readonly agents: string;
   /** Tasks table data-source identifier. */
@@ -267,6 +270,23 @@ export class NotionRecordReader {
     return page === undefined ? null : this.resourceRecord(page);
   }
 
+  /** Returns manager-owned operational state by stable key. */
+  public async getOptionalOperation(
+    key: string,
+  ): Promise<OperationRecord | null> {
+    const pages = await this.queryDataSource(
+      requiredString(this.tables.operations, "Operations data source id"),
+      {
+        property: "Operation",
+        title: { equals: key },
+      },
+    );
+    if (pages.length > 1)
+      throw new Error(`Operation ${key} must resolve to at most one row`);
+    const page = pages[0];
+    return page === undefined ? null : this.operationRecord(page);
+  }
+
   /** Queries data source. */
   public async queryDataSource(
     id: string,
@@ -395,6 +415,30 @@ export class NotionRecordReader {
         `Resource ${record.key} body does not match its Digest property`,
       );
     }
+    return record;
+  }
+
+  /** Decodes one manager-owned operational record. */
+  private async operationRecord(page: JsonObject): Promise<OperationRecord> {
+    const id = requiredString(page.id, "Operation page id");
+    const body = await this.managedText(id, "Operation body");
+    const digest = propertyText(page, "Digest");
+    const dependencyValue = propertyText(page, "Dependencies");
+    const parsed: unknown =
+      dependencyValue === "" ? [] : JSON.parse(dependencyValue);
+    const record: OperationRecord = {
+      body,
+      dependencies: parseResourceRefs(toJsonValue(parsed)),
+      digest,
+      key: propertyText(page, "Operation"),
+      kind: propertyText(page, "Kind"),
+      state: decodeResourceStateOption(propertyOption(page, "State")),
+      version: propertyText(page, "Version"),
+    };
+    if (record.digest !== sha256(body))
+      throw new Error(
+        `Operation ${record.key} body does not match its Digest property`,
+      );
     return record;
   }
 

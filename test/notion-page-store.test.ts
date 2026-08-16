@@ -20,6 +20,7 @@ import type {
 /** Maps logical tables to stable fake provider identifiers. */
 const TABLES = {
   errors: "errors",
+  operations: "operations",
   resources: "resources",
   agents: "agents",
   tasks: "tasks",
@@ -339,20 +340,6 @@ test("supports the child-agent context Resource kind", () => {
     "JSON Schema",
     "Invocation Schedule",
     "Agent / Context",
-    "System / Bootstrap",
-    "System / Schema",
-    "System / Workspace Step",
-    "System / Environment Patch",
-    "System / Bootstrap Session",
-    "System / Human Interaction Slot",
-    "System / Human Consumption",
-    "System / External Effect Intent",
-    "System / Child Agent Node Intent",
-    "System / Workspace Ownership",
-    "System / Lease",
-    "System / Intent",
-    "System / Assignment Intent",
-    "System / Assignment Budget",
   ]);
   assert.deepEqual(RESOURCE_STATE_OPTIONS, ["Active", "Draft", "Retired"]);
   assert.deepEqual(ERROR_SEVERITY_OPTIONS, [

@@ -67,11 +67,11 @@ test("creates a stable Error and resolution slot before Needs Human Resolution",
   assert.equal(slots[0]?.sourceErrorKey, "publication/missing");
   assert.equal(
     (
-      await provider.getOptionalResource(
-        `system/human-slot/${receipt.slot.slotId}`,
+      await provider.getOptionalOperation(
+        `human/request/${receipt.slot.slotId}`,
       )
     )?.kind,
-    "system/human-interaction-slot",
+    "human/request-baseline",
   );
   /** Captures the human-interaction state used as the oracle. */
   const inspection = await inspectHumanRecovery(provider, "task-1");

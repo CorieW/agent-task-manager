@@ -106,7 +106,7 @@ const providerCases = [
       new SerializedProviderEmulator(
         new InMemoryProvider(environment, target, snapshot, now),
       ),
-    name: "serialized four-table emulator",
+    name: "serialized provider emulator",
   },
 ] as const;
 
@@ -556,6 +556,29 @@ for (const providerCase of providerCases) {
         ]),
         /version mismatch/,
       );
+    });
+
+    test("keeps operational records outside content Resources", async () => {
+      /** Provides isolated provider state for the scenario. */
+      const provider = createProvider(environment, target);
+      /** Manager-owned record persisted through the operational boundary. */
+      const mutation = {
+        body: "operation-body",
+        dependencies: [],
+        digest: "operation-digest",
+        idempotencyKey: "operation-write",
+        key: "assignment/intent/example",
+        kind: "assignment/intent",
+        state: "active" as const,
+        version: "v1",
+      };
+      const receipt = await provider.putOperation(mutation);
+      assert.equal(receipt.providerRecord.table, "operations");
+      assert.equal(
+        (await provider.getOptionalOperation(mutation.key))?.body,
+        mutation.body,
+      );
+      assert.equal(await provider.getOptionalResource(mutation.key), null);
     });
 
     test("workspace plans converge with verified dependency and digest chains", async () => {

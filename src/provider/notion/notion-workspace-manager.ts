@@ -42,6 +42,7 @@ import {
 
 /** Table kinds in dependency-safe bootstrap order. */
 const TABLE_ORDER: readonly TableKind[] = [
+  "operations",
   "resources",
   "errors",
   "tasks",
@@ -182,7 +183,7 @@ export class NotionWorkspaceManager {
         id: `notion:${this.target.version}:schema-state`,
         kind: "record_schema_state",
         payload: {
-          kind: "resources",
+          kind: "operations",
           targetDigest: this.target.digest,
           targetVersion: this.target.version,
         },
@@ -224,7 +225,7 @@ export class NotionWorkspaceManager {
     step: WorkspaceMigrationStep,
   ): Promise<WriteReceipt> {
     await this.resolveTables();
-    if (this.#resolved.has("resources")) await this.ensureBootstrapRoot();
+    if (this.#resolved.has("operations")) await this.ensureBootstrapRoot();
     /** Result of `this.readStepRecord`, retained for `applyWorkspaceStep`. */
     const prior = await this.readStepRecord(step.id);
     if (prior !== null) {
@@ -241,8 +242,8 @@ export class NotionWorkspaceManager {
       if (recovered.state !== "not_applied")
         throw new Error(`Workspace step ${step.id} remains indeterminate`);
     } else if (
-      step.id === `notion:${this.target.version}:create:resources` &&
-      this.#resolved.has("resources")
+      step.id === `notion:${this.target.version}:create:operations` &&
+      this.#resolved.has("operations")
     ) {
       /** Result of `this.reconcileEffect`, retained for `applyWorkspaceStep`. */
       const recovered = await this.reconcileEffect(step);
@@ -261,7 +262,7 @@ export class NotionWorkspaceManager {
     const current = await this.inspectWorkspaceSchema();
     if (current.digest !== step.expectedPreSchemaDigest)
       throw new Error(`Workspace precondition changed: ${step.id}`);
-    if (this.#resolved.has("resources"))
+    if (this.#resolved.has("operations"))
       await this.writeStepRecord({
         receipt: null,
         schema: "agent-task-manager-workspace-step-v1",
@@ -440,8 +441,8 @@ export class NotionWorkspaceManager {
 
   /** Recognizes unjournaled step. */
   private knownUnjournaledStep(stepId: string): WorkspaceMigrationStep | null {
-    /** Sole bootstrap step allowed to predate the Resources journal. */
-    const expectedId = `notion:${this.target.version}:create:resources`;
+    /** Sole bootstrap step allowed to predate the Operations journal. */
+    const expectedId = `notion:${this.target.version}:create:operations`;
     if (stepId !== expectedId) return null;
     return {
       dependsOn: [],
@@ -449,7 +450,7 @@ export class NotionWorkspaceManager {
       expectedPreSchemaDigest: notionSchemaDigest([]),
       id: expectedId,
       kind: "create_table",
-      payload: { kind: "resources" },
+      payload: { kind: "operations" },
       reversibility: "additive",
     };
   }
@@ -478,7 +479,7 @@ export class NotionWorkspaceManager {
     /** Result of `this.configuredTablePatch`, retained for `recordEnvironmentPatch`. */
     const tables = this.configuredTablePatch();
     /** Result of `canonicalize`, retained for `recordEnvironmentPatch`. */
-    const key = `system/environment-patch/${sha256(this.environmentId)}`;
+    const key = `workspace/environment-patch/${sha256(this.environmentId)}`;
     /** Result of `canonicalize`, retained for `recordEnvironmentPatch`. */
     const body = canonicalize(
       toJsonValue({
@@ -490,13 +491,13 @@ export class NotionWorkspaceManager {
         targetSchemaDigest: this.target.digest,
       }),
     );
-    await this.pageStore().createResource({
+    await this.pageStore().createOperation({
       body,
       dependencies: [],
       digest: sha256(body),
       idempotencyKey: `${key}:${state}`,
       key,
-      kind: "system/environment-patch",
+      kind: "workspace/environment-patch",
       state: "active",
       version: "v1",
     });
@@ -507,18 +508,18 @@ export class NotionWorkspaceManager {
     mode: WorkspaceMigrationPlan["mode"],
   ): Promise<BootstrapSessionRecord | null> {
     await this.resolveTables();
-    if (!this.#resolved.has("resources")) return null;
+    if (!this.#resolved.has("operations")) return null;
     /** Unique persisted bootstrap-session Resource, if one exists. */
     const located = await this.pageStore().findUniqueByTitle(
-      "resources",
-      "Resource",
+      "operations",
+      "Operation",
       this.bootstrapSessionKey(mode),
     );
     if (located === null) return null;
     return parseBootstrapSession(
       toJsonValue(
         JSON.parse(
-          await this.pageStore().managedText(located.id, "Resource body"),
+          await this.pageStore().managedText(located.id, "Operation body"),
         ),
       ),
     );
@@ -550,13 +551,13 @@ export class NotionWorkspaceManager {
     const body = canonicalize(toJsonValue(record));
     /** Stable Resource key for this bootstrap mode. */
     const key = this.bootstrapSessionKey(plan.mode);
-    await this.pageStore().createResource({
+    await this.pageStore().createOperation({
       body,
       dependencies: [],
       digest: sha256(body),
       idempotencyKey: `${key}:${sha256(body)}`,
       key,
-      kind: "system/bootstrap-session",
+      kind: "workspace/bootstrap-session",
       state: "active",
       version: "v1",
     });
@@ -568,7 +569,7 @@ export class NotionWorkspaceManager {
       if (this.#resolved.has(kind)) continue;
       /** Environment-supplied table identifier, if configured. */
       const configured = this.environment.tables[kind];
-      if (configured !== null) {
+      if (configured !== null && configured !== undefined) {
         /** Reader that normalizes and validates the configured identifier. */
         const reader = new NotionWorkspaceReader(
           this.environment,
@@ -683,7 +684,7 @@ export class NotionWorkspaceManager {
         "Created data source id",
       ),
     );
-    if (kind === "resources") await this.ensureBootstrapRoot();
+    if (kind === "operations") await this.ensureBootstrapRoot();
   }
 
   /** Adds property. */
@@ -714,40 +715,40 @@ export class NotionWorkspaceManager {
 
   /** Ensures bootstrap root. */
   private async ensureBootstrapRoot(): Promise<void> {
-    /** Resolved Resources data-source identifier. */
-    const resources = requiredResolved(this.#resolved, "resources");
+    /** Resolved Operations data-source identifier. */
+    const operations = requiredResolved(this.#resolved, "operations");
     /** Page-store boundary used to verify or create the bootstrap root. */
     const pages = this.pageStore();
-    /** Stable key of the bootstrap-root Resource. */
-    const key = "system/bootstrap-root-v1";
-    /** Canonical bootstrap identity bound to the parent and Resources table. */
+    /** Stable key of the bootstrap-root operation. */
+    const key = "workspace/bootstrap-root";
+    /** Canonical bootstrap identity bound to the parent and Operations table. */
     const body = canonicalize(
       toJsonValue({
         parentIdentity: this.environment.bootstrapParent,
-        resourcesDataSourceId: resources,
+        operationsDataSourceId: operations,
         schema: "agent-task-manager-bootstrap-root-v1",
       }),
     );
-    /** Existing bootstrap-root Resource, if one is already present. */
+    /** Existing bootstrap-root operation, if one is already present. */
     const existing = await pages.findUniqueByTitle(
-      "resources",
-      "Resource",
+      "operations",
+      "Operation",
       key,
     );
     if (existing !== null) {
-      if ((await pages.managedText(existing.id, "Resource body")) !== body)
+      if ((await pages.managedText(existing.id, "Operation body")) !== body)
         throw new Error(
           "bootstrap-root-v1 conflicts with the configured workspace",
         );
       return;
     }
-    await pages.createResource({
+    await pages.createOperation({
       body,
       dependencies: [],
       digest: sha256(body),
       idempotencyKey: key,
       key,
-      kind: "system/bootstrap",
+      kind: "workspace/bootstrap",
       state: "active",
       version: "v1",
     });
@@ -755,8 +756,8 @@ export class NotionWorkspaceManager {
 
   /** Persists the target schema version and digest after migration. */
   private async recordSchemaState(): Promise<void> {
-    /** Stable Resource key for the target schema version. */
-    const key = `system/schema/${this.target.version}`;
+    /** Stable operation key for the target schema version. */
+    const key = `workspace/schema/${this.target.version}`;
     /** Canonical schema-state body bound to the target digest. */
     const body = canonicalize(
       toJsonValue({
@@ -765,13 +766,13 @@ export class NotionWorkspaceManager {
         targetVersion: this.target.version,
       }),
     );
-    await this.pageStore().createResource({
+    await this.pageStore().createOperation({
       body,
       dependencies: [],
       digest: sha256(body),
       idempotencyKey: key,
       key,
-      kind: "system/schema",
+      kind: "workspace/schema",
       state: "active",
       version: "v1",
     });
@@ -779,19 +780,19 @@ export class NotionWorkspaceManager {
 
   /** Reads schema state. */
   private async readSchemaState(): Promise<JsonObject | null> {
-    /** Stable Resource key for the target schema version. */
-    const key = `system/schema/${this.target.version}`;
-    /** Unique persisted schema-state Resource, if one exists. */
+    /** Stable operation key for the target schema version. */
+    const key = `workspace/schema/${this.target.version}`;
+    /** Unique persisted schema-state operation, if one exists. */
     const located = await this.pageStore().findUniqueByTitle(
-      "resources",
-      "Resource",
+      "operations",
+      "Operation",
       key,
     );
     if (located === null) return null;
     return objectValue(
       toJsonValue(
         JSON.parse(
-          await this.pageStore().managedText(located.id, "Resource body"),
+          await this.pageStore().managedText(located.id, "Operation body"),
         ),
       ),
       "Schema state",
@@ -802,18 +803,18 @@ export class NotionWorkspaceManager {
   private async readStepRecord(
     stepId: string,
   ): Promise<WorkspaceStepRecord | null> {
-    if (!this.#resolved.has("resources")) return null;
+    if (!this.#resolved.has("operations")) return null;
     /** Result of `this.pageStore`, retained for `readStepRecord`. */
     const located = await this.pageStore().findUniqueByTitle(
-      "resources",
-      "Resource",
+      "operations",
+      "Operation",
       stepReceiptKey(stepId),
     );
     if (located === null) return null;
     return parseWorkspaceStepRecord(
       toJsonValue(
         JSON.parse(
-          await this.pageStore().managedText(located.id, "Resource body"),
+          await this.pageStore().managedText(located.id, "Operation body"),
         ),
       ),
     );
@@ -825,13 +826,13 @@ export class NotionWorkspaceManager {
     const key = stepReceiptKey(record.step.id);
     /** Result of `canonicalize`, retained for `writeStepRecord`. */
     const body = canonicalize(toJsonValue(record));
-    await this.pageStore().createResource({
+    await this.pageStore().createOperation({
       body,
       dependencies: [],
       digest: sha256(body),
       idempotencyKey: key,
       key,
-      kind: "system/workspace-step",
+      kind: "workspace/step",
       state: "active",
       version: "v1",
     });
@@ -844,7 +845,8 @@ export class NotionWorkspaceManager {
     return new NotionPageStore(
       {
         errors: this.#resolved.get("errors") ?? fallback,
-        resources: requiredResolved(this.#resolved, "resources"),
+        operations: requiredResolved(this.#resolved, "operations"),
+        resources: this.#resolved.get("resources") ?? fallback,
         agents: this.#resolved.get("agents") ?? fallback,
         tasks: this.#resolved.get("tasks") ?? fallback,
       },
@@ -855,7 +857,7 @@ export class NotionWorkspaceManager {
 
   /** Builds session key. */
   private bootstrapSessionKey(mode: WorkspaceMigrationPlan["mode"]): string {
-    return `system/bootstrap-session/${sha256(`${this.environmentId}\0${mode}\0${this.target.version}`)}`;
+    return `workspace/bootstrap-session/${sha256(`${this.environmentId}\0${mode}\0${this.target.version}`)}`;
   }
 
   /** Builds environment. */
@@ -998,7 +1000,7 @@ function simulateWorkspaceStep(
 
 /** Builds options. */
 function selectOptions(table: TableKind, property: string): readonly string[] {
-  if (table === "resources" && property === "State")
+  if ((table === "resources" || table === "operations") && property === "State")
     return RESOURCE_STATE_OPTIONS;
   if (table === "resources" && property === "Kind")
     return RESOURCE_KIND_OPTIONS;
@@ -1034,7 +1036,7 @@ function stepDigest(step: WorkspaceMigrationStep): string {
 
 /** Builds receipt key. */
 function stepReceiptKey(stepId: string): string {
-  return `system/workspace-step/${sha256(stepId)}`;
+  return `workspace/step/${sha256(stepId)}`;
 }
 
 /** Parses and validates workspace step record. */

@@ -12,6 +12,7 @@ import {
   type HarnessAssignmentCompletion,
   type LeaseRelease,
   type ProviderEnvironment,
+  type OperationMutation,
   type ResourceMutation,
   type WriteReceipt,
   type WorkspaceSchemaDescriptor,
@@ -53,15 +54,13 @@ class InterruptedReleaseProvider extends InMemoryProvider {
   }
 }
 
-/** Enforces the same manager-owned Resource namespace as the Notion provider. */
+/** Enforces the dedicated manager-owned operation boundary. */
 class StrictSystemResourceProvider extends InMemoryProvider {
-  /** Rejects manager writes whose key or kind escapes the reserved namespace. */
-  public override async putSystemResource(
-    record: ResourceMutation,
+  /** Persists manager-owned state outside the content Resource store. */
+  public override async putOperation(
+    record: OperationMutation,
   ): Promise<WriteReceipt> {
-    if (!record.key.startsWith("system/") || !record.kind.startsWith("system/"))
-      throw new Error("Manager-owned Resources require system/ key and kind");
-    return super.putSystemResource(record);
+    return super.putOperation(record);
   }
 }
 
@@ -163,7 +162,7 @@ test("prepares context for a harness and completes without model dispatch", asyn
   assert.deepEqual(preparedReplay, { report, state: "complete" });
 });
 
-test("persists a blocked harness completion within the system namespace", async () => {
+test("persists a blocked harness completion through Operations", async () => {
   /** Strict provider exposing the same manager namespace rule as Notion. */
   const provider = await preparedProvider([], undefined, true);
   await prepareHarnessAssignment({

@@ -21,6 +21,8 @@ import type {
   LeaseSnapshot,
   ResourceMutation,
   ResourceRecord,
+  OperationMutation,
+  OperationRecord,
   ResourceRef,
   AgentActivity,
   AgentDefinition,
@@ -28,6 +30,7 @@ import type {
   TaskSnapshot,
   TaskSummary,
 } from "../domain/records.js";
+import { RESOURCE_KINDS } from "../domain/records.js";
 import type {
   ProviderCapabilities,
   ProviderEnvironment,
@@ -272,6 +275,8 @@ export class InMemoryProvider implements AgentTaskProvider {
   readonly #releasedLeases = new Map<string, MemoryLease>();
   /** Resources table data-source identifier. */
   readonly #resources = new Map<string, ResourceRecord>();
+  /** Manager-owned operational records keyed by stable identity. */
+  readonly #operations = new Map<string, OperationRecord>();
   /** Tasks table data-source identifier. */
   readonly #tasks = new Map<string, TaskSnapshot>();
   /** Taskstatusoptions dependency consumed by in-memory provider. */
@@ -832,6 +837,10 @@ export class InMemoryProvider implements AgentTaskProvider {
 
   /** Persists resource. */
   public async putResource(record: ResourceMutation): Promise<WriteReceipt> {
+    if (
+      !RESOURCE_KINDS.includes(record.kind as (typeof RESOURCE_KINDS)[number])
+    )
+      throw new TypeError(`Resource kind is invalid: ${record.kind}`);
     /** Result of `this.lookupIdempotent`, retained for `putResource`. */
     const prior = this.lookupIdempotent<WriteReceipt>(
       record.idempotencyKey,
@@ -861,11 +870,45 @@ export class InMemoryProvider implements AgentTaskProvider {
     return clone(receipt);
   }
 
-  /** Persists a manager-owned Resource through the same in-memory boundary. */
-  public async putSystemResource(
-    record: ResourceMutation,
-  ): Promise<WriteReceipt> {
-    return this.putResource(record);
+  /** Returns manager-owned operational state by stable key. */
+  public async getOptionalOperation(
+    key: string,
+  ): Promise<OperationRecord | null> {
+    const operation = this.#operations.get(key);
+    return operation === undefined ? null : clone(operation);
+  }
+
+  /** Persists manager-owned operational state. */
+  public async putOperation(record: OperationMutation): Promise<WriteReceipt> {
+    const prior = this.lookupIdempotent<WriteReceipt>(
+      record.idempotencyKey,
+      "operation_record",
+      record,
+    );
+    if (prior !== undefined) return prior;
+    const stored: OperationRecord = {
+      body: record.body,
+      dependencies: clone(record.dependencies),
+      digest: record.digest,
+      key: record.key,
+      kind: record.kind,
+      state: record.state,
+      version: record.version,
+    };
+    this.#operations.set(stored.key, stored);
+    const receipt = this.receipt(
+      "operations",
+      stored.key,
+      record.idempotencyKey,
+      stored.version,
+    );
+    this.recordIdempotent(
+      record.idempotencyKey,
+      "operation_record",
+      record,
+      receipt,
+    );
+    return clone(receipt);
   }
 
   /** Acquires lease. */

@@ -17,7 +17,7 @@ import {
 } from "../domain/json.js";
 import type {
   LeaseProjection,
-  ResourceMutation,
+  OperationMutation,
   AgentActivity,
   AgentDefinition,
   TaskSnapshot,
@@ -121,21 +121,21 @@ export async function verifyAssignmentPromotion(
   provider: AgentTaskProvider,
   promotion: AssignmentPromotion,
 ): Promise<void> {
-  /** Resource loaded during verify assignment promotion. */
-  const resource = await provider.getOptionalResource(
-    `system/assignment-intent/${promotion.operationDigest}`,
+  /** Durable assignment operation loaded for promotion verification. */
+  const operation = await provider.getOptionalOperation(
+    `assignment/intent/${promotion.operationDigest}`,
   );
   if (
-    resource === null ||
-    resource.kind !== "system/assignment-intent" ||
-    resource.state !== "active" ||
-    resource.version !== "v1" ||
-    resource.digest !== sha256(resource.body)
+    operation === null ||
+    operation.kind !== "assignment/intent" ||
+    operation.state !== "active" ||
+    operation.version !== "v1" ||
+    operation.digest !== sha256(operation.body)
   ) {
-    throw new Error("Assignment promotion Resource is missing or invalid");
+    throw new Error("Assignment promotion Operation is missing or invalid");
   }
   /** JSON-decoded input before structural validation. */
-  const parsed: unknown = JSON.parse(resource.body);
+  const parsed: unknown = JSON.parse(operation.body);
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed))
     throw new Error("Assignment promotion receipt is malformed");
   /** Object currently undergoing field-level validation. */
@@ -560,7 +560,7 @@ async function acquireAndProject(input: {
   readonly taskVersion: string;
 }): Promise<AssignmentPromotion> {
   /** Intent key used during acquire and project. */
-  const intentKey = `system/assignment-intent/${input.operationDigest}`;
+  const intentKey = `assignment/intent/${input.operationDigest}`;
   /** Prior intent loaded during acquire and project. */
   const priorIntent = await readAssignmentIntent(
     input.provider,
@@ -749,11 +749,11 @@ async function readAssignmentIntent(
     readonly taskVersion: string;
   },
 ): Promise<AssignmentIntentProgress | null> {
-  /** Resource loaded during read assignment intent. */
-  const resource = await provider.getOptionalResource(key);
-  if (resource === null) return null;
+  /** Durable operation loaded for assignment-intent replay. */
+  const operation = await provider.getOptionalOperation(key);
+  if (operation === null) return null;
   /** JSON-decoded input before structural validation. */
-  const parsed: unknown = JSON.parse(resource.body);
+  const parsed: unknown = JSON.parse(operation.body);
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed))
     throw new Error("Assignment intent is malformed");
   /** Object currently undergoing field-level validation. */
@@ -798,7 +798,7 @@ async function readAssignmentIntent(
   };
 }
 
-/** Persists assignment progress as an idempotent Resource mutation. */
+/** Persists assignment progress as an idempotent Operation mutation. */
 async function writeAssignmentIntent(
   provider: AgentTaskProvider,
   key: string,
@@ -835,17 +835,17 @@ async function writeAssignmentIntent(
     taskVersion: input.taskVersion,
   });
   /** Canonical digest of record. */
-  const record: ResourceMutation = {
+  const record: OperationMutation = {
     body,
     dependencies: [],
     digest: sha256(body),
     idempotencyKey: `${key}:${progress.state}:${sha256(body)}`,
     key,
-    kind: "system/assignment-intent",
+    kind: "assignment/intent",
     state: "active",
     version: "v1",
   };
-  await provider.putSystemResource(record);
+  await provider.putOperation(record);
 }
 
 /** Atomically reserves one assignment slot in the run's durable budget. */
@@ -856,9 +856,9 @@ async function reserveAssignmentBudget(
   operationDigest: string,
 ): Promise<void> {
   /** Key used during reserve assignment budget. */
-  const key = `system/assignment-budget/${definition.id}/${runIdentity}`;
+  const key = `assignment/budget/${definition.id}/${runIdentity}`;
   /** Prior loaded during reserve assignment budget. */
-  const prior = await provider.getOptionalResource(key);
+  const prior = await provider.getOptionalOperation(key);
   /** Operations used during reserve assignment budget. */
   let operations: string[] = [];
   if (prior !== null) {
@@ -890,13 +890,13 @@ async function reserveAssignmentBudget(
     schema: "assignment-budget-v1",
     agentId: definition.id,
   });
-  await provider.putSystemResource({
+  await provider.putOperation({
     body,
     dependencies: [],
     digest: sha256(body),
     idempotencyKey: `${key}:${sha256(body)}`,
     key,
-    kind: "system/assignment-budget",
+    kind: "assignment/budget",
     state: "active",
     version: "v1",
   });

@@ -59,10 +59,10 @@ test("persists the complete intent before applying and replays its receipt", asy
   assert.deepEqual(second.receipt, first.receipt);
   assert.equal(applications, 1);
   /** Reads persisted state used as the assertion oracle. */
-  const stored = await provider.getOptionalResource(
-    `external-effect-intent/${request.effectId}`,
+  const stored = await provider.getOptionalOperation(
+    `effect/intent/${request.effectId}`,
   );
-  assert.equal(stored?.kind, "system/external-effect-intent");
+  assert.equal(stored?.kind, "effect/intent");
   assert.equal((stored?.body ?? "").includes('"state":"applied"'), true);
 });
 
@@ -313,8 +313,8 @@ test("persists replay quarantine before invoking an external apply", async () =>
     async apply() {
       writeAheadObserved =
         (
-          await provider.getOptionalResource(
-            `external-effect-intent/${request.effectId}`,
+          await provider.getOptionalOperation(
+            `effect/intent/${request.effectId}`,
           )
         )?.body.includes('"automaticReplayBlocked":true') === true;
       return applied("write-ahead");
@@ -324,9 +324,7 @@ test("persists replay quarantine before invoking an external apply", async () =>
   assert.equal(writeAheadObserved, true);
   assert.equal(
     (
-      await provider.getOptionalResource(
-        `external-effect-intent/${request.effectId}`,
-      )
+      await provider.getOptionalOperation(`effect/intent/${request.effectId}`)
     )?.body.includes('"automaticReplayBlocked":false'),
     true,
   );
@@ -445,9 +443,7 @@ test("durable quarantine blocks replay after its provider claim expires", async 
   assert.equal(applications, 1);
   assert.equal(
     (
-      await provider.getOptionalResource(
-        `external-effect-intent/${request.effectId}`,
-      )
+      await provider.getOptionalOperation(`effect/intent/${request.effectId}`)
     )?.body.includes('"automaticReplayBlocked":true'),
     true,
   );

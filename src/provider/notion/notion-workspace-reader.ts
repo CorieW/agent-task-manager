@@ -107,7 +107,7 @@ export class NotionWorkspaceReader {
     for (const kind of TABLE_KINDS) {
       /** Configured snapshot used consistently during `inspectWorkspaceSchema`. */
       const configured = this.environment.tables[kind];
-      if (configured !== null)
+      if (configured !== null && configured !== undefined)
         resolved.set(kind, await this.resolveDataSourceId(configured));
     }
     /** Result of `ids.filter`, retained for `inspectWorkspaceSchema`. */

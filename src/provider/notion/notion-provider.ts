@@ -11,6 +11,8 @@ import type {
   LeaseSnapshot,
   ResourceMutation,
   ResourceRecord,
+  OperationMutation,
+  OperationRecord,
   ResourceRef,
   AgentDefinition,
   AgentActivity,
@@ -18,6 +20,7 @@ import type {
   TaskSnapshot,
   TaskSummary,
 } from "../../domain/records.js";
+import { RESOURCE_KINDS } from "../../domain/records.js";
 import type {
   ProviderCapabilities,
   ProviderEnvironment,
@@ -312,22 +315,46 @@ export class NotionProvider implements AgentTaskProvider {
     return (await this.runtime()).reader.getOptionalResource(key);
   }
 
-  /** Canonicalizes and durably creates or replaces a non-system Resource. */
+  /** Canonicalizes and durably creates or replaces a content Resource. */
   public async putResource(record: ResourceMutation): Promise<WriteReceipt> {
-    if (record.key.startsWith("system/"))
-      throw new Error(
-        "system/ Resource keys are reserved by Agent Task Manager",
-      );
+    if (
+      !RESOURCE_KINDS.includes(record.kind as (typeof RESOURCE_KINDS)[number])
+    )
+      throw new TypeError(`Resource kind is invalid: ${record.kind}`);
     return this.writeResource(record);
   }
 
-  /** Persists a manager-owned Resource while preserving the public reservation. */
-  public async putSystemResource(
-    record: ResourceMutation,
-  ): Promise<WriteReceipt> {
-    if (!record.key.startsWith("system/") || !record.kind.startsWith("system/"))
-      throw new Error("Manager-owned Resources require system/ key and kind");
-    return this.writeResource(record);
+  /** Returns manager-owned operational state by stable key. */
+  public async getOptionalOperation(
+    key: string,
+  ): Promise<OperationRecord | null> {
+    return (await this.runtime()).reader.getOptionalOperation(key);
+  }
+
+  /** Persists manager-owned operational state in the Operations table. */
+  public async putOperation(record: OperationMutation): Promise<WriteReceipt> {
+    const prepared = prepareNotionOperation(record);
+    return this.executeRepairableReceiptIntent(
+      prepared.idempotencyKey,
+      "operation_record",
+      prepared,
+      (runtime) => runtime.pages.createOperation(prepared),
+      async (runtime) => {
+        const current = await runtime.reader.getOptionalOperation(prepared.key);
+        if (current !== null && !sameResource(current, prepared))
+          throw new IndeterminateProviderIntentError(
+            `Pending Operation intent conflicts with newer state: ${prepared.key}`,
+          );
+        const receipt = await runtime.pages.createOperation(prepared);
+        await runtime.state.completeIntent(
+          prepared.idempotencyKey,
+          "operation_record",
+          prepared,
+          receipt,
+        );
+        return receipt;
+      },
+    );
   }
 
   /** Canonicalizes and durably creates or replaces one accepted Resource. */
@@ -534,7 +561,7 @@ export class NotionProvider implements AgentTaskProvider {
         throw new Error(
           `Notion runtime requires configured or discoverable ${kind} table`,
         );
-    /** Resolved physical data-source identifiers for the four logical tables. */
+    /** Resolved physical data-source identifiers for all logical tables. */
     const tables = partial as NotionMutableTableIds;
     /** Page-store adapter bound to the resolved table identities. */
     const pages = new NotionPageStore(tables, this.#transport, this.#now);
@@ -740,8 +767,8 @@ function sameSet(left: readonly string[], right: readonly string[]): boolean {
 
 /** Reports whether a Resource record exactly matches a mutation target. */
 function sameResource(
-  current: ResourceRecord,
-  requested: ResourceMutation,
+  current: ResourceRecord | OperationRecord,
+  requested: ResourceMutation | OperationMutation,
 ): boolean {
   return (
     current.body === requested.body &&
@@ -767,6 +794,16 @@ function prepareNotionResource(record: ResourceMutation): ResourceMutation {
     );
   }
   return { ...structuredClone(record), body: canonicalBody };
+}
+
+/** Canonicalizes and digest-binds operational state before any provider write. */
+function prepareNotionOperation(record: OperationMutation): OperationMutation {
+  const body = normalizeText(record.body);
+  if (record.digest !== sha256(body))
+    throw new TypeError(
+      `Operation ${record.key} Digest must match its canonical body`,
+    );
+  return { ...structuredClone(record), body };
 }
 
 /** Rejects logical-operation intent reuse with a different payload. */

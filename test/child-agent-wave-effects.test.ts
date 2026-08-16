@@ -30,7 +30,7 @@ const target: WorkspaceSchemaDescriptor = {
   version: "v1",
 };
 
-test("runs dependency-ordered nodes and persists each receipt in Resources", async () => {
+test("runs dependency-ordered nodes and persists each receipt in Operations", async () => {
   /** Provides isolated provider state for the scenario. */
   const provider = new InMemoryProvider(environment, target);
   /** Creates the first pinned child-agent context Resource. */
@@ -140,13 +140,13 @@ test("rejects malformed node receipts and changed context pins", async () => {
       waveEffectId: effectId,
     }),
   );
-  await provider.putResource({
+  await provider.putOperation({
     body: malformed,
     dependencies: [{ digest: contextDigest, key: "context/a", version: "v1" }],
     digest: sha256(malformed),
     idempotencyKey: "malformed",
-    key: `child-agent-node/${effectId}/${sha256("a")}`,
-    kind: "system/child-agent-node-intent",
+    key: `child-agent/node/${effectId}/${sha256("a")}`,
+    kind: "child-agent/node-intent",
     state: "active",
     version: "v1",
   });

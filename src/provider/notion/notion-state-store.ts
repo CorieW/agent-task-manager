@@ -1,4 +1,4 @@
-/** Persists intents and leases as canonical Resource rows for restart-safe reconciliation. */
+/** Persists intents and leases in the Operations table for restart-safe reconciliation. */
 import { randomUUID } from "node:crypto";
 
 import { canonicalize } from "../../core/canonical-json.js";
@@ -451,18 +451,14 @@ export class NotionStateStore {
   /** Loads and validates every persisted lease record. */
   private async loadLeases(): Promise<readonly LeaseRecord[]> {
     /** Result of `this.pages.listBySelect`, retained for `loadLeases`. */
-    const pages = await this.pages.listBySelect(
-      "resources",
-      "Kind",
-      "system/lease",
-    );
+    const pages = await this.pages.listBySelect("operations", "Kind", "lease");
     /** Mutable leases collection accumulated during `loadLeases`. */
     const leases: LeaseRecord[] = [];
     for (const page of pages) {
       leases.push(
         parseLease(
           toJsonValue(
-            JSON.parse(await this.pages.managedText(page.id, "Resource body")),
+            JSON.parse(await this.pages.managedText(page.id, "Operation body")),
           ),
         ),
       );
@@ -507,13 +503,13 @@ export class NotionStateStore {
   private async readRecord(key: string): Promise<JsonValue | null> {
     /** Result of `this.pages.findUniqueByTitle`, retained for `readRecord`. */
     const located = await this.pages.findUniqueByTitle(
-      "resources",
-      "Resource",
+      "operations",
+      "Operation",
       key,
     );
     if (located === null) return null;
     return toJsonValue(
-      JSON.parse(await this.pages.managedText(located.id, "Resource body")),
+      JSON.parse(await this.pages.managedText(located.id, "Operation body")),
     );
   }
 
@@ -525,13 +521,13 @@ export class NotionStateStore {
   ) {
     /** Result of `canonicalize`, retained for `writeRecord`. */
     const body = canonicalize(toJsonValue(value));
-    return this.pages.createResource({
+    return this.pages.createOperation({
       body,
       dependencies: [],
       digest: sha256(body),
       idempotencyKey,
       key,
-      kind: key.startsWith("system/lease/") ? "system/lease" : "system/intent",
+      kind: key.startsWith("lease/") ? "lease" : "intent",
       state: "active",
       version: "v1",
     });
@@ -540,12 +536,12 @@ export class NotionStateStore {
 
 /** Builds key. */
 function intentKey(idempotencyKey: string): string {
-  return `system/intent/${sha256(idempotencyKey)}`;
+  return `intent/${sha256(idempotencyKey)}`;
 }
 
 /** Builds key. */
 function leaseKey(scope: LeaseRequest["scope"], owner: string): string {
-  return `system/lease/${scope}/${sha256(owner)}`;
+  return `lease/${scope}/${sha256(owner)}`;
 }
 
 /** Parses and validates intent. */
@@ -657,8 +653,8 @@ function parseLeaseResult(value: JsonValue): LeaseResult {
 function parseReleaseResult(value: JsonValue): WriteReceipt {
   /** Result of `parseReleaseResult`, retained for validation and reuse. */
   const receipt = parseWriteReceipt(value);
-  if (receipt.providerRecord.table !== "resources")
-    throw new TypeError("Lease release receipt must reference Resources");
+  if (receipt.providerRecord.table !== "operations")
+    throw new TypeError("Lease release receipt must reference Operations");
   return receipt;
 }
 

@@ -2,7 +2,7 @@
 import { canonicalize } from "../core/canonical-json.js";
 import { digestJson, sha256 } from "../core/digest.js";
 import { toJsonValue, type JsonObject } from "../domain/json.js";
-import type { ResourceRecord } from "../domain/records.js";
+import type { OperationRecord } from "../domain/records.js";
 import type {
   HumanAuthority,
   HumanConsumptionRecord,
@@ -11,13 +11,13 @@ import type {
 import { parseHumanInteractionSlot } from "./slot-codec.js";
 
 /** Builds the deterministic provider key for this durable record. */
-export function humanSlotResourceKey(slotId: string): string {
-  return `system/human-slot/${slotId}`;
+export function humanRequestOperationKey(slotId: string): string {
+  return `human/request/${slotId}`;
 }
 
 /** Builds the deterministic provider key for this durable record. */
-export function humanConsumptionResourceKey(slotId: string): string {
-  return `system/human-consumption/${slotId}`;
+export function humanConsumptionOperationKey(slotId: string): string {
+  return `human/consumption/${slotId}`;
 }
 
 /** Serializes human slot baseline into its canonical representation. */
@@ -27,38 +27,40 @@ export function serializeHumanSlotBaseline(
   return canonicalize(toJsonValue(parseHumanSlotBaseline(record)));
 }
 
-/** Parses and validates human slot baseline resource. */
-export function parseHumanSlotBaselineResource(
-  resource: ResourceRecord,
+/** Parses and validates a human-request baseline Operation. */
+export function parseHumanRequestOperation(
+  operation: OperationRecord,
   slotId: string,
 ): HumanSlotBaselineRecord {
-  assertResource(
-    resource,
-    humanSlotResourceKey(slotId),
-    "system/human-interaction-slot",
+  assertOperation(
+    operation,
+    humanRequestOperationKey(slotId),
+    "human/request-baseline",
     "v2",
   );
-  /** Result of `parseHumanSlotBaseline`, retained for the parse human slot baseline resource operation. */
-  const baseline = parseHumanSlotBaseline(JSON.parse(resource.body) as unknown);
+  /** Immutable baseline decoded from operational storage. */
+  const baseline = parseHumanSlotBaseline(
+    JSON.parse(operation.body) as unknown,
+  );
   if (baseline.slot.slotId !== slotId)
     throw new TypeError("Human slot baseline identity is invalid");
   return baseline;
 }
 
-/** Parses and validates human consumption resource. */
-export function parseHumanConsumptionResource(
-  resource: ResourceRecord,
+/** Parses and validates a human-response consumption Operation. */
+export function parseHumanConsumptionOperation(
+  operation: OperationRecord,
   slotId: string,
 ): HumanConsumptionRecord {
-  assertResource(
-    resource,
-    humanConsumptionResourceKey(slotId),
-    "system/human-consumption",
+  assertOperation(
+    operation,
+    humanConsumptionOperationKey(slotId),
+    "human/consumption",
     "v1",
   );
-  /** Result of `parseHumanConsumption`, retained for the parse human consumption resource operation. */
+  /** Exactly-once consumption state decoded from operational storage. */
   const consumption = parseHumanConsumption(
-    JSON.parse(resource.body) as unknown,
+    JSON.parse(operation.body) as unknown,
   );
   if (consumption.authority.slotId !== slotId)
     throw new TypeError("Human consumption identity is invalid");
@@ -179,21 +181,21 @@ function parseHumanAuthority(value: unknown): HumanAuthority {
   };
 }
 
-/** Rejects input that does not satisfy the resource contract. */
-function assertResource(
-  resource: ResourceRecord,
+/** Rejects input that does not satisfy the Operation contract. */
+function assertOperation(
+  operation: OperationRecord,
   key: string,
   kind: string,
   version: string,
 ): void {
   if (
-    resource.key !== key ||
-    resource.kind !== kind ||
-    resource.state !== "active" ||
-    resource.version !== version ||
-    resource.digest !== sha256(resource.body)
+    operation.key !== key ||
+    operation.kind !== kind ||
+    operation.state !== "active" ||
+    operation.version !== version ||
+    operation.digest !== sha256(operation.body)
   )
-    throw new TypeError(`Human recovery Resource is invalid: ${key}`);
+    throw new TypeError(`Human recovery Operation is invalid: ${key}`);
 }
 
 /** Validates and returns the required object representation. */

@@ -42,7 +42,7 @@ const executions = await broker.executeResult(
 Before calling a handler, the broker:
 
 1. revalidates assignment, leases, Task, role, Resource, and intent authority;
-2. stores canonical `external-effect-intent-v2` in Resources;
+2. stores canonical `external-effect-intent-v2` in Operations;
 3. acquires a provider-backed effect claim; and
 4. enables durable automatic-replay blocking immediately before `apply`.
 
@@ -52,12 +52,12 @@ write-ahead quarantine. An indeterminate result blocks replay until explicit
 reconciliation proves the outcome. Only a durably stored terminal observation
 clears replay blocking.
 
-Workspace ownership is a provider-backed `workspace-ownership-v1` Resource
+Workspace ownership is a provider-backed `workspace-ownership-v1` Operation
 serialized by a provider lease. Local sidecars are never authoritative. If
 deadline cancellation is not acknowledged, the effect claim remains
 quarantined until expiry while the durable replay block remains active.
 
-Child waves additionally store one `child-agent-node-intent-v1` Resource per
+Child waves additionally store one `child-agent-node-intent-v1` Operation per
 node. Nodes receive only their immutable context Resource and declared
 dependency receipts. Completed nodes are reused after restart.
 

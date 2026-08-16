@@ -193,6 +193,19 @@ export interface ResourceRef {
   readonly version: string | null;
 }
 
+/** Content categories accepted by the Resources table. */
+export const RESOURCE_KINDS = [
+  "prompt",
+  "policy",
+  "task-query",
+  "json-schema",
+  "invocation-schedule",
+  "agent/context",
+] as const;
+
+/** Allowed Resource kind literals. */
+export type ResourceKind = (typeof RESOURCE_KINDS)[number];
+
 /** Persisted representation of resource. */
 export interface ResourceRecord {
   /** Provider-managed page body. */
@@ -213,6 +226,30 @@ export interface ResourceRecord {
 
 /** Requested state change for resource. */
 export interface ResourceMutation extends ResourceRecord {
+  /** Key that identifies retries of the same logical operation. */
+  readonly idempotencyKey: string;
+}
+
+/** Persisted manager-owned operational state. */
+export interface OperationRecord {
+  /** Canonical operation body. */
+  readonly body: string;
+  /** Content Resources pinned by this operation. */
+  readonly dependencies: readonly ResourceRef[];
+  /** SHA-256 digest of the canonical operation body. */
+  readonly digest: string;
+  /** Stable operation key. */
+  readonly key: string;
+  /** Manager-owned operation category. */
+  readonly kind: string;
+  /** Lifecycle state of the operation envelope. */
+  readonly state: ResourceRecord["state"];
+  /** Operation representation version. */
+  readonly version: string;
+}
+
+/** Requested state change for manager-owned operational state. */
+export interface OperationMutation extends OperationRecord {
   /** Key that identifies retries of the same logical operation. */
   readonly idempotencyKey: string;
 }

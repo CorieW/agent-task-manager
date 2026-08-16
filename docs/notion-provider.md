@@ -1,8 +1,9 @@
 # Notion provider
 
 Notion is the first concrete `AgentTaskProvider`. It maps authoritative state
-to four data sources and uses Resources for durable intents, leases, receipts,
-bootstrap sessions, and recovery records. No local database is authoritative.
+to five data sources. Resources contain reusable content; Operations contain
+manager-owned journals, leases, receipts, bootstrap state, and recovery state.
+No local database is authoritative.
 
 ## Managed schema
 
@@ -10,17 +11,18 @@ Extra properties are tolerated. A missing compatible property can be added
 only by a digest-authorized workspace apply; incompatible or destructive drift
 fails closed.
 
-| Table     | Required properties                                                                                                                                      |
-| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Tasks     | `Task` title; provider-defined `Status` select; adapter-internal `Manager Mutation` rich text; self-relation `Dependencies`; optional numeric `Priority` |
-| Agents    | `Name` title; `Enabled` checkbox; numeric `Revision`; `Model` rich text; `Status` select; `Working On` Tasks relation; `Last Run` last-edited time       |
-| Errors    | `Error` title; `Error Key` rich text; `Severity` and `Status` selects; `Task` and `Agent` relations; optional `Run ID`                                   |
-| Resources | `Resource` title; `Kind` and `State` selects; `Version`, `Digest`, and `Dependencies` rich text                                                          |
+| Table      | Required properties                                                                                                                                      |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tasks      | `Task` title; provider-defined `Status` select; adapter-internal `Manager Mutation` rich text; self-relation `Dependencies`; optional numeric `Priority` |
+| Agents     | `Name` title; `Enabled` checkbox; numeric `Revision`; `Model` rich text; `Status` select; `Working On` Tasks relation; `Last Run` last-edited time       |
+| Errors     | `Error` title; `Error Key` rich text; `Severity` and `Status` selects; `Task` and `Agent` relations; optional `Run ID`                                   |
+| Resources  | `Resource` title; `Kind` and `State` selects; `Version`, `Digest`, and `Dependencies` rich text                                                          |
+| Operations | `Operation` title; `Kind`, `Version`, `Digest`, and `Dependencies` rich text; `State` select                                                             |
 
 Notion presents provider-owned select values as human-readable labels. Resource
 `Kind` uses labels such as `Policy`, `Prompt`, `Task Query`, `JSON Schema`, and
-`Agent / Context`;
-system records use `System / ...` labels. Resource `State` uses `Active`,
+`Agent / Context`. These are the only Resource categories; operational records
+never appear in the Resources table. Resource and Operation `State` use `Active`,
 `Draft`, and `Retired`, while Error `Severity` uses `Critical`, `High`,
 `Medium`, and `Low`. The adapter maps these labels to stable lowercase
 provider-neutral values internally. Option labels are exact and must not be
@@ -52,8 +54,8 @@ Provider-managed page bodies use exact level-two headings:
 - Agent definitions: `## Agent definition`
 - Prompt and policy Resources: native enhanced Markdown beginning with
   `## Resource body`
-- Other Resources and internal journals: `## Resource body`, followed by one
-  code block
+- Machine-oriented Resources: `## Resource body`, followed by one code block
+- Operations: `## Operation body`, followed by one code block
 - Errors: `## Error Description` and `## Error Resolution`
 
 Readable Resource Markdown is the sole authoritative body, not a rendered copy
@@ -72,8 +74,8 @@ attachments, embeds, mentions, images, synced blocks, tables, columns, and
 other identity-bearing or externally resolved Notion markup. Legacy
 whole-body `plain text` code blocks remain readable only when their unwrapped
 body matches the pinned Resource digest; the next authorized write replaces
-that representation with native Markdown. Machine-oriented JSON, schemas,
-journals, and Error bodies retain code blocks because exact byte-oriented
+that representation with native Markdown. Machine-oriented JSON and schemas,
+Operation journals, and Error bodies retain code blocks because exact byte-oriented
 editing is more useful than rich presentation for those records.
 
 Every Resource write canonicalizes its target body and verifies the supplied
@@ -88,8 +90,9 @@ idempotency key bound to the changed payload, may set `Fixing` or `Fixed`.
 Humans may apply the same values directly in Notion. Status is part of the
 exact write target and crash-reconciliation check.
 
-Resource keys beginning with `system/` are reserved for manager-owned schema,
-intent, lease, bootstrap-session, and recovery records.
+Human requests and responses are embedded in their Task body. Their
+exactly-once consumption and recovery journal is operational state, so it is
+stored in Operations rather than Resources.
 
 ## Activity projection
 

@@ -360,28 +360,28 @@ export class ProviderChildAgentWaveEffects implements ReconcilableEffectAdapter<
     waveEffectId: string,
     node: ChildAgentNode,
   ): Promise<ChildAgentNodeRecord | null> {
-    /** Result of `this.provider.getOptionalResource`, retained for the read node operation. */
-    const resource = await this.provider.getOptionalResource(
-      nodeResourceKey(waveEffectId, node.nodeKey),
+    /** Durable node Operation loaded for replay or reconciliation. */
+    const operation = await this.provider.getOptionalOperation(
+      nodeOperationKey(waveEffectId, node.nodeKey),
     );
-    if (resource === null) return null;
+    if (operation === null) return null;
     if (
-      resource.kind !== "system/child-agent-node-intent" ||
-      resource.state !== "active" ||
-      resource.version !== "v1" ||
-      resource.digest !== sha256(resource.body)
+      operation.kind !== "child-agent/node-intent" ||
+      operation.state !== "active" ||
+      operation.version !== "v1" ||
+      operation.digest !== sha256(operation.body)
     )
-      throw new Error(`Child-agent node Resource is invalid: ${node.nodeKey}`);
+      throw new Error(`Child-agent node Operation is invalid: ${node.nodeKey}`);
     /** Durable child-node record processed by read node. */
     const record = parseNodeRecord(
-      JSON.parse(resource.body) as unknown,
+      JSON.parse(operation.body) as unknown,
       waveEffectId,
       node,
     );
     /** Dependency snapshot used consistently during the read node operation. */
-    const dependency = resource.dependencies[0];
+    const dependency = operation.dependencies[0];
     if (
-      resource.dependencies.length !== 1 ||
+      operation.dependencies.length !== 1 ||
       dependency?.key !== record.contextKey ||
       dependency.digest !== record.contextDigest ||
       dependency.version === null
@@ -404,19 +404,19 @@ export class ProviderChildAgentWaveEffects implements ReconcilableEffectAdapter<
       key: context.key,
       version: context.version,
     };
-    await this.provider.putSystemResource({
+    await this.provider.putOperation({
       body,
       dependencies: [dependency],
       digest: sha256(body),
       idempotencyKey: `child-node:${record.nodeEffectId}:${sha256(body)}`,
-      key: nodeResourceKey(record.waveEffectId, record.nodeKey),
-      kind: "system/child-agent-node-intent",
+      key: nodeOperationKey(record.waveEffectId, record.nodeKey),
+      kind: "child-agent/node-intent",
       state: "active",
       version: "v1",
     });
-    /** Result of `this.provider.getOptionalResource`, retained for the write node operation. */
-    const verified = await this.provider.getOptionalResource(
-      nodeResourceKey(record.waveEffectId, record.nodeKey),
+    /** Read-back of the node Operation used to verify persistence. */
+    const verified = await this.provider.getOptionalOperation(
+      nodeOperationKey(record.waveEffectId, record.nodeKey),
     );
     if (
       verified === null ||
@@ -435,8 +435,8 @@ function nodeEffectId(waveEffectId: string, node: ChildAgentNode): string {
 }
 
 /** Builds the deterministic provider key for this durable record. */
-function nodeResourceKey(waveEffectId: string, nodeKey: string): string {
-  return `child-agent-node/${waveEffectId}/${sha256(nodeKey)}`;
+function nodeOperationKey(waveEffectId: string, nodeKey: string): string {
+  return `child-agent/node/${waveEffectId}/${sha256(nodeKey)}`;
 }
 
 /** Returns d receipt or throws when invalid or absent. */

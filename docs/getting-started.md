@@ -78,8 +78,8 @@ without contacting a provider. Commands that accept `--config` default to
 `agent-task-manager.environment.json`.
 
 Apply stores provider-backed step intents and receipts around every mutation.
-Once Resources exists, the full authorized bootstrap session can resume after
-interruption. `--write-environment` atomically fills only the four table IDs
+Once Operations exists, the full authorized bootstrap session can resume after
+interruption. `--write-environment` atomically fills only the five table IDs
 after the provider schema verifies ready; otherwise the proposed patch is
 printed and recorded for a human.
 

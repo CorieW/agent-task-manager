@@ -10,20 +10,6 @@ const RESOURCE_KIND_LABELS = {
   "json-schema": "JSON Schema",
   "invocation-schedule": "Invocation Schedule",
   "agent/context": "Agent / Context",
-  "system/bootstrap": "System / Bootstrap",
-  "system/schema": "System / Schema",
-  "system/workspace-step": "System / Workspace Step",
-  "system/environment-patch": "System / Environment Patch",
-  "system/bootstrap-session": "System / Bootstrap Session",
-  "system/human-interaction-slot": "System / Human Interaction Slot",
-  "system/human-consumption": "System / Human Consumption",
-  "system/external-effect-intent": "System / External Effect Intent",
-  "system/child-agent-node-intent": "System / Child Agent Node Intent",
-  "system/workspace-ownership": "System / Workspace Ownership",
-  "system/lease": "System / Lease",
-  "system/intent": "System / Intent",
-  "system/assignment-intent": "System / Assignment Intent",
-  "system/assignment-budget": "System / Assignment Budget",
 } as const satisfies Readonly<Record<string, string>>;
 
 /** Ordered Notion labels for Resource kinds. */

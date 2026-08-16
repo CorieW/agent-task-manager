@@ -350,7 +350,7 @@ export async function main(
       session?.plan.digest === plan.digest ? session.completedStepIds : [],
     );
     if (
-      (await manager.resolveTableIds()).resources !== undefined &&
+      (await manager.resolveTableIds()).operations !== undefined &&
       completed.size === 0
     ) {
       await manager.recordBootstrapSession(plan, []);

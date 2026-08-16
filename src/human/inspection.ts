@@ -10,10 +10,10 @@ import type {
 } from "./contracts.js";
 import { HumanRecoveryManager } from "./recovery-manager.js";
 import {
-  humanConsumptionResourceKey,
-  humanSlotResourceKey,
-  parseHumanConsumptionResource,
-  parseHumanSlotBaselineResource,
+  humanConsumptionOperationKey,
+  humanRequestOperationKey,
+  parseHumanConsumptionOperation,
+  parseHumanRequestOperation,
 } from "./resource-codec.js";
 import { parseHumanInteractionSlots } from "./slot-codec.js";
 
@@ -68,31 +68,31 @@ export async function inspectHumanRecovery(
   const task = await provider.getTaskSnapshot(taskId);
   /** Result of `parseHumanInteractionSlots`, retained for the inspect human recovery operation. */
   const slots = parseHumanInteractionSlots(task.body);
-  /** Result of `provider.getOptionalResource`, retained for the inspect human recovery operation. */
+  /** Human requests embedded in the current Task body. */
   const inspected: HumanSlotInspection[] = [];
   for (const slot of slots) {
-    /** Result of `provider.getOptionalResource`, retained for the inspect human recovery operation. */
-    const baseline = await provider.getOptionalResource(
-      humanSlotResourceKey(slot.slotId),
+    /** Immutable operational baseline for the visible Task request. */
+    const baseline = await provider.getOptionalOperation(
+      humanRequestOperationKey(slot.slotId),
     );
     /** Mutable flag tracking baseline valid during the inspect human recovery operation. */
     let baselineValid = false;
     if (baseline !== null) {
       try {
-        parseHumanSlotBaselineResource(baseline, slot.slotId);
+        parseHumanRequestOperation(baseline, slot.slotId);
         baselineValid = true;
       } catch {
         baselineValid = false;
       }
     }
-    /** Result of `provider.getOptionalResource`, retained for the inspect human recovery operation. */
-    const consumption = await provider.getOptionalResource(
-      humanConsumptionResourceKey(slot.slotId),
+    /** Exactly-once consumption state for the human response. */
+    const consumption = await provider.getOptionalOperation(
+      humanConsumptionOperationKey(slot.slotId),
     );
-    /** Result of `parseHumanConsumptionResource`, retained for the inspect human recovery operation. */
+    /** Lifecycle state decoded from the consumption Operation. */
     let consumptionState: HumanSlotInspection["consumptionState"] = "none";
     if (consumption !== null) {
-      consumptionState = parseHumanConsumptionResource(
+      consumptionState = parseHumanConsumptionOperation(
         consumption,
         slot.slotId,
       ).state;

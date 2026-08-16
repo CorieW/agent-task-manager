@@ -1,4 +1,4 @@
-/** Persists workspace ownership exclusively in provider Resources for crash recovery. */
+/** Persists workspace ownership in provider Operations for crash recovery. */
 import { canonicalize } from "../core/canonical-json.js";
 import { randomUUID } from "node:crypto";
 import { sha256 } from "../core/digest.js";
@@ -61,19 +61,21 @@ export class ProviderWorkspaceOwnershipStore implements WorkspaceOwnershipStore 
   public async get(
     workspaceKey: string,
   ): Promise<WorkspaceOwnershipRecord | null> {
-    /** Result of `this.provider.getOptionalResource`, retained for the get operation. */
-    const resource = await this.provider.getOptionalResource(key(workspaceKey));
-    if (resource === null) return null;
+    /** Durable ownership operation for the workspace identity. */
+    const operation = await this.provider.getOptionalOperation(
+      key(workspaceKey),
+    );
+    if (operation === null) return null;
     if (
-      resource.kind !== "system/workspace-ownership" ||
-      resource.state !== "active" ||
-      resource.version !== "v1" ||
-      resource.digest !== sha256(resource.body)
+      operation.kind !== "workspace/ownership" ||
+      operation.state !== "active" ||
+      operation.version !== "v1" ||
+      operation.digest !== sha256(operation.body)
     )
       throw new Error(
-        `Workspace ownership Resource is invalid: ${workspaceKey}`,
+        `Workspace ownership Operation is invalid: ${workspaceKey}`,
       );
-    return parse(JSON.parse(resource.body) as unknown, workspaceKey);
+    return parse(JSON.parse(operation.body) as unknown, workspaceKey);
   }
   /** Claims exclusive workspace ownership when no conflicting live owner exists. */
   public async claim(input: {
@@ -142,13 +144,13 @@ export class ProviderWorkspaceOwnershipStore implements WorkspaceOwnershipStore 
   private async write(record: WorkspaceOwnershipRecord): Promise<void> {
     /** Result of `canonicalize`, retained for the write operation. */
     const body = canonicalize(toJsonValue(record));
-    await this.provider.putSystemResource({
+    await this.provider.putOperation({
       body,
       dependencies: [],
       digest: sha256(body),
       idempotencyKey: `workspace-owner:${sha256(body)}`,
       key: key(record.workspaceKey),
-      kind: "system/workspace-ownership",
+      kind: "workspace/ownership",
       state: "active",
       version: "v1",
     });
@@ -170,8 +172,8 @@ export class ProviderWorkspaceOwnershipStore implements WorkspaceOwnershipStore 
       idempotencyKey: `workspace-ownership-claim:${sha256(workspaceKey)}:${ownerId}`,
       ownerId,
       scope: "task_assignment",
-      agentId: "system/workspace-ownership",
-      taskId: `system/workspace/${sha256(workspaceKey)}`,
+      agentId: "manager/workspace-ownership",
+      taskId: `manager/workspace/${sha256(workspaceKey)}`,
     });
     if (!acquired.acquired || acquired.leaseId === null)
       throw new Error(
@@ -191,7 +193,7 @@ export class ProviderWorkspaceOwnershipStore implements WorkspaceOwnershipStore 
 
 /** Validates and returns a bounded provider key. */
 function key(workspaceKey: string): string {
-  return `workspace-ownership/${sha256(workspaceKey)}`;
+  return `workspace/ownership/${sha256(workspaceKey)}`;
 }
 
 /** Ownership keys snapshot used consistently during the the current operation operation. */
