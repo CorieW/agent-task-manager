@@ -1,14 +1,14 @@
 /** Supervises independent child-agent DAG nodes with provider-backed node receipts. */
 import { canonicalize } from "../core/canonical-json.js";
+import {
+  parseAgentContextBody,
+  type AgentContextCatalogEntry,
+} from "../core/agent-context-codec.js";
 import { resolveDefinition } from "../core/definition-resolver.js";
 import { digestJson, sha256 } from "../core/digest.js";
 import { toJsonValue, type JsonObject } from "../domain/json.js";
 import type { ResourceRecord, ResourceRef } from "../domain/records.js";
 import type { AgentTaskProvider } from "../provider/agent-task-provider.js";
-import type {
-  AgentContextBody,
-  AgentContextCatalogEntry,
-} from "../host/agent-context.js";
 import type {
   ExternalEffectControl,
   ExternalEffectObservation,
@@ -487,76 +487,6 @@ export class ProviderChildAgentWaveEffects implements ReconcilableEffectAdapter<
         `Child-agent node write did not verify: ${record.nodeKey}`,
       );
   }
-}
-
-/** Parses the closed, run-bound child-context body before driver exposure. */
-function parseAgentContextBody(value: unknown): AgentContextBody {
-  const record = object(value, "Agent context");
-  exact(record, [
-    "assignmentDepth",
-    "parentActivationDigest",
-    "parentDefinitionDigest",
-    "parentDefinitionId",
-    "parentRunId",
-    "schema",
-    "targetActivationDigest",
-    "targetDefinitionDigest",
-    "targetDefinitionId",
-    "targetResourcePins",
-    "task",
-    "taskId",
-    "taskVersion",
-  ]);
-  if (
-    record.schema !== "agent-context-v1" ||
-    !Number.isSafeInteger(record.assignmentDepth) ||
-    Number(record.assignmentDepth) < 1 ||
-    !Array.isArray(record.targetResourcePins)
-  )
-    throw new TypeError("Agent context schema or assignment depth is invalid");
-  const task = object(record.task, "Agent context Task");
-  const pins = record.targetResourcePins.map((value, index) => {
-    const pin = object(value, `Agent context Resource pin ${index}`);
-    exact(pin, ["digest", "key", "version"]);
-    return {
-      digest: digest(pin.digest, `Agent context pin ${index} digest`),
-      key: string(pin.key, `Agent context pin ${index} key`),
-      version: string(pin.version, `Agent context pin ${index} version`),
-    };
-  });
-  return {
-    assignmentDepth: Number(record.assignmentDepth),
-    parentActivationDigest: digest(
-      record.parentActivationDigest,
-      "Agent context parentActivationDigest",
-    ),
-    parentDefinitionDigest: digest(
-      record.parentDefinitionDigest,
-      "Agent context parentDefinitionDigest",
-    ),
-    parentDefinitionId: string(
-      record.parentDefinitionId,
-      "Agent context parentDefinitionId",
-    ),
-    parentRunId: string(record.parentRunId, "Agent context parentRunId"),
-    schema: "agent-context-v1",
-    targetActivationDigest: digest(
-      record.targetActivationDigest,
-      "Agent context targetActivationDigest",
-    ),
-    targetDefinitionDigest: digest(
-      record.targetDefinitionDigest,
-      "Agent context targetDefinitionDigest",
-    ),
-    targetDefinitionId: string(
-      record.targetDefinitionId,
-      "Agent context targetDefinitionId",
-    ),
-    targetResourcePins: pins,
-    task,
-    taskId: string(record.taskId, "Agent context taskId"),
-    taskVersion: string(record.taskVersion, "Agent context taskVersion"),
-  };
 }
 
 /** Builds the deterministic provider key for this durable record. */

@@ -1,52 +1,20 @@
 /** Materializes immutable, digest-pinned Agent contexts for trusted child-wave execution. */
 import { canonicalize } from "../core/canonical-json.js";
+import {
+  AGENT_CONTEXT_SCHEMA,
+  type AgentContextBody,
+  type AgentContextCatalogEntry,
+} from "../core/agent-context-codec.js";
 import { digestJson, sha256 } from "../core/digest.js";
 import type { ActivatedDefinition } from "../core/definition-activation.js";
 import { toJsonValue, type JsonObject } from "../domain/json.js";
 import type { ResourceRecord, TaskSnapshot } from "../domain/records.js";
 import type { AgentTaskProvider } from "../provider/agent-task-provider.js";
 
-/** Catalog entry supplied to a parent Agent before it proposes a child wave. */
-export interface AgentContextCatalogEntry {
-  /** Digest of the immutable context body. */
-  readonly contextDigest: string;
-  /** Provider Resource key containing the context. */
-  readonly contextResource: string;
-  /** Resource version pinned by the child-wave request. */
-  readonly contextVersion: string;
-  /** Child Agent definition represented by the context. */
-  readonly definitionId: string;
-}
-
-/** Canonical body persisted for one child Agent context. */
-export interface AgentContextBody {
-  /** Child assignment depth derived from the authorized parent run. */
-  readonly assignmentDepth: number;
-  /** Parent Agent activation authorizing delegation. */
-  readonly parentActivationDigest: string;
-  /** Digest of the resolved parent definition and its Resource graph. */
-  readonly parentDefinitionDigest: string;
-  /** Parent Agent definition that owns the delegation. */
-  readonly parentDefinitionId: string;
-  /** Live parent run identity that owns this context. */
-  readonly parentRunId: string;
-  /** Wire schema for this context. */
-  readonly schema: "agent-context-v1";
-  /** Immutable Task snapshot delegated to the child. */
-  readonly task: JsonObject;
-  /** Task identity repeated for closed authority checks. */
-  readonly taskId: string;
-  /** Task version frozen by the parent assignment. */
-  readonly taskVersion: string;
-  /** Child activation selected for this context. */
-  readonly targetActivationDigest: string;
-  /** Child definition digest selected for this context. */
-  readonly targetDefinitionDigest: string;
-  /** Child definition authorized to consume this exact context. */
-  readonly targetDefinitionId: string;
-  /** Exact child Resource pins validated during activation. */
-  readonly targetResourcePins: readonly JsonObject[];
-}
+export type {
+  AgentContextBody,
+  AgentContextCatalogEntry,
+} from "../core/agent-context-codec.js";
 
 /** Persists and verifies one context per eligible child definition. */
 export async function materializeAgentContexts(input: {
@@ -85,22 +53,23 @@ export async function materializeAgentContexts(input: {
       throw new Error(
         `Agent context target cannot accept this delegation: ${target.resolved.definition.id}`,
       );
+    const targetResourcePins = target.resolved.resources.map(
+      ({ digest, key, version }) => ({ digest, key, version }),
+    );
     const bodyObject: AgentContextBody = {
       assignmentDepth: input.assignmentDepth + 1,
       parentActivationDigest: input.parent.digest,
       parentDefinitionDigest: input.parent.resolved.digest,
       parentDefinitionId: input.parent.resolved.definition.id,
       parentRunId: input.parentRunId,
-      schema: "agent-context-v1",
+      schema: AGENT_CONTEXT_SCHEMA,
       task: toJsonValue(input.task) as JsonObject,
       taskId: input.task.id,
       taskVersion: input.task.version,
       targetActivationDigest: target.digest,
       targetDefinitionDigest: target.resolved.digest,
       targetDefinitionId: target.resolved.definition.id,
-      targetResourcePins: target.resolved.resources.map(
-        ({ digest, key, version }) => ({ digest, key, version }),
-      ),
+      targetResourcePins,
     };
     const body = canonicalize(toJsonValue(bodyObject));
     const digest = sha256(body);
@@ -115,9 +84,7 @@ export async function materializeAgentContexts(input: {
     )}`;
     await input.provider.putResource({
       body,
-      dependencies: target.resolved.resources.map(
-        ({ digest, key, version }) => ({ digest, key, version }),
-      ),
+      dependencies: targetResourcePins,
       digest,
       idempotencyKey: `materialize:${key}:${digest}`,
       key,

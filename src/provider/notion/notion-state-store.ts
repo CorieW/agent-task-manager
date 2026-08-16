@@ -275,6 +275,8 @@ export class NotionStateStore {
     return this.mutex.run(async () => {
       canonicalTimestamp(request.expectedExpiresAt, "Lease expectedExpiresAt");
       canonicalTimestamp(request.nextExpiresAt, "Lease nextExpiresAt");
+      const expectedExpiresAtMs = Date.parse(request.expectedExpiresAt);
+      const nextExpiresAtMs = Date.parse(request.nextExpiresAt);
       /** Result of `this.beginIntent`, retained for `renewLease`. */
       const prior = await this.beginIntent(
         request.idempotencyKey,
@@ -292,8 +294,8 @@ export class NotionStateStore {
         located.record.expiresAt !== request.expectedExpiresAt ||
         located.record.releasedAt !== null ||
         Date.parse(located.record.expiresAt) <= this.now().getTime() ||
-        !isLater(request.nextExpiresAt, request.expectedExpiresAt) ||
-        Date.parse(request.nextExpiresAt) <= this.now().getTime()
+        nextExpiresAtMs <= expectedExpiresAtMs ||
+        nextExpiresAtMs <= this.now().getTime()
       ) {
         result = {
           acquired: false,
@@ -686,13 +688,6 @@ function requiredTaskId(value: {
   if (value.taskId === null)
     throw new TypeError("Task-assignment lease requires taskId");
   return value.taskId;
-}
-
-/** Reports whether one timestamp is valid and later than another. */
-function isLater(next: string, previous: string): boolean {
-  return (
-    Number.isFinite(Date.parse(next)) && Date.parse(next) > Date.parse(previous)
-  );
 }
 
 /** Returns an object after enforcing its exact field set. */

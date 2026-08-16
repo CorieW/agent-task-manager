@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-/** Implements the command-line boundary for workspace validation, schema changes, inspection, and explicit recovery. */
+/** Implements workspace operations, explicit recovery, and managed Agent execution through the command line. */
 import { randomUUID } from "node:crypto";
 import { readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";

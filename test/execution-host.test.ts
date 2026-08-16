@@ -65,21 +65,7 @@ const activationRuntime: ActivationRuntime = {
 
 test("runs an explicit Agent through effects, outcome routing, and cleanup", async () => {
   /** Isolated provider containing one eligible Task and Agent. */
-  const provider = new InMemoryProvider(providerEnvironment, schema);
-  provider.seedDefinition(agentDefinition());
-  provider.seedTaskStatusOptions(["Done", "Ready"]);
-  provider.seedTask({
-    archived: false,
-    body: "Do the bounded work.",
-    dependencies: [],
-    id: "task-1",
-    priority: 1,
-    properties: { Status: "Ready" },
-    status: "Ready",
-    title: "Task 001",
-    version: "task-v1",
-  });
-  for (const record of resources()) await provider.putResource(record);
+  const provider = await executionProvider();
   /** Parsed runtime environment supplied to the execution request. */
   const config = environmentConfig();
   /** Registered no-tool model adapter returning one schema-valid result. */
