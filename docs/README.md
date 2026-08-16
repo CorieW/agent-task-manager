@@ -17,6 +17,8 @@ workflow and agent behavior.
   Git, commands, browser operations, publication, and child-agent waves.
 - [Human interaction and recovery](human-recovery.md) — canonical slots,
   allowed-delta consumption, inspection, and manual recovery.
+- [Review-cycle guards](review-cycles.md) — bounded remediation rounds,
+  canonical finding identities, and human-resolution escalation.
 - [Provider conformance and identification trials](provider-conformance.md) —
   emulator coverage and the read-only ten-Task trial harness.
 - [Public API](public-api.md) — package-root exports and host integration entry

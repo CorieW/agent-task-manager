@@ -3,8 +3,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  DEFAULT_REVIEW_CYCLE_POLICY,
   InMemoryProvider,
   OutcomeTransitionBroker,
+  ReviewCycleLimitError,
   type ProviderEnvironment,
   type AgentDefinition,
   type WorkspaceSchemaDescriptor,
@@ -97,8 +99,128 @@ test("routes ordinary outcomes without accepting human recovery payloads", async
   assert.equal((await provider.getTaskSnapshot("task-1")).status, "Review");
 });
 
+test("persists review-cycle state with a changes-requested transition", async () => {
+  /** Defines the provider fixture for the review-cycle transition. */
+  const provider = providerWithTask("Review");
+  /** Defines the broker fixture for the review-cycle transition. */
+  const broker = new OutcomeTransitionBroker(provider);
+  await broker.apply({
+    definition: reviewDefinition(),
+    idempotencyKey: "review-round-1",
+    kind: "task_transition",
+    outcome: "changes_requested",
+    reviewCycle: { findingKeys: ["cleanliness:src/a.ts:duplicate"] },
+    taskId: "task-1",
+  });
+
+  /** Reads the atomically advanced Task state. */
+  const task = await provider.getTaskSnapshot("task-1");
+  assert.equal(task.status, "Coding");
+  assert.equal(task.properties[DEFAULT_REVIEW_CYCLE_POLICY.roundProperty], 1);
+  assert.equal(
+    task.properties[DEFAULT_REVIEW_CYCLE_POLICY.repeatCountProperty],
+    1,
+  );
+  assert.equal(
+    task.properties[DEFAULT_REVIEW_CYCLE_POLICY.findingKeysProperty],
+    '["cleanliness:src/a.ts:duplicate"]',
+  );
+  assert.match(
+    String(task.properties[DEFAULT_REVIEW_CYCLE_POLICY.findingsDigestProperty]),
+    /^[a-f0-9]{64}$/u,
+  );
+});
+
+test("persists review-cycle state when the routed status is unchanged", async () => {
+  /** Defines a review outcome that deliberately remains in Review. */
+  const reviewInPlaceDefinition = {
+    ...reviewDefinition(),
+    transitions: {
+      ...reviewDefinition().transitions,
+      changes_requested: "Review",
+    },
+  };
+  /** Defines the provider fixture for an in-place review transition. */
+  const provider = providerWithTask("Review");
+  /** Defines the broker fixture for an in-place review transition. */
+  const broker = new OutcomeTransitionBroker(provider);
+
+  await broker.apply({
+    definition: reviewInPlaceDefinition,
+    idempotencyKey: "review-in-place",
+    kind: "task_transition",
+    outcome: "changes_requested",
+    reviewCycle: { findingKeys: ["branch:src/a.ts:race"] },
+    taskId: "task-1",
+  });
+
+  /** Reads the Task after the same-status conditional mutation. */
+  const task = await provider.getTaskSnapshot("task-1");
+  assert.equal(task.status, "Review");
+  assert.equal(task.properties[DEFAULT_REVIEW_CYCLE_POLICY.roundProperty], 1);
+});
+
+test("blocks a repeated finding set before another coding round", async () => {
+  /** Defines the provider fixture for repeated review findings. */
+  const provider = providerWithTask("Review", {
+    "Review Finding Keys": '["branch:src/a.ts:race"]',
+    "Review Findings Digest":
+      "6e2f9539d5ff95a9793f4fb415edf5c93ce09abc5e7f5f44c9e477cdd8a5dd57",
+    "Review Repeat Count": 1,
+    "Review Round": 1,
+  });
+  /** Defines the broker fixture for repeated review findings. */
+  const broker = new OutcomeTransitionBroker(provider);
+
+  await assert.rejects(
+    broker.apply({
+      definition: reviewDefinition(),
+      idempotencyKey: "review-repeat",
+      kind: "task_transition",
+      outcome: "changes_requested",
+      reviewCycle: { findingKeys: ["branch:src/a.ts:race"] },
+      taskId: "task-1",
+    }),
+    (error: unknown) =>
+      error instanceof ReviewCycleLimitError &&
+      error.reason === "identical_findings_repeated",
+  );
+  assert.equal((await provider.getTaskSnapshot("task-1")).status, "Review");
+});
+
+test("blocks review cycles after three changes-requested rounds", async () => {
+  /** Defines the provider fixture at the automatic review-round ceiling. */
+  const provider = providerWithTask("Review", {
+    "Review Finding Keys": '["readability:src/a.ts:naming"]',
+    "Review Findings Digest":
+      "843b894a6ea76cafa05041ef37f989735d92517040e4740a086c0ef13a520195",
+    "Review Repeat Count": 1,
+    "Review Round": 3,
+  });
+  /** Defines the broker fixture at the automatic review-round ceiling. */
+  const broker = new OutcomeTransitionBroker(provider);
+
+  await assert.rejects(
+    broker.apply({
+      definition: reviewDefinition(),
+      idempotencyKey: "review-round-limit",
+      kind: "task_transition",
+      outcome: "changes_requested",
+      reviewCycle: { findingKeys: ["branch:src/b.ts:validation"] },
+      taskId: "task-1",
+    }),
+    (error: unknown) =>
+      error instanceof ReviewCycleLimitError &&
+      error.reason === "review_round_limit",
+  );
+  assert.equal((await provider.getTaskSnapshot("task-1")).status, "Review");
+});
+
 /** Creates the provider with task test fixture. */
-function providerWithTask(): InMemoryProvider {
+function providerWithTask(
+  status = "Coding",
+  properties: Record<string, string | number> = {},
+): InMemoryProvider {
   /** Defines the provider fixture used by provider with task. */
   const provider = new InMemoryProvider(environment, target);
   provider.seedTaskStatusOptions([
@@ -112,12 +234,27 @@ function providerWithTask(): InMemoryProvider {
     dependencies: [],
     id: "task-1",
     priority: 1,
-    properties: { Status: "Coding" },
-    status: "Coding",
+    properties: { ...properties, Status: status },
+    status,
     title: "Task",
     version: "v1",
   });
   return provider;
+}
+
+/** Creates the review Agent definition fixture. */
+function reviewDefinition(): AgentDefinition {
+  return {
+    ...definition(),
+    humanResolutionOutcomes: ["blocked"],
+    id: "reviewer",
+    name: "Reviewer",
+    transitions: {
+      blocked: "Needs Human Resolution",
+      changes_requested: "Coding",
+      succeeded: "Testing",
+    },
+  };
 }
 
 /** Creates an Agent definition fixture. */

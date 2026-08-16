@@ -43,6 +43,8 @@ helpers, and trial contracts.
 ## Human recovery
 
 - `OutcomeTransitionBroker` and `HumanRecoveryManager`
+- `advanceReviewCycle`, `readReviewCycleState`,
+  `DEFAULT_REVIEW_CYCLE_POLICY`, and `ReviewCycleLimitError`
 - slot creation, parsing, rendering, and allowed-delta verification
 - `inspectHumanRecovery`, `inspectAgentActivity`, and `inspectLease`
 - `reconcileHumanResponse`, `reconcileActivity`, and `reconcileLease`

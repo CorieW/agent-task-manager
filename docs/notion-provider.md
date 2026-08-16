@@ -28,7 +28,8 @@ renamed independently in Notion.
 Project-specific columns are additive and remain provider data rather than core
 role logic. The Perfect Project v4 workspace additionally uses Task governance
 fields (`Type`, `Scope`, `Acceptance Criteria`, `GitHub Links`, `Owner`,
-`Required Approval`, `Created At`, and `Closed At`), Error
+`Required Approval`, `Review Round`, `Review Finding Keys`,
+`Review Findings Digest`, `Review Repeat Count`, `Created At`, and `Closed At`), Error
 ownership/fix tracking, and Resource ownership/source/review tracking. Its Task
 `Status` select carries both active workflow states and terminal outcomes:
 `Completed`, `Cancelled`, `Duplicate`, `Not reproducible`, and `Superseded`.

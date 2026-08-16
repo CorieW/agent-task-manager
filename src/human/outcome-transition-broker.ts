@@ -4,6 +4,10 @@ import { taskPropertiesWithStatus } from "../core/task-properties.js";
 import type { ErrorMutation, AgentDefinition } from "../domain/records.js";
 import type { AgentTaskProvider } from "../provider/agent-task-provider.js";
 import { HumanRecoveryManager } from "./recovery-manager.js";
+import {
+  advanceReviewCycle,
+  type ReviewCyclePolicy,
+} from "./review-cycle-guard.js";
 
 /** Defines the data and behavior required by blocked outcome resolution. */
 export interface BlockedOutcomeResolution {
@@ -48,6 +52,13 @@ export interface OrdinaryTransitionInput extends OutcomeTransitionBase {
   readonly idempotencyKey: string;
   /** Discriminates the kind variant. */
   readonly kind: "task_transition";
+  /** Optional confirmed finding identities recorded atomically with a review failure. */
+  readonly reviewCycle?: {
+    /** Stable canonical identities for every confirmed finding in this review result. */
+    readonly findingKeys: readonly string[];
+    /** Provider-neutral Task-property names and loop limits. */
+    readonly policy?: ReviewCyclePolicy;
+  };
 }
 
 /** Enumerates the supported outcome transition input variants. */
@@ -137,18 +148,30 @@ export class OutcomeTransitionBroker {
       throw new Error(
         `Outcome ${input.outcome} requires a durable human resolution request`,
       );
-    if (targetStatus === task.status)
+    if (targetStatus === task.status && input.reviewCycle === undefined)
       return {
         humanSlotId: null,
         kind: "task_transition",
         targetStatus,
         taskVersion: task.version,
       };
+    /** Advances review state in the same conditional write as the status transition. */
+    const nextTaskProperties =
+      input.reviewCycle === undefined
+        ? task.properties
+        : advanceReviewCycle(
+            task.properties,
+            input.reviewCycle.findingKeys,
+            input.reviewCycle.policy,
+          ).nextProperties;
     await this.provider.applyTaskMutation({
       expectedVersion: task.version,
       idempotencyKey: input.idempotencyKey,
       nextBody: null,
-      nextProperties: taskPropertiesWithStatus(task.properties, targetStatus),
+      nextProperties: taskPropertiesWithStatus(
+        nextTaskProperties,
+        targetStatus,
+      ),
       nextStatus: targetStatus,
       taskId: task.id,
     });
