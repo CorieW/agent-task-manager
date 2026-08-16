@@ -90,6 +90,43 @@ test("persists replayable leases and restart-visible intent outcomes", async () 
   );
 });
 
+test("rejects noncanonical lease timestamps before durable intent creation", async () => {
+  /** Captures Notion state writes made by lease preflight. */
+  const transport = new ResourceTransport();
+  /** Freezes the provider clock before both candidate expiries. */
+  const now = () => new Date("2026-01-01T00:00:00.000Z");
+  /** Executes the canonical timestamp boundary under test. */
+  const state = new NotionStateStore(
+    new NotionPageStore(TABLES, transport, now),
+    new SingleHostMutex(`state-${randomUUID()}`),
+    now,
+  );
+  /** Shares one idempotency key across rejected preflight and valid retry. */
+  const request = {
+    expiresAt: "2026-01-01T01:00:00Z",
+    idempotencyKey: "canonical-acquire",
+    ownerId: "run-1",
+    scope: "agent_run" as const,
+    agentId: "agent-1",
+    taskId: null,
+  };
+
+  await assert.rejects(state.acquireLease(request), /canonical UTC timestamp/u);
+  assert.equal(
+    (await state.reconcileIntent(request.idempotencyKey)).state,
+    "not_applied",
+  );
+  assert.equal(
+    (
+      await state.acquireLease({
+        ...request,
+        expiresAt: "2026-01-01T01:00:00.000Z",
+      })
+    ).acquired,
+    true,
+  );
+});
+
 test("persists restart-visible logical operation plans and results", async () => {
   /** Retains Resource rows across simulated provider restarts. */
   const transport = new ResourceTransport();

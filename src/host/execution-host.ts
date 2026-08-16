@@ -1,20 +1,28 @@
 /** Composes one explicit Agent assignment through dispatch, effects, outcome routing, and cleanup. */
 import type { EnvironmentConfig } from "../config/environment.js";
+import { canonicalize } from "../core/canonical-json.js";
 import {
   activateDefinitions,
   type ActivatedDefinition,
 } from "../core/definition-activation.js";
-import { sha256 } from "../core/digest.js";
+import { digestJson, sha256 } from "../core/digest.js";
 import {
   finalizeExplicitAssignment,
   prepareSelection,
   promoteExplicitAssignment,
   type ActivationRuntime,
   type AssignmentPromotion,
+  type ExplicitAssignment,
+  type SelectionContext,
 } from "../core/selection-coordinator.js";
-import type { JsonObject } from "../domain/json.js";
-import type { TaskSnapshot } from "../domain/records.js";
+import {
+  toJsonValue,
+  type JsonObject,
+  type JsonValue,
+} from "../domain/json.js";
+import type { ResourceMutation, TaskSnapshot } from "../domain/records.js";
 import type { ExternalEffectExecution } from "../effects/contracts.js";
+import { finalizeRequest } from "../effects/external-effect-broker.js";
 import {
   OutcomeTransitionBroker,
   type BlockedOutcomeResolution,
@@ -25,9 +33,11 @@ import type { AgentTaskProvider } from "../provider/agent-task-provider.js";
 import type { AgentResult } from "../runtime/contracts.js";
 import {
   dispatchActivatedAgent,
+  verifyLiveAssignment,
   type DispatchResult,
 } from "../runtime/dispatcher.js";
 import type { ResolvedRuntimeEnvironment } from "../runtime/environment.js";
+import { withSingleHostExecutionLock } from "./single-host-execution-lock.js";
 
 /** Inputs available while a trusted host prepares one assigned Agent run. */
 export interface AgentExecutionPreparationInput {
@@ -134,6 +144,29 @@ export interface AgentExecutionReport {
   readonly transition: OutcomeTransitionReceipt;
 }
 
+/** Durable checkpoints for a resumable execution after assignment promotion. */
+interface AgentExecutionCheckpoint {
+  /** Frozen explicit assignment prepared before any lease acquisition. */
+  readonly assignment: ExplicitAssignment;
+  /** Applied effect identities, or null before the effect sequence is durable. */
+  readonly effectIds: readonly string[] | null;
+  /** Completed assignment authorizing this execution, or null before promotion. */
+  readonly promotion: AssignmentPromotion | null;
+  /** Immutable validated Agent result, or null before dispatch completes. */
+  readonly result: AgentResult | null;
+  /** Digest of the immutable caller request bound to the operation key. */
+  readonly requestDigest: string;
+  /** Wire schema for execution checkpoints. */
+  readonly schema: "agent-execution-checkpoint-v1";
+  /** Immutable selection basis used to replay promotion after interruption. */
+  readonly selectionContext: SelectionContext;
+  /** Durable outcome receipt, or null before routing completes. */
+  readonly transition: OutcomeTransitionReceipt | null;
+}
+
+/** Stable operation name used by the provider's terminal execution journal. */
+const EXECUTION_OPERATION = "agent_execution";
+
 /** Runs one explicit assignment through every trusted manager-owned boundary. */
 export async function runExplicitAgentTask(input: {
   /** Environment-specific runtime and effect bindings. */
@@ -141,88 +174,16 @@ export async function runExplicitAgentTask(input: {
   /** Stable execution request. */
   readonly request: AgentExecutionRequest;
 }): Promise<AgentExecutionReport> {
-  validateRequest(input.request);
   const { bindings, request } = input;
-  const runId = `run-${sha256(request.operationKey)}`;
   let primaryError: unknown;
   try {
-    const activatedDefinitions = await activateDefinitions({
-      ...bindings.activationRuntime,
-      definitionIds: [request.agentId],
-      provider: request.provider,
-    });
-    const activated = activatedDefinitions[0];
-    if (activated === undefined)
-      throw new Error(`Agent definition is unavailable: ${request.agentId}`);
-    const selectionContext = await prepareSelection(
-      request.provider,
-      activated.resolved,
-      activatedDefinitions,
+    validateRequestShape(request);
+    const lockIdentity = `execution-${sha256(
+      `${request.config.environmentId}\0${request.operationKey}`,
+    )}`;
+    return await withSingleHostExecutionLock(lockIdentity, () =>
+      runLocked(bindings, request),
     );
-    const assignment = finalizeExplicitAssignment({
-      authorityId: runId,
-      idempotencyKey: `${request.operationKey}:assignment`,
-      schema: "explicit-assignment-v1",
-      selectionBasisDigest: selectionContext.basisDigest,
-      targetAgentId: request.agentId,
-      targetAgentRevision: activated.resolved.definition.revision,
-      taskId: request.taskId,
-    });
-    const promotion = await promoteExplicitAssignment({
-      activationRuntime: bindings.activationRuntime,
-      assignment,
-      assignmentDepth: request.assignmentDepth,
-      expiresAt: request.expiresAt,
-      ownerId: runId,
-      provider: request.provider,
-      resolvedTarget: activated.resolved,
-      selectionContext,
-    });
-    const task = await request.provider.getTaskSnapshot(request.taskId);
-    const prepared = await bindings.prepare({
-      activated,
-      config: request.config,
-      promotion,
-      provider: request.provider,
-      task,
-    });
-    const deadlineAt =
-      Date.now() + activated.resolved.definition.deadlineSeconds * 1_000;
-    const dispatched = await dispatchActivatedAgent({
-      activated,
-      activationRuntime: bindings.activationRuntime,
-      additionalInput: prepared.additionalInput,
-      promotion,
-      provider: request.provider,
-      runtime: prepared.runtime,
-    });
-    const effects = await bindings.executeEffects({
-      deadlineAt,
-      result: dispatched.result,
-    });
-    assertAppliedEffects(dispatched.result, effects);
-    const transition = await applyOutcome({
-      bindings,
-      dispatched,
-      operationKey: request.operationKey,
-      provider: request.provider,
-      task,
-      taskId: request.taskId,
-      activated,
-    });
-    await releaseAssignment(request.provider, promotion, request.operationKey);
-    return {
-      agentId: request.agentId,
-      contextDigest: dispatched.contextDigest,
-      effectIds: effects.map((effect) => effect.request.effectId),
-      operationKey: request.operationKey,
-      outcome: dispatched.result.outcome,
-      resultDigest: dispatched.result.digest,
-      runId,
-      schema: "agent-execution-report-v1",
-      taskId: request.taskId,
-      transition,
-    };
   } catch (error) {
     primaryError = error;
     throw error;
@@ -242,12 +203,469 @@ export async function runExplicitAgentTask(input: {
   }
 }
 
+/** Advances or replays one execution while its same-host claim is held. */
+async function runLocked(
+  bindings: AgentExecutionBindings,
+  request: AgentExecutionRequest,
+): Promise<AgentExecutionReport> {
+  const runId = `run-${sha256(request.operationKey)}`;
+  const requestPayload = executionRequestPayload(request);
+  const requestDigest = digestJson(requestPayload);
+  const intentId = executionIntentId(request);
+  const existingIntent = await request.provider.getOperationIntent(intentId);
+  if (existingIntent?.state === "applied") {
+    assertExecutionIntent(
+      existingIntent.operation,
+      existingIntent.payload,
+      requestPayload,
+    );
+    return parseExecutionReport(existingIntent.result);
+  }
+  if (existingIntent === null) validateFutureExpiry(request.expiresAt);
+  const intent = await request.provider.beginOperationIntent(
+    intentId,
+    EXECUTION_OPERATION,
+    requestPayload,
+  );
+  if (intent.state === "applied") return parseExecutionReport(intent.result);
+
+  let checkpoint = await readExecutionCheckpoint(
+    request.provider,
+    request,
+    requestDigest,
+  );
+  if (checkpoint !== null && checkpoint.transition !== null)
+    return completeExecution(
+      request,
+      runId,
+      intentId,
+      requestPayload,
+      checkpoint,
+    );
+
+  const activatedDefinitions = await activateDefinitions({
+    ...bindings.activationRuntime,
+    definitionIds: [request.agentId],
+    provider: request.provider,
+  });
+  const activated = activatedDefinitions[0];
+  if (activated === undefined)
+    throw new Error(`Agent definition is unavailable: ${request.agentId}`);
+
+  if (checkpoint === null) {
+    validateFutureExpiry(request.expiresAt);
+    const selectionContext = await prepareSelection(
+      request.provider,
+      activated.resolved,
+      activatedDefinitions,
+    );
+    const assignment = finalizeExplicitAssignment({
+      authorityId: runId,
+      idempotencyKey: `${request.operationKey}:assignment`,
+      schema: "explicit-assignment-v1",
+      selectionBasisDigest: selectionContext.basisDigest,
+      targetAgentId: request.agentId,
+      targetAgentRevision: activated.resolved.definition.revision,
+      taskId: request.taskId,
+    });
+    checkpoint = {
+      assignment,
+      effectIds: null,
+      promotion: null,
+      requestDigest,
+      result: null,
+      schema: "agent-execution-checkpoint-v1",
+      selectionContext,
+      transition: null,
+    };
+    await writeExecutionCheckpoint(request.provider, request, checkpoint);
+  }
+
+  if (
+    checkpoint.assignment.targetAgentId !== request.agentId ||
+    checkpoint.assignment.taskId !== request.taskId ||
+    checkpoint.assignment.authorityId !== runId
+  )
+    throw new Error(
+      "Execution checkpoint assignment conflicts with the request",
+    );
+
+  if (checkpoint.promotion === null) {
+    validateFutureExpiry(request.expiresAt);
+    const promotion = await promoteExplicitAssignment({
+      activationRuntime: bindings.activationRuntime,
+      assignment: checkpoint.assignment,
+      assignmentDepth: request.assignmentDepth,
+      expiresAt: request.expiresAt,
+      ownerId: runId,
+      provider: request.provider,
+      resolvedTarget: activated.resolved,
+      selectionContext: checkpoint.selectionContext,
+    });
+    checkpoint = { ...checkpoint, promotion };
+    await writeExecutionCheckpoint(request.provider, request, checkpoint);
+  }
+  const promotion = requiredCheckpointValue(checkpoint.promotion, "promotion");
+
+  if (checkpoint.result === null) {
+    const task = await exactPromotedTask(
+      request.provider,
+      promotion,
+      activated,
+      bindings.activationRuntime,
+    );
+    const prepared = await bindings.prepare({
+      activated,
+      config: request.config,
+      promotion,
+      provider: request.provider,
+      task,
+    });
+    const dispatched = await dispatchActivatedAgent({
+      activated,
+      activationRuntime: bindings.activationRuntime,
+      additionalInput: prepared.additionalInput,
+      promotion,
+      provider: request.provider,
+      runtime: prepared.runtime,
+    });
+    checkpoint = { ...checkpoint, result: dispatched.result };
+    await writeExecutionCheckpoint(request.provider, request, checkpoint);
+  }
+  const result = requiredCheckpointValue(checkpoint.result, "Agent result");
+
+  if (checkpoint.effectIds === null) {
+    await exactPromotedTask(
+      request.provider,
+      promotion,
+      activated,
+      bindings.activationRuntime,
+    );
+    const effects = await bindings.executeEffects({
+      deadlineAt:
+        Date.now() + activated.resolved.definition.deadlineSeconds * 1_000,
+      result,
+    });
+    assertAppliedEffects(result, effects);
+    checkpoint = {
+      ...checkpoint,
+      effectIds: effects.map((effect) => effect.request.effectId),
+    };
+    await writeExecutionCheckpoint(request.provider, request, checkpoint);
+  }
+
+  if (checkpoint.transition === null) {
+    const task = await exactPromotedTask(
+      request.provider,
+      promotion,
+      activated,
+      bindings.activationRuntime,
+    );
+    const dispatched = {
+      contextDigest: result.contextDigest,
+      result,
+    };
+    const transition = await applyOutcome({
+      activated,
+      bindings,
+      dispatched,
+      operationKey: request.operationKey,
+      promotion,
+      provider: request.provider,
+      task,
+      taskId: request.taskId,
+    });
+    checkpoint = { ...checkpoint, transition };
+    await writeExecutionCheckpoint(request.provider, request, checkpoint);
+  }
+
+  return completeExecution(
+    request,
+    runId,
+    intentId,
+    requestPayload,
+    checkpoint,
+  );
+}
+
+/** Completes idempotent lease cleanup and persists the terminal report. */
+async function completeExecution(
+  request: AgentExecutionRequest,
+  runId: string,
+  intentId: string,
+  requestPayload: JsonValue,
+  checkpoint: AgentExecutionCheckpoint,
+): Promise<AgentExecutionReport> {
+  const promotion = requiredCheckpointValue(checkpoint.promotion, "promotion");
+  const result = requiredCheckpointValue(checkpoint.result, "Agent result");
+  await releaseAssignment(request.provider, promotion, request.operationKey);
+  const effectIds = requiredCheckpointValue(
+    checkpoint.effectIds,
+    "effect receipts",
+  );
+  const transition = requiredCheckpointValue(
+    checkpoint.transition,
+    "outcome transition",
+  );
+  const report: AgentExecutionReport = {
+    agentId: request.agentId,
+    contextDigest: result.contextDigest,
+    effectIds,
+    operationKey: request.operationKey,
+    outcome: result.outcome,
+    resultDigest: result.digest,
+    runId,
+    schema: "agent-execution-report-v1",
+    taskId: request.taskId,
+    transition,
+  };
+  const completed = await request.provider.completeOperationIntent(
+    intentId,
+    EXECUTION_OPERATION,
+    requestPayload,
+    toJsonValue(report),
+  );
+  return parseExecutionReport(completed.result);
+}
+
+/** Returns a completed checkpoint field or rejects corrupt phase ordering. */
+function requiredCheckpointValue<T>(value: T | null, label: string): T {
+  if (value === null)
+    throw new Error(`Agent execution checkpoint is missing ${label}`);
+  return value;
+}
+
+/** Builds the immutable provider payload bound to an execution operation key. */
+function executionRequestPayload(request: AgentExecutionRequest): JsonValue {
+  return toJsonValue({
+    agentId: request.agentId,
+    assignmentDepth: request.assignmentDepth,
+    configDigest: digestJson(toJsonValue(request.config)),
+    environmentId: request.config.environmentId,
+    expiresAt: request.expiresAt,
+    operationKey: request.operationKey,
+    taskId: request.taskId,
+  });
+}
+
+/** Addresses the provider operation that owns terminal execution replay. */
+function executionIntentId(request: AgentExecutionRequest): string {
+  return `agent-execution:${digestJson(
+    toJsonValue({
+      environmentId: request.config.environmentId,
+      operationKey: request.operationKey,
+    }),
+  )}`;
+}
+
+/** Addresses the mutable, forward-only execution checkpoint Resource. */
+function executionCheckpointKey(request: AgentExecutionRequest): string {
+  return `agent-execution/${sha256(executionIntentId(request))}`;
+}
+
+/** Confirms an existing terminal operation belongs to the caller's exact request. */
+function assertExecutionIntent(
+  operation: string,
+  actualPayload: JsonValue,
+  expectedPayload: JsonValue,
+): void {
+  if (
+    operation !== EXECUTION_OPERATION ||
+    digestJson(actualPayload) !== digestJson(expectedPayload)
+  )
+    throw new Error(
+      "Execution operation key was reused with a different request",
+    );
+}
+
+/** Loads and validates the last durable execution phase, if one exists. */
+async function readExecutionCheckpoint(
+  provider: AgentTaskProvider,
+  request: AgentExecutionRequest,
+  requestDigest: string,
+): Promise<AgentExecutionCheckpoint | null> {
+  const key = executionCheckpointKey(request);
+  const resource = await provider.getOptionalResource(key);
+  if (resource === null) return null;
+  if (
+    resource.key !== key ||
+    resource.kind !== "system/intent" ||
+    resource.state !== "active" ||
+    resource.version !== "v1" ||
+    resource.dependencies.length !== 0 ||
+    resource.digest !== sha256(resource.body)
+  )
+    throw new Error("Agent execution checkpoint Resource is invalid");
+  const checkpoint = parseExecutionCheckpoint(JSON.parse(resource.body));
+  if (checkpoint.requestDigest !== requestDigest)
+    throw new Error(
+      "Execution operation key was reused with a different request",
+    );
+  return checkpoint;
+}
+
+/** Persists and read-after-write verifies one forward execution checkpoint. */
+async function writeExecutionCheckpoint(
+  provider: AgentTaskProvider,
+  request: AgentExecutionRequest,
+  checkpoint: AgentExecutionCheckpoint,
+): Promise<void> {
+  const body = canonicalize(toJsonValue(checkpoint));
+  const digest = sha256(body);
+  const key = executionCheckpointKey(request);
+  const mutation: ResourceMutation = {
+    body,
+    dependencies: [],
+    digest,
+    idempotencyKey: `agent-execution-checkpoint:${key}:${digest}`,
+    key,
+    kind: "system/intent",
+    state: "active",
+    version: "v1",
+  };
+  await provider.putResource(mutation);
+  const verified = await provider.getOptionalResource(key);
+  if (
+    verified === null ||
+    verified.body !== body ||
+    verified.digest !== digest ||
+    verified.kind !== mutation.kind ||
+    verified.version !== mutation.version
+  )
+    throw new Error("Agent execution checkpoint did not verify");
+}
+
+/** Parses the manager-owned execution checkpoint closed representation. */
+function parseExecutionCheckpoint(value: unknown): AgentExecutionCheckpoint {
+  const record = objectValue(value, "Agent execution checkpoint");
+  exactKeys(record, [
+    "assignment",
+    "effectIds",
+    "promotion",
+    "requestDigest",
+    "result",
+    "schema",
+    "selectionContext",
+    "transition",
+  ]);
+  if (record.schema !== "agent-execution-checkpoint-v1")
+    throw new TypeError("Agent execution checkpoint schema is invalid");
+  digestValue(record.requestDigest, "Execution checkpoint requestDigest");
+  objectValue(record.assignment, "Execution checkpoint assignment");
+  objectValue(record.selectionContext, "Execution checkpoint selectionContext");
+  if (record.promotion !== null)
+    objectValue(record.promotion, "Execution checkpoint promotion");
+  if (record.result !== null) {
+    const result = objectValue(record.result, "Execution checkpoint result");
+    digestValue(result.digest, "Execution checkpoint result digest");
+    const { digest: _digest, ...core } = result;
+    if (digestJson(toJsonValue(core)) !== result.digest)
+      throw new TypeError("Execution checkpoint result digest is invalid");
+  }
+  if (
+    record.effectIds !== null &&
+    (!Array.isArray(record.effectIds) ||
+      record.effectIds.some(
+        (effectId) =>
+          typeof effectId !== "string" || !/^[a-f0-9]{64}$/u.test(effectId),
+      ))
+  )
+    throw new TypeError("Execution checkpoint effectIds are invalid");
+  if (record.transition !== null)
+    objectValue(record.transition, "Execution checkpoint transition");
+  return structuredClone(record) as unknown as AgentExecutionCheckpoint;
+}
+
+/** Parses a terminal report returned by the provider operation journal. */
+function parseExecutionReport(value: JsonValue): AgentExecutionReport {
+  const report = objectValue(value, "Agent execution report");
+  exactKeys(report, [
+    "agentId",
+    "contextDigest",
+    "effectIds",
+    "operationKey",
+    "outcome",
+    "resultDigest",
+    "runId",
+    "schema",
+    "taskId",
+    "transition",
+  ]);
+  if (report.schema !== "agent-execution-report-v1")
+    throw new TypeError("Agent execution report schema is invalid");
+  for (const key of [
+    "agentId",
+    "operationKey",
+    "outcome",
+    "runId",
+    "taskId",
+  ] as const)
+    stringValue(report[key], `Agent execution report ${key}`);
+  for (const key of ["contextDigest", "resultDigest"] as const)
+    digestValue(report[key], `Agent execution report ${key}`);
+  if (
+    !Array.isArray(report.effectIds) ||
+    report.effectIds.some(
+      (effectId) =>
+        typeof effectId !== "string" || !/^[a-f0-9]{64}$/u.test(effectId),
+    )
+  )
+    throw new TypeError("Agent execution report effectIds are invalid");
+  objectValue(report.transition, "Agent execution report transition");
+  return structuredClone(report) as unknown as AgentExecutionReport;
+}
+
+/** Revalidates the full assignment and returns its exact promoted Task basis. */
+async function exactPromotedTask(
+  provider: AgentTaskProvider,
+  promotion: AssignmentPromotion,
+  activated: ActivatedDefinition,
+  activationRuntime: ActivationRuntime,
+): Promise<TaskSnapshot> {
+  await verifyLiveAssignment({
+    activated,
+    activationRuntime,
+    promotion,
+    provider,
+  });
+  return provider.getTaskSnapshot(promotion.taskId);
+}
+
+/** Requires a non-array object at a persisted JSON boundary. */
+function objectValue(value: unknown, label: string): JsonObject {
+  if (value === null || typeof value !== "object" || Array.isArray(value))
+    throw new TypeError(`${label} must be an object`);
+  return value as JsonObject;
+}
+
+/** Requires the exact keys of a manager-owned closed object. */
+function exactKeys(value: JsonObject, expected: readonly string[]): void {
+  if (Object.keys(value).sort().join("\0") !== [...expected].sort().join("\0"))
+    throw new TypeError("Agent execution record has unexpected fields");
+}
+
+/** Requires a non-empty string. */
+function stringValue(value: unknown, label: string): string {
+  if (typeof value !== "string" || value === "")
+    throw new TypeError(`${label} must be a non-empty string`);
+  return value;
+}
+
+/** Requires a lowercase SHA-256 digest. */
+function digestValue(value: unknown, label: string): string {
+  const digest = stringValue(value, label);
+  if (!/^[a-f0-9]{64}$/u.test(digest))
+    throw new TypeError(`${label} must be a digest`);
+  return digest;
+}
+
 /** Applies the provider-defined result route after every proposed effect is durable. */
 async function applyOutcome(input: {
   readonly activated: ActivatedDefinition;
   readonly bindings: AgentExecutionBindings;
-  readonly dispatched: DispatchResult;
+  readonly dispatched: Pick<DispatchResult, "contextDigest" | "result">;
   readonly operationKey: string;
+  readonly promotion: AssignmentPromotion;
   readonly provider: AgentTaskProvider;
   readonly task: TaskSnapshot;
   readonly taskId: string;
@@ -265,8 +683,16 @@ async function applyOutcome(input: {
       result: input.dispatched.result,
       task: input.task,
     });
+    await exactPromotedTask(
+      input.provider,
+      input.promotion,
+      input.activated,
+      input.bindings.activationRuntime,
+    );
     return broker.apply({
       definition,
+      expectedTaskStatus: input.promotion.taskStatus,
+      expectedTaskVersion: input.promotion.taskVersion,
       kind: "human_resolution",
       outcome: input.dispatched.result.outcome,
       resolution,
@@ -278,8 +704,16 @@ async function applyOutcome(input: {
       result: input.dispatched.result,
       task: input.task,
     })) ?? {};
+  await exactPromotedTask(
+    input.provider,
+    input.promotion,
+    input.activated,
+    input.bindings.activationRuntime,
+  );
   return broker.apply({
     definition,
+    expectedTaskStatus: input.promotion.taskStatus,
+    expectedTaskVersion: input.promotion.taskVersion,
     idempotencyKey: `${input.operationKey}:outcome:${input.dispatched.result.digest}`,
     kind: "task_transition",
     outcome: input.dispatched.result.outcome,
@@ -298,12 +732,37 @@ function assertAppliedEffects(
       "Execution host did not return one effect execution per proposed intent",
     );
   for (const [index, effect] of effects.entries()) {
+    const intent = result.proposedIntents[index];
+    if (intent === undefined)
+      throw new Error(`External effect ${index} has no matching intent`);
+    const expectedRequest = finalizeRequest({
+      kind: intent.kind,
+      payload: intent.payload,
+      source: {
+        contextDigest: result.contextDigest,
+        definitionDigest: result.definitionDigest,
+        intentIndex: index,
+        resultDigest: result.digest,
+        runId: result.runId,
+      },
+    });
     if (effect.state !== "applied" || effect.receipt === null)
       throw new Error(`External effect ${index} did not reach applied state`);
-    if (effect.request.kind !== result.proposedIntents[index]?.kind)
+    if (
+      canonicalize(toJsonValue(effect.request)) !==
+      canonicalize(toJsonValue(expectedRequest))
+    )
       throw new Error(
         `External effect ${index} does not match the Agent result`,
       );
+    if (
+      effect.receipt.schema !== "external-effect-receipt-v1" ||
+      effect.receipt.effectId !== expectedRequest.effectId ||
+      effect.receipt.state !== "applied" ||
+      effect.receipt.handlerId === "" ||
+      effect.receipt.handlerVersion === ""
+    )
+      throw new Error(`External effect ${index} receipt is invalid`);
   }
 }
 
@@ -315,15 +774,16 @@ async function releaseAssignment(
 ): Promise<void> {
   for (const leaseId of [promotion.taskLeaseId, promotion.runLeaseId]) {
     const lease = await provider.getLeaseSnapshot(leaseId);
-    if (lease === null || lease.ownerId !== promotion.ownerId || lease.released)
+    if (lease === null || lease.ownerId !== promotion.ownerId)
       throw new Error(
         `Assignment lease is unavailable for release: ${leaseId}`,
       );
-    await provider.releaseLease({
-      expectedVersion: lease.version,
-      leaseId,
-      ownerId: promotion.ownerId,
-    });
+    if (!lease.released)
+      await provider.releaseLease({
+        expectedVersion: lease.version,
+        leaseId,
+        ownerId: promotion.ownerId,
+      });
   }
   const reconciled = await provider.reconcileAgentActivity(
     promotion.targetAgentId,
@@ -334,7 +794,7 @@ async function releaseAssignment(
 }
 
 /** Rejects malformed execution requests before the first provider access. */
-function validateRequest(request: AgentExecutionRequest): void {
+function validateRequestShape(request: AgentExecutionRequest): void {
   for (const [label, value] of [
     ["Agent ID", request.agentId],
     ["Operation key", request.operationKey],
@@ -346,9 +806,18 @@ function validateRequest(request: AgentExecutionRequest): void {
     request.assignmentDepth < 0
   )
     throw new TypeError("Assignment depth must be a non-negative integer");
+  const milliseconds = Date.parse(request.expiresAt);
   if (
-    !Number.isFinite(Date.parse(request.expiresAt)) ||
-    Date.parse(request.expiresAt) <= Date.now()
+    !Number.isFinite(milliseconds) ||
+    new Date(milliseconds).toISOString() !== request.expiresAt
   )
-    throw new TypeError("Assignment expiry must be a future ISO timestamp");
+    throw new TypeError(
+      "Assignment expiry must be a canonical UTC ISO timestamp",
+    );
+}
+
+/** Rejects a canonical expiry that cannot authorize a new execution stage. */
+function validateFutureExpiry(expiresAt: string): void {
+  if (Date.parse(expiresAt) <= Date.now())
+    throw new TypeError("Assignment expiry must be in the future");
 }

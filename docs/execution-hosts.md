@@ -19,6 +19,15 @@ The operation key is mandatory. Reuse it only to resume the exact same logical
 run. The host path is also mandatory: loading executable host code is an
 explicit human authorization, never an implicit configuration lookup.
 
+Each operation is bound to its exact environment, Agent, Task, depth, and lease
+expiry. Agent Task Manager serializes it with a same-host filesystem lock,
+persists the prepared assignment before acquiring leases, and checkpoints the
+validated Agent result, exact applied-effect identities, outcome receipt, and
+terminal report. A retry resumes the first incomplete phase; a completed retry
+returns the stored report without redispatching the model. Hosts must still use
+durable effect brokers because a process can stop between an external response
+and the next checkpoint write.
+
 ## Host module contract
 
 The module exports `createAgentExecutionHost({ config, provider })`. It returns
@@ -40,9 +49,12 @@ host fails before assignment promotion.
 
 Hosts coordinating `child_agent.wave` can call `materializeAgentContexts` before
 dispatch. It creates deterministic `agent/context` Resources containing the
-Task snapshot, parent/child activation digests, and exact child Resource pins;
-the returned catalog supplies the keys, versions, and digests required by wave
-nodes.
+Task/version, parent run and definition authority, child definition and
+activation, assignment depth, and exact child Resource pins. The returned
+catalog supplies the only keys, versions, and digests a wave may use.
+`ProviderChildAgentWaveEffects` must be constructed with that catalog and the
+matching parent-run authority; it rejects cross-run, cross-Task, stale, or
+definition-swapped contexts before invoking a child driver.
 
 No model credential, provider token, or other secret belongs in the environment
 JSON or the module export. The host reads its own credentials from an external

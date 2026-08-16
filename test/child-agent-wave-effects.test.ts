@@ -5,10 +5,12 @@ import test from "node:test";
 import {
   canonicalize,
   ProviderChildAgentWaveEffects,
+  resolveDefinition,
   sha256,
   toJsonValue,
   InMemoryProvider,
   type ChildAgentNodeDriver,
+  type AgentDefinition,
   type ExternalEffectObservation,
   type ProviderEnvironment,
   type WorkspaceSchemaDescriptor,
@@ -35,8 +37,6 @@ test("runs dependency-ordered nodes and persists each receipt in Resources", asy
   const provider = new InMemoryProvider(environment, target);
   /** Creates the first pinned child-agent context Resource. */
   const contextA = await context(provider, "context/a");
-  /** Creates the dependent child-agent context Resource. */
-  const contextB = await context(provider, "context/b");
   /** Records dependency-ordered child-agent execution. */
   const order: string[] = [];
   /** Simulates child-agent execution and records call order. */
@@ -61,7 +61,11 @@ test("runs dependency-ordered nodes and persists each receipt in Resources", asy
     },
   };
   /** Runs the child-agent wave through the effect broker. */
-  const effects = new ProviderChildAgentWaveEffects(provider, driver);
+  const effects = new ProviderChildAgentWaveEffects(
+    provider,
+    driver,
+    authority([entry("context/a", contextA)]),
+  );
   /** Supplies the child-agent result persisted by the wave. */
   const payload = {
     maxConcurrency: 2,
@@ -75,8 +79,8 @@ test("runs dependency-ordered nodes and persists each receipt in Resources", asy
         nodeKey: "a",
       },
       {
-        contextDigest: contextB,
-        contextResource: "context/b",
+        contextDigest: contextA,
+        contextResource: "context/a",
         contextVersion: "v1",
         definitionId: "reviewer",
         dependsOn: ["a"],
@@ -151,16 +155,20 @@ test("rejects malformed node receipts and changed context pins", async () => {
     version: "v1",
   });
   /** Runs the child-agent wave through the effect broker. */
-  const effects = new ProviderChildAgentWaveEffects(provider, {
-    /** Simulates effect reconciliation. */
-    async reconcile() {
-      return notApplied;
+  const effects = new ProviderChildAgentWaveEffects(
+    provider,
+    {
+      /** Simulates effect reconciliation. */
+      async reconcile() {
+        return notApplied;
+      },
+      /** Returns a neutral observation when malformed state reaches execution. */
+      async run() {
+        return notApplied;
+      },
     },
-    /** Returns a neutral observation when malformed state reaches execution. */
-    async run() {
-      return notApplied;
-    },
-  });
+    authority([entry("context/a", contextDigest)]),
+  );
   await assert.rejects(
     effects.reconcile({
       control: {
@@ -174,18 +182,108 @@ test("rejects malformed node receipts and changed context pins", async () => {
   );
 });
 
+test("rejects contexts outside the exact parent run and Agent catalog", async () => {
+  /** Provides a valid context whose authority will be deliberately mismatched. */
+  const provider = new InMemoryProvider(environment, target);
+  /** Pins the valid reviewer context used by both rejection cases. */
+  const contextDigest = await context(provider, "context/a");
+  /** Counts driver calls to prove rejection occurs before child execution. */
+  let driverCalls = 0;
+  /** Driver that must remain unreachable for unauthorized contexts. */
+  const driver: ChildAgentNodeDriver = {
+    async reconcile() {
+      driverCalls += 1;
+      return notApplied;
+    },
+    async run() {
+      driverCalls += 1;
+      return notApplied;
+    },
+  };
+  /** Base node pinned to the persisted reviewer context. */
+  const node = {
+    contextDigest,
+    contextResource: "context/a",
+    contextVersion: "v1",
+    definitionId: "reviewer",
+    dependsOn: [],
+    nodeKey: "a",
+  } as const;
+  /** Common effect control for both authorization checks. */
+  const control = {
+    deadlineAt: Date.now() + 10_000,
+    signal: new AbortController().signal,
+  };
+
+  const wrongDefinition = new ProviderChildAgentWaveEffects(
+    provider,
+    driver,
+    authority([entry("context/a", contextDigest)]),
+  );
+  await assert.rejects(
+    wrongDefinition.apply({
+      control,
+      effectId: "e".repeat(64),
+      payload: {
+        maxConcurrency: 1,
+        nodes: [{ ...node, definitionId: "coder" }],
+      },
+    }),
+    (error: unknown) => aggregateContains(error, /authorized catalog/u),
+  );
+
+  const staleRun = new ProviderChildAgentWaveEffects(provider, driver, {
+    ...authority([entry("context/a", contextDigest)]),
+    parentRunId: "another-run",
+  });
+  await assert.rejects(
+    staleRun.apply({
+      control,
+      effectId: "f".repeat(64),
+      payload: { maxConcurrency: 1, nodes: [node] },
+    }),
+    (error: unknown) => aggregateContains(error, /context authority/u),
+  );
+  assert.equal(driverCalls, 0);
+});
+
 /** Persists and returns the digest of a pinned Agent context Resource. */
 async function context(
   provider: InMemoryProvider,
   key: string,
 ): Promise<string> {
+  const definition = childDefinition();
+  provider.seedDefinition(definition);
+  for (const resource of childResources()) await provider.putResource(resource);
+  const resolved = await resolveDefinition(provider, definition.id);
+  const resourcePins = resolved.resources.map(({ digest, key, version }) => ({
+    digest,
+    key,
+    version,
+  }));
   /** Decodes the request body consumed by the fake transport. */
-  const body = canonicalize(toJsonValue({ input: key }));
+  const body = canonicalize(
+    toJsonValue({
+      assignmentDepth: 1,
+      parentActivationDigest: "a".repeat(64),
+      parentDefinitionDigest: "b".repeat(64),
+      parentDefinitionId: "task-master",
+      parentRunId: "parent-run",
+      schema: "agent-context-v1",
+      targetActivationDigest: "c".repeat(64),
+      targetDefinitionDigest: resolved.digest,
+      targetDefinitionId: "reviewer",
+      targetResourcePins: resourcePins,
+      task: { id: "task-1", version: "task-v1" },
+      taskId: "task-1",
+      taskVersion: "task-v1",
+    }),
+  );
   /** Pins the canonical content expected by the Resource read. */
   const digest = sha256(body);
   await provider.putResource({
     body,
-    dependencies: [],
+    dependencies: resourcePins,
     digest,
     idempotencyKey: `seed:${key}`,
     key,
@@ -194,6 +292,124 @@ async function context(
     version: "v1",
   });
   return digest;
+}
+
+/** Defines the reviewer whose resolved identity is bound into each context. */
+function childDefinition(): AgentDefinition {
+  return {
+    allowedIntents: [],
+    capabilities: [],
+    contextBudgetBytes: 100_000,
+    deadlineSeconds: 60,
+    enabled: true,
+    humanResolutionOutcomes: [],
+    id: "reviewer",
+    inputResourceSelectors: [],
+    invocation: { mode: "manual", scheduleResource: null },
+    maxAssignmentDepth: 2,
+    maxAssignmentsPerRun: 1,
+    maxConcurrency: 1,
+    model: "model",
+    name: "Reviewer",
+    outputSchema: "schema/output",
+    priority: 1,
+    prohibitedCapabilities: [],
+    promptResources: ["prompt/reviewer"],
+    reasoning: "medium",
+    requiredProviderCapabilities: [],
+    retry: { maxAttempts: 1, noVerdict: "block" },
+    revision: 1,
+    runnerProfile: "no-tools",
+    schema: "agent-definition-v1",
+    selection: {
+      acceptsAssignmentsFrom: ["coordinator"],
+      maxCandidateSummaries: 1,
+      mode: "explicit",
+      resultSchema: "schema/selection",
+      taskQueryResource: "query/reviewer",
+    },
+    transitions: { succeeded: "Done" },
+  };
+}
+
+/** Supplies the immutable Resource graph resolved for the reviewer context. */
+function childResources() {
+  const records = [
+    ["prompt/reviewer", "prompt", "Review the task."],
+    [
+      "query/reviewer",
+      "task-query",
+      JSON.stringify({
+        dependencySatisfiedStatuses: ["Done"],
+        limit: 1,
+        predicate: { status: "Ready" },
+        schema: "task-query-v1",
+      }),
+    ],
+    [
+      "schema/output",
+      "json-schema",
+      JSON.stringify({
+        additionalProperties: false,
+        properties: {},
+        required: [],
+        type: "object",
+      }),
+    ],
+    [
+      "schema/selection",
+      "json-schema",
+      JSON.stringify({
+        additionalProperties: false,
+        properties: {},
+        required: [],
+        type: "object",
+      }),
+    ],
+  ] as const;
+  return records.map(([key, kind, body]) => ({
+    body,
+    dependencies: [],
+    digest: sha256(body),
+    idempotencyKey: `seed:${key}`,
+    key,
+    kind,
+    state: "active" as const,
+    version: "v1",
+  }));
+}
+
+/** Builds one trusted parent-run catalog scope for the test contexts. */
+function authority(catalog: readonly ReturnType<typeof entry>[]) {
+  return {
+    catalog,
+    parentActivationDigest: "a".repeat(64),
+    parentDefinitionDigest: "b".repeat(64),
+    parentDefinitionId: "task-master",
+    parentRunId: "parent-run",
+    taskId: "task-1",
+    taskVersion: "task-v1",
+  };
+}
+
+/** Builds one exact catalog entry for a persisted context fixture. */
+function entry(contextResource: string, contextDigest: string) {
+  return {
+    contextDigest,
+    contextResource,
+    contextVersion: "v1",
+    definitionId: "reviewer",
+  };
+}
+
+/** Reports whether one child failure inside a wave matches the expected error. */
+function aggregateContains(error: unknown, pattern: RegExp): boolean {
+  return (
+    error instanceof AggregateError &&
+    error.errors.some(
+      (cause) => cause instanceof Error && pattern.test(cause.message),
+    )
+  );
 }
 
 /** Represents an effect observation with no external change. */

@@ -83,6 +83,45 @@ test("creates a stable Error and resolution slot before Needs Human Resolution",
   ]);
 });
 
+test("rejects a human request after its authorized Task basis changes", async () => {
+  /** Provides the original v1 Task basis used by the stale request. */
+  const provider = prepared();
+  /** Applies an unrelated human edit before the recovery request arrives. */
+  const original = await provider.getTaskSnapshot("task-1");
+  await provider.applyTaskMutation({
+    expectedVersion: original.version,
+    idempotencyKey: "basis-change",
+    nextBody: `${original.body}\n\nNew human context`,
+    nextProperties: original.properties,
+    nextStatus: null,
+    taskId: original.id,
+  });
+  /** Coordinates the stale human request under test. */
+  const manager = new HumanRecoveryManager(provider);
+
+  await assert.rejects(
+    manager.request({
+      createdAt: "2026-08-15T10:00:00.000Z",
+      error: null,
+      expectedTaskStatus: original.status,
+      expectedTaskVersion: original.version,
+      generation: 1,
+      kind: "answer",
+      prompt: "Resume?",
+      requestedBy: "worker",
+      routes: { resume: "Coding" },
+      sourceErrorKey: null,
+      taskId: original.id,
+      waitingStatus: "Human Review",
+    }),
+    /Task changed before the human request/u,
+  );
+  assert.deepEqual(
+    parseHumanInteractionSlots((await provider.getTaskSnapshot("task-1")).body),
+    [],
+  );
+});
+
 test("consumes one allowed human response and replays without another transition", async () => {
   /** Provides isolated provider state for the scenario. */
   const provider = prepared();

@@ -1,9 +1,14 @@
 /** Supervises independent child-agent DAG nodes with provider-backed node receipts. */
 import { canonicalize } from "../core/canonical-json.js";
+import { resolveDefinition } from "../core/definition-resolver.js";
 import { digestJson, sha256 } from "../core/digest.js";
 import { toJsonValue, type JsonObject } from "../domain/json.js";
 import type { ResourceRecord, ResourceRef } from "../domain/records.js";
 import type { AgentTaskProvider } from "../provider/agent-task-provider.js";
+import type {
+  AgentContextBody,
+  AgentContextCatalogEntry,
+} from "../host/agent-context.js";
 import type {
   ExternalEffectControl,
   ExternalEffectObservation,
@@ -40,6 +45,24 @@ export interface ChildAgentNodeDriver {
   run(input: ChildAgentNodeInput): Promise<ExternalEffectObservation>;
   /** Reconciles previously observed child-node execution state. */
   reconcile(input: ChildAgentNodeInput): Promise<ExternalEffectObservation>;
+}
+
+/** Trusted parent-run scope that authorizes one materialized child catalog. */
+export interface ChildAgentWaveAuthority {
+  /** Exact contexts exposed to the parent model for this run. */
+  readonly catalog: readonly AgentContextCatalogEntry[];
+  /** Parent activation digest that emitted the child-wave intent. */
+  readonly parentActivationDigest: string;
+  /** Resolved parent definition digest bound into every context. */
+  readonly parentDefinitionDigest: string;
+  /** Parent Agent definition identity. */
+  readonly parentDefinitionId: string;
+  /** Parent run identity bound into the effect source. */
+  readonly parentRunId: string;
+  /** Task identity owned by the parent assignment. */
+  readonly taskId: string;
+  /** Task version owned by the parent assignment. */
+  readonly taskVersion: string;
 }
 
 /** Durable receipt returned by child agent node. */
@@ -94,6 +117,7 @@ export class ProviderChildAgentWaveEffects implements ReconcilableEffectAdapter<
   public constructor(
     /** Provider boundary used for durable state reads and writes. */ private readonly provider: AgentTaskProvider,
     /** Driver used to control the underlying runtime. */ private readonly driver: ChildAgentNodeDriver,
+    /** Immutable parent-run authority and exact context catalog. */ private readonly authority: ChildAgentWaveAuthority,
   ) {}
 
   /** Reconciles a durable child-agent wave before running new nodes. */
@@ -338,6 +362,18 @@ export class ProviderChildAgentWaveEffects implements ReconcilableEffectAdapter<
 
   /** Loads and verifies the immutable context Resource for a child node. */
   private async context(node: ChildAgentNode): Promise<ResourceRecord> {
+    const catalogEntry = this.authority.catalog.find(
+      (entry) => entry.definitionId === node.definitionId,
+    );
+    if (
+      catalogEntry === undefined ||
+      catalogEntry.contextResource !== node.contextResource ||
+      catalogEntry.contextDigest !== node.contextDigest ||
+      catalogEntry.contextVersion !== node.contextVersion
+    )
+      throw new Error(
+        `Child-agent context is outside the authorized catalog: ${node.nodeKey}`,
+      );
     /** Result of `this.provider.getOptionalResource`, retained for the context operation. */
     const resource = await this.provider.getOptionalResource(
       node.contextResource,
@@ -353,6 +389,30 @@ export class ProviderChildAgentWaveEffects implements ReconcilableEffectAdapter<
       throw new Error(
         `Child-agent context Resource is invalid: ${node.contextResource}`,
       );
+    const body = parseAgentContextBody(JSON.parse(resource.body));
+    if (
+      body.parentActivationDigest !== this.authority.parentActivationDigest ||
+      body.parentDefinitionDigest !== this.authority.parentDefinitionDigest ||
+      body.parentDefinitionId !== this.authority.parentDefinitionId ||
+      body.parentRunId !== this.authority.parentRunId ||
+      body.taskId !== this.authority.taskId ||
+      body.taskVersion !== this.authority.taskVersion ||
+      body.targetDefinitionId !== node.definitionId ||
+      body.task.id !== body.taskId ||
+      body.task.version !== body.taskVersion ||
+      canonicalize(toJsonValue(resource.dependencies)) !==
+        canonicalize(toJsonValue(body.targetResourcePins))
+    )
+      throw new Error(
+        `Child-agent context authority is invalid: ${node.nodeKey}`,
+      );
+    const definition = await this.provider.getAgentDefinition(
+      body.targetDefinitionId,
+    );
+    const resolved = await resolveDefinition(this.provider, definition.id);
+    if (!definition.enabled || resolved.digest !== body.targetDefinitionDigest)
+      throw new Error(`Child-agent target definition changed: ${node.nodeKey}`);
+    await this.provider.getResources(resource.dependencies);
     return resource;
   }
   /** Reads node without mutating external state. */
@@ -384,7 +444,7 @@ export class ProviderChildAgentWaveEffects implements ReconcilableEffectAdapter<
       resource.dependencies.length !== 1 ||
       dependency?.key !== record.contextKey ||
       dependency.digest !== record.contextDigest ||
-      dependency.version === null
+      dependency.version !== record.contextVersion
     )
       throw new Error(
         `Child-agent node context pin is invalid: ${node.nodeKey}`,
@@ -427,6 +487,76 @@ export class ProviderChildAgentWaveEffects implements ReconcilableEffectAdapter<
         `Child-agent node write did not verify: ${record.nodeKey}`,
       );
   }
+}
+
+/** Parses the closed, run-bound child-context body before driver exposure. */
+function parseAgentContextBody(value: unknown): AgentContextBody {
+  const record = object(value, "Agent context");
+  exact(record, [
+    "assignmentDepth",
+    "parentActivationDigest",
+    "parentDefinitionDigest",
+    "parentDefinitionId",
+    "parentRunId",
+    "schema",
+    "targetActivationDigest",
+    "targetDefinitionDigest",
+    "targetDefinitionId",
+    "targetResourcePins",
+    "task",
+    "taskId",
+    "taskVersion",
+  ]);
+  if (
+    record.schema !== "agent-context-v1" ||
+    !Number.isSafeInteger(record.assignmentDepth) ||
+    Number(record.assignmentDepth) < 1 ||
+    !Array.isArray(record.targetResourcePins)
+  )
+    throw new TypeError("Agent context schema or assignment depth is invalid");
+  const task = object(record.task, "Agent context Task");
+  const pins = record.targetResourcePins.map((value, index) => {
+    const pin = object(value, `Agent context Resource pin ${index}`);
+    exact(pin, ["digest", "key", "version"]);
+    return {
+      digest: digest(pin.digest, `Agent context pin ${index} digest`),
+      key: string(pin.key, `Agent context pin ${index} key`),
+      version: string(pin.version, `Agent context pin ${index} version`),
+    };
+  });
+  return {
+    assignmentDepth: Number(record.assignmentDepth),
+    parentActivationDigest: digest(
+      record.parentActivationDigest,
+      "Agent context parentActivationDigest",
+    ),
+    parentDefinitionDigest: digest(
+      record.parentDefinitionDigest,
+      "Agent context parentDefinitionDigest",
+    ),
+    parentDefinitionId: string(
+      record.parentDefinitionId,
+      "Agent context parentDefinitionId",
+    ),
+    parentRunId: string(record.parentRunId, "Agent context parentRunId"),
+    schema: "agent-context-v1",
+    targetActivationDigest: digest(
+      record.targetActivationDigest,
+      "Agent context targetActivationDigest",
+    ),
+    targetDefinitionDigest: digest(
+      record.targetDefinitionDigest,
+      "Agent context targetDefinitionDigest",
+    ),
+    targetDefinitionId: string(
+      record.targetDefinitionId,
+      "Agent context targetDefinitionId",
+    ),
+    targetResourcePins: pins,
+    task,
+    taskId: string(record.taskId, "Agent context taskId"),
+    taskVersion: string(record.taskVersion, "Agent context taskVersion"),
+  };
 }
 
 /** Builds the deterministic provider key for this durable record. */

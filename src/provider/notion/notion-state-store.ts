@@ -203,6 +203,9 @@ export class NotionStateStore {
   /** Acquires lease. */
   public async acquireLease(request: LeaseRequest): Promise<LeaseResult> {
     return this.mutex.run(async () => {
+      validateLeaseRequestShape(request);
+      const existing = await this.operationIntent(request.idempotencyKey);
+      if (existing === null) validateLeaseExpiry(request.expiresAt, this.now());
       /** Result of `this.beginIntent`, retained for `acquireLease`. */
       const prior = await this.beginIntent(
         request.idempotencyKey,
@@ -210,7 +213,6 @@ export class NotionStateStore {
         request,
       );
       if (prior !== undefined) return parseLeaseResult(prior);
-      validateLeaseRequest(request, this.now());
       /** Result of `leaseKey`, retained for `acquireLease`. */
       const key = leaseKey(
         request.scope,
@@ -271,6 +273,8 @@ export class NotionStateStore {
   /** Renews lease. */
   public async renewLease(request: LeaseRenewal): Promise<LeaseResult> {
     return this.mutex.run(async () => {
+      canonicalTimestamp(request.expectedExpiresAt, "Lease expectedExpiresAt");
+      canonicalTimestamp(request.nextExpiresAt, "Lease nextExpiresAt");
       /** Result of `this.beginIntent`, retained for `renewLease`. */
       const prior = await this.beginIntent(
         request.idempotencyKey,
@@ -663,13 +667,15 @@ function parseReleaseResult(value: JsonValue): WriteReceipt {
 }
 
 /** Validates lease request. */
-function validateLeaseRequest(request: LeaseRequest, now: Date): void {
+function validateLeaseRequestShape(request: LeaseRequest): void {
   if ((request.scope === "agent_run") !== (request.taskId === null))
     throw new TypeError("Lease scope and task identity do not match");
-  if (
-    !Number.isFinite(Date.parse(request.expiresAt)) ||
-    Date.parse(request.expiresAt) <= now.getTime()
-  )
+  canonicalTimestamp(request.expiresAt, "Lease expiresAt");
+}
+
+/** Requires a lease expiry that is still in the provider's future. */
+function validateLeaseExpiry(expiresAt: string, now: Date): void {
+  if (Date.parse(expiresAt) <= now.getTime())
     throw new TypeError("Lease expiry must be in the future");
 }
 

@@ -20,24 +20,42 @@ export interface AgentContextCatalogEntry {
 
 /** Canonical body persisted for one child Agent context. */
 export interface AgentContextBody {
+  /** Child assignment depth derived from the authorized parent run. */
+  readonly assignmentDepth: number;
   /** Parent Agent activation authorizing delegation. */
   readonly parentActivationDigest: string;
+  /** Digest of the resolved parent definition and its Resource graph. */
+  readonly parentDefinitionDigest: string;
+  /** Parent Agent definition that owns the delegation. */
+  readonly parentDefinitionId: string;
+  /** Live parent run identity that owns this context. */
+  readonly parentRunId: string;
   /** Wire schema for this context. */
   readonly schema: "agent-context-v1";
   /** Immutable Task snapshot delegated to the child. */
   readonly task: JsonObject;
+  /** Task identity repeated for closed authority checks. */
+  readonly taskId: string;
+  /** Task version frozen by the parent assignment. */
+  readonly taskVersion: string;
   /** Child activation selected for this context. */
   readonly targetActivationDigest: string;
   /** Child definition digest selected for this context. */
   readonly targetDefinitionDigest: string;
+  /** Child definition authorized to consume this exact context. */
+  readonly targetDefinitionId: string;
   /** Exact child Resource pins validated during activation. */
   readonly targetResourcePins: readonly JsonObject[];
 }
 
 /** Persists and verifies one context per eligible child definition. */
 export async function materializeAgentContexts(input: {
+  /** Depth of the parent assignment that is delegating these contexts. */
+  readonly assignmentDepth: number;
   /** Parent Agent that may propose the child wave. */
   readonly parent: ActivatedDefinition;
+  /** Stable parent run identity bound into every child context. */
+  readonly parentRunId: string;
   /** Provider used for managed Resource persistence. */
   readonly provider: AgentTaskProvider;
   /** Child definitions made available to the parent. */
@@ -58,12 +76,28 @@ export async function materializeAgentContexts(input: {
       throw new Error(
         `Agent context target is disabled: ${target.resolved.definition.id}`,
       );
+    if (
+      !target.resolved.definition.selection.acceptsAssignmentsFrom.includes(
+        "coordinator",
+      ) ||
+      input.assignmentDepth + 1 > target.resolved.definition.maxAssignmentDepth
+    )
+      throw new Error(
+        `Agent context target cannot accept this delegation: ${target.resolved.definition.id}`,
+      );
     const bodyObject: AgentContextBody = {
+      assignmentDepth: input.assignmentDepth + 1,
       parentActivationDigest: input.parent.digest,
+      parentDefinitionDigest: input.parent.resolved.digest,
+      parentDefinitionId: input.parent.resolved.definition.id,
+      parentRunId: input.parentRunId,
       schema: "agent-context-v1",
       task: toJsonValue(input.task) as JsonObject,
+      taskId: input.task.id,
+      taskVersion: input.task.version,
       targetActivationDigest: target.digest,
       targetDefinitionDigest: target.resolved.digest,
+      targetDefinitionId: target.resolved.definition.id,
       targetResourcePins: target.resolved.resources.map(
         ({ digest, key, version }) => ({ digest, key, version }),
       ),

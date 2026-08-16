@@ -133,8 +133,23 @@ export async function main(
   }
 
   if (command === "run") {
+    /** Agent definition explicitly selected for the managed run. */
+    const agentId = option(args, "--agent");
+    /** Stable logical operation key required for replay. */
+    const operationKey = option(args, "--operation-key");
+    /** Explicitly authorized local host module path. */
+    const hostPath = option(args, "--host");
+    /** Task explicitly selected for the managed run. */
+    const taskId = option(args, "--task");
+    /** Assignment expiry supplied by the caller or bounded to two hours. */
+    const expiresAt =
+      optionalOption(args, "--expires-at") ??
+      new Date(Date.now() + 2 * 60 * 60 * 1_000).toISOString();
+    assertCanonicalFutureTimestamp(expiresAt, "--expires-at");
+    /** Configuration path parsed before any filesystem or provider access. */
+    const runConfigPath = configPath(args);
     /** Validated configuration for the execution host. */
-    const config = await loadConfig(configPath(args));
+    const config = await loadConfig(runConfigPath);
     /** Notion provider used for the managed run. */
     const provider = notionProvider(config);
     /** Provider environment validation completed before host loading or mutation. */
@@ -149,14 +164,6 @@ export async function main(
     const tables = await provider.validateTables();
     if (tables.state !== "ready")
       throw new Error(`Workspace is not ready: ${tables.state}`);
-    /** Stable logical operation key required for replay. */
-    const operationKey = option(args, "--operation-key");
-    /** Explicitly authorized local host module path. */
-    const hostPath = option(args, "--host");
-    /** Assignment expiry supplied by the caller or bounded to two hours. */
-    const expiresAt =
-      optionalOption(args, "--expires-at") ??
-      new Date(Date.now() + 2 * 60 * 60 * 1_000).toISOString();
     /** Validated trusted execution bindings loaded from the selected module. */
     const bindings = await loadAgentExecutionHost(hostPath, {
       config,
@@ -166,13 +173,13 @@ export async function main(
     const report = await runExplicitAgentTask({
       bindings,
       request: {
-        agentId: option(args, "--agent"),
+        agentId,
         assignmentDepth: 0,
         config,
         expiresAt,
         operationKey,
         provider,
-        taskId: option(args, "--task"),
+        taskId,
       },
     });
     if (args.includes("--json"))
@@ -408,6 +415,17 @@ export async function main(
 
   process.stderr.write(`Command is not implemented yet: ${command}\n`);
   return 2;
+}
+
+/** Rejects noncanonical or expired command-line timestamps before any I/O. */
+function assertCanonicalFutureTimestamp(value: string, label: string): void {
+  const milliseconds = Date.parse(value);
+  if (
+    !Number.isFinite(milliseconds) ||
+    new Date(milliseconds).toISOString() !== value ||
+    milliseconds <= Date.now()
+  )
+    throw new TypeError(`${label} must be a canonical future UTC timestamp`);
 }
 
 /** Atomically writes provider table IDs into an unchanged environment file. */
