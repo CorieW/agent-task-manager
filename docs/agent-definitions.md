@@ -9,7 +9,9 @@ must match their row properties.
 Role responsibilities and operational boundaries belong in the prompt
 Resources referenced by `promptResources`. Do not duplicate them in Agent
 table properties: prompt bodies are the digest-bound authority supplied to the
-model at dispatch.
+model at dispatch. In Notion, prompt Resources are stored as ordinary readable
+paragraphs under `## Resource body`; the paragraph projection reconstructs the
+same canonical text used by the Resource digest.
 
 ```json
 {

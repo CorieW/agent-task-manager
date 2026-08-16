@@ -136,7 +136,27 @@ class MutableTransport implements NotionTransport {
           id: `${children[1]}-block-${existing.length + index}`,
         }),
       );
-      this.blocks.set(children[1], [...existing, ...added]);
+      /** Reads the optional positioned-insertion anchor. */
+      const position = objectValue(request.body).position;
+      /** Selects the insertion offset after the requested anchor, or at the end. */
+      let insertionIndex = existing.length;
+      if (
+        position !== null &&
+        typeof position === "object" &&
+        !Array.isArray(position)
+      ) {
+        /** Reads the positioned insertion's block reference. */
+        const afterId = objectValue(position.after_block).id;
+        if (typeof afterId === "string") {
+          insertionIndex =
+            existing.findIndex((candidate) => candidate.id === afterId) + 1;
+        }
+      }
+      this.blocks.set(children[1], [
+        ...existing.slice(0, insertionIndex),
+        ...added,
+        ...existing.slice(insertionIndex),
+      ]);
       /** Defines the page fixture used by request. */
       const page = required(this.pages.get(children[1]));
       this.pages.set(
@@ -151,6 +171,18 @@ class MutableTransport implements NotionTransport {
     }
     /** Defines the block fixture used by request. */
     const block = /^\/v1\/blocks\/(.+)$/u.exec(request.path);
+    if (block?.[1] !== undefined && request.method === "DELETE") {
+      for (const blocks of this.blocks.values()) {
+        /** Locates the block moved to trash by this request. */
+        const index = blocks.findIndex(
+          (candidate) => candidate.id === block[1],
+        );
+        if (index >= 0) {
+          blocks.splice(index, 1);
+          return { id: block[1], object: "block" };
+        }
+      }
+    }
     if (block?.[1] !== undefined && request.method === "PATCH") {
       for (const [pageId, blocks] of this.blocks) {
         /** Defines the index fixture used by request. */
@@ -261,7 +293,48 @@ test("creates one managed Resource row and verifies its content", async () => {
     await store.managedText(receipt.providerRecord.id, "Resource body"),
     "prompt body",
   );
+  assert.deepEqual(
+    transport.blocks.get(receipt.providerRecord.id)?.map((block) => block.type),
+    ["heading_2", "paragraph"],
+  );
   assert.equal(transport.pages.size, 1);
+});
+
+test("migrates a legacy prompt snippet when the Resource is updated", async () => {
+  /** Provides mutable Notion state for the legacy migration. */
+  const transport = new MutableTransport();
+  /** Writes Resources through the production page-store behavior. */
+  const store = new NotionPageStore(TABLES, transport, () => new Date(0));
+  await store.createResource({
+    body: "legacy prompt",
+    dependencies: [],
+    digest: sha256("legacy prompt"),
+    idempotencyKey: "write-legacy",
+    key: "prompt/example",
+    kind: "schema",
+    state: "active",
+    version: "v1",
+  });
+
+  await store.createResource({
+    body: "Readable first paragraph.\n\nReadable second paragraph.",
+    dependencies: [],
+    digest: sha256("Readable first paragraph.\n\nReadable second paragraph."),
+    idempotencyKey: "write-readable",
+    key: "prompt/example",
+    kind: "prompt",
+    state: "active",
+    version: "v2",
+  });
+
+  assert.equal(
+    await store.managedText("page-1", "Resource body"),
+    "Readable first paragraph.\n\nReadable second paragraph.",
+  );
+  assert.deepEqual(
+    transport.blocks.get("page-1")?.map((block) => block.type),
+    ["heading_2", "paragraph", "paragraph"],
+  );
 });
 
 test("conditionally updates Status and Working On", async () => {

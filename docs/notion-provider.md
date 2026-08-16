@@ -38,8 +38,19 @@ description or resolution body instead of a dedicated property.
 Provider-managed page bodies use exact level-two headings:
 
 - Agent definitions: `## Agent definition`
-- Resources and internal journals: `## Resource body`
+- Prompt Resources: `## Resource body`, followed by ordinary paragraphs
+- Other Resources and internal journals: `## Resource body`, followed by one
+  code block
 - Errors: `## Error Description` and `## Error Resolution`
+
+Prompt paragraphs are the sole authoritative prompt, not a rendered copy of a
+hidden payload. The adapter joins them with one blank line, normalizes line
+endings and Unicode, and verifies the Resource `Digest` against that canonical
+text. Unsupported blocks fail closed. Legacy prompt code blocks remain
+readable and are migrated to paragraphs on the next authorized Resource write.
+Machine-oriented JSON, schemas, journals, and Error bodies retain code blocks
+because exact byte-oriented editing is more useful than rich presentation for
+those records.
 
 `Status` accepts `Not Fixed`, `Fixing`, and `Fixed`. Built-in failure paths
 create `Not Fixed`; a later write for the same `Error Key`, using a new

@@ -19,6 +19,11 @@ import {
 } from "./notion-schema.js";
 import { activeTaskBodyGeneration } from "./notion-task-body-generation.js";
 import {
+  normalizePromptBody,
+  promptBodyBlocks,
+  promptBodyText,
+} from "./notion-prompt-body.js";
+import {
   collectNotionPages,
   type NotionTransport,
 } from "./notion-transport.js";
@@ -125,12 +130,15 @@ export class NotionPageStore {
     );
     if (existing !== null) return this.updateResource(existing, record);
     /** Holds the `created` intermediate used by `createResource`. */
-    const created = await this.createManagedPage(
-      "resources",
-      resourceProperties(record),
-      "Resource body",
-      record.body,
-    );
+    const created =
+      record.kind === "prompt"
+        ? await this.createPromptResourcePage(record)
+        : await this.createManagedPage(
+            "resources",
+            resourceProperties(record),
+            "Resource body",
+            record.body,
+          );
     return this.receipt("resources", created, record.idempotencyKey);
   }
 
@@ -144,7 +152,11 @@ export class NotionPageStore {
       method: "PATCH",
       path: `/v1/pages/${existing.id}`,
     });
-    await this.replaceManagedText(existing.id, "Resource body", record.body);
+    if (record.kind === "prompt") {
+      await this.replaceManagedPromptText(existing.id, record.body);
+    } else {
+      await this.replaceManagedText(existing.id, "Resource body", record.body);
+    }
     /** Holds the `verified` intermediate used by `updateResource`. */
     const verified = await this.getPage(existing.id);
     verifyPropertyText(verified.page, "Resource", record.key);
@@ -458,9 +470,144 @@ export class NotionPageStore {
 
   /** Reads the body of a named managed child-block section. */
   public async managedText(pageId: string, heading: string): Promise<string> {
+    if (heading === "Resource body") {
+      /** Reads the Resource section once to detect its storage representation. */
+      const promptSection = await this.findPromptSection(pageId);
+      if (promptSection.contents[0]?.type !== "code") {
+        return promptBodyText(promptSection.contents);
+      }
+    }
     /** Holds the `section` intermediate used by `managedText`. */
     const section = await this.findManagedSection(pageId, heading);
     return blockText(section.content);
+  }
+
+  /** Creates a prompt Resource whose authoritative body is readable in Notion. */
+  private async createPromptResourcePage(
+    record: ResourceMutation,
+  ): Promise<LocatedPage> {
+    /** Creates the page and stable managed heading before appending body blocks. */
+    const response = await this.transport.request({
+      body: {
+        children: [managedHeading("Resource body")],
+        parent: { data_source_id: this.tables.resources },
+        properties: resourceProperties(record),
+      },
+      method: "POST",
+      path: "/v1/pages",
+    });
+    /** Identifies the newly created prompt Resource page. */
+    const id = requiredString(response.id, "Created prompt Resource page id");
+    /** Locates the heading block used as the insertion anchor. */
+    const section = await this.findPromptSection(id);
+    await this.appendBlocksAfter(
+      id,
+      section.headingId,
+      promptBodyBlocks(record.body),
+    );
+    if (
+      (await this.managedPromptText(id)) !== normalizePromptBody(record.body)
+    ) {
+      throw new Error("Created ## Resource body prompt did not verify");
+    }
+    return this.getPage(id);
+  }
+
+  /** Replaces a prompt Resource body and migrates a legacy snippet on write. */
+  private async replaceManagedPromptText(
+    pageId: string,
+    text: string,
+  ): Promise<void> {
+    /** Captures the complete old body range before making destructive changes. */
+    const section = await this.findPromptSection(pageId);
+    for (const block of section.contents) {
+      await this.transport.request({
+        method: "DELETE",
+        path: `/v1/blocks/${requiredString(block.id, "Prompt content block id")}`,
+      });
+    }
+    await this.appendBlocksAfter(
+      pageId,
+      section.headingId,
+      promptBodyBlocks(text),
+    );
+    if ((await this.managedPromptText(pageId)) !== normalizePromptBody(text)) {
+      throw new Error("Updated ## Resource body prompt did not verify");
+    }
+  }
+
+  /** Reads a prompt Resource body from readable paragraphs or a legacy snippet. */
+  private async managedPromptText(pageId: string): Promise<string> {
+    return promptBodyText((await this.findPromptSection(pageId)).contents);
+  }
+
+  /** Locates the Resource-body heading and all prompt blocks that follow it. */
+  private async findPromptSection(pageId: string): Promise<{
+    /** Contains the prompt blocks owned by the managed Resource body. */
+    readonly contents: readonly JsonObject[];
+    /** Identifies the stable heading used for positioned block insertion. */
+    readonly headingId: string;
+  }> {
+    /** Reads all top-level blocks before locating the managed heading. */
+    const blocks = await this.childBlocks(pageId);
+    /** Locates every exact Resource-body heading. */
+    const matches = blocks
+      .map((block, index) => ({ block, index }))
+      .filter(
+        ({ block }) =>
+          block.type === "heading_2" && blockText(block) === "Resource body",
+      );
+    if (matches.length !== 1) {
+      throw new Error(
+        `Page ${pageId} must contain exactly one ## Resource body`,
+      );
+    }
+    /** Selects the unique managed heading. */
+    const match = matches[0];
+    if (match === undefined) {
+      throw new Error(`Page ${pageId} managed prompt heading is missing`);
+    }
+    return {
+      contents: blocks.slice(match.index + 1),
+      headingId: requiredString(match.block.id, "Prompt heading block id"),
+    };
+  }
+
+  /** Appends bounded block batches after one stable sibling block. */
+  private async appendBlocksAfter(
+    pageId: string,
+    initialAfterBlockId: string,
+    blocks: readonly JsonObject[],
+  ): Promise<void> {
+    /** Tracks the insertion anchor returned by the preceding append request. */
+    let afterBlockId = initialAfterBlockId;
+    for (let index = 0; index < blocks.length; index += 100) {
+      /** Selects one API-sized block batch. */
+      const children = blocks.slice(index, index + 100);
+      /** Appends the batch directly after the current section tail. */
+      const response = await this.transport.request({
+        body: {
+          children,
+          position: {
+            after_block: { id: afterBlockId },
+            type: "after_block",
+          },
+        },
+        method: "PATCH",
+        path: `/v1/blocks/${pageId}/children`,
+      });
+      /** Reads the created blocks to advance the insertion anchor. */
+      const results = response.results;
+      if (!Array.isArray(results) || results.length !== children.length) {
+        throw new Error("Prompt block append returned an incomplete result");
+      }
+      /** Selects the final block created by this batch. */
+      const last = results.at(-1);
+      afterBlockId = requiredString(
+        objectValue(last, "Appended prompt block").id,
+        "Appended prompt block id",
+      );
+    }
   }
 
   /** Creates managed page. */

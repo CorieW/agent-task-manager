@@ -21,6 +21,7 @@ import {
 } from "./notion-transport.js";
 import { NOTION_TASK_MUTATION_PROPERTY } from "./notion-schema.js";
 import { activeTaskBodyGeneration } from "./notion-task-body-generation.js";
+import { promptBodyText } from "./notion-prompt-body.js";
 
 /** Defines Notion table IDs. */
 export interface NotionTableIds {
@@ -325,7 +326,12 @@ export class NotionRecordReader {
     /** Holds the `id` intermediate used by `resourceRecord`. */
     const id = requiredString(page.id, "Resource page id");
     /** Holds the `body` intermediate used by `resourceRecord`. */
-    const body = await this.managedText(id, "Resource body");
+    const kind = propertyOption(page, "Kind");
+    /** Holds the `body` intermediate used by `resourceRecord`. */
+    const body =
+      kind === "prompt"
+        ? await this.managedPromptText(id, "Resource body")
+        : await this.managedText(id, "Resource body");
     /** Holds the `dependencyValue` intermediate used by `resourceRecord`. */
     const dependencyValue = propertyText(page, "Dependencies");
     /** Holds the `parsed` intermediate used by `resourceRecord`. */
@@ -339,7 +345,7 @@ export class NotionRecordReader {
       dependencies,
       digest: propertyText(page, "Digest"),
       key: propertyText(page, "Resource"),
-      kind: propertyOption(page, "Kind"),
+      kind,
       state: parseResourceState(propertyOption(page, "State")),
       version: propertyText(page, "Version"),
     };
@@ -392,6 +398,33 @@ export class NotionRecordReader {
     if (next?.type === "code")
       throw new Error(`## ${heading} must contain exactly one code block`);
     return blockText(content).replace(/\r\n?/gu, "\n").normalize("NFC");
+  }
+
+  /** Reads a prompt Resource from readable paragraphs or its legacy code block. */
+  private async managedPromptText(
+    pageId: string,
+    heading: string,
+  ): Promise<string> {
+    /** Reads every top-level page block once for deterministic section parsing. */
+    const blocks = await this.readChildBlocks(pageId);
+    /** Locates the unique managed prompt heading. */
+    const matches = blocks
+      .map((block, index) => ({ block, index }))
+      .filter(
+        ({ block }) =>
+          block.type === "heading_2" && blockText(block) === heading,
+      );
+    if (matches.length !== 1) {
+      throw new Error(
+        `Page ${pageId} must contain exactly one ## ${heading} section`,
+      );
+    }
+    /** Selects the first block owned by the prompt section. */
+    const index = matches[0]?.index;
+    if (index === undefined) {
+      throw new Error(`Page ${pageId} managed prompt section is missing`);
+    }
+    return promptBodyText(blocks.slice(index + 1));
   }
 
   /** Reads IDs. */
