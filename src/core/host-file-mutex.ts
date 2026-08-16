@@ -7,16 +7,23 @@ export class HostFileMutex {
   #tail: Promise<void> = Promise.resolve();
 
   /** Binds the mutex to an exact host-local lock-file path. */
-  public constructor(private readonly path: string) {}
+  public constructor(
+    /** Exact same-host file used for cross-process exclusion. */
+    private readonly lockPath: string,
+  ) {}
 
   /** Runs one operation after acquiring the same-host lock file. */
   public async run<T>(operation: () => Promise<T>): Promise<T> {
+    /** Prior queue tail that must settle before this caller acquires the file. */
     const previous = this.#tail;
+    /** Releases this caller's position for the next process-local waiter. */
     let releaseQueue!: () => void;
     this.#tail = new Promise<void>((resolve) => {
       releaseQueue = resolve;
     });
     await previous;
+
+    /** Exclusive owner handle retained until the operation finishes. */
     let handle: Awaited<ReturnType<typeof open>> | undefined;
     try {
       handle = await this.acquire();
@@ -24,7 +31,7 @@ export class HostFileMutex {
     } finally {
       if (handle !== undefined) {
         await handle.close();
-        await rm(this.path, { force: true });
+        await rm(this.lockPath, { force: true });
       }
       releaseQueue();
     }
@@ -43,7 +50,8 @@ export class HostFileMutex {
 
   /** Creates and populates the exclusive owner file. */
   private async createLock() {
-    const handle = await open(this.path, "wx", 0o600);
+    /** Exclusive handle proving this process owns the lock path. */
+    const handle = await open(this.lockPath, "wx", 0o600);
     try {
       await handle.writeFile(
         JSON.stringify({
@@ -55,16 +63,18 @@ export class HostFileMutex {
       return handle;
     } catch (error) {
       await handle.close();
-      await rm(this.path, { force: true });
+      await rm(this.lockPath, { force: true });
       throw error;
     }
   }
 
-  /** Removes one lock whose recorded process no longer exists. */
+  /** Clears only a well-formed owner for a PID proven absent; every other case fails closed. */
   private async clearStaleOwner(): Promise<boolean> {
+    /** PID parsed from a well-formed owner record. */
     let pid: number;
     try {
-      const parsed: unknown = JSON.parse(await readFile(this.path, "utf8"));
+      /** Untrusted owner-file value retained for closed shape validation. */
+      const parsed: unknown = JSON.parse(await readFile(this.lockPath, "utf8"));
       if (
         parsed === null ||
         typeof parsed !== "object" ||
@@ -76,8 +86,9 @@ export class HostFileMutex {
     } catch {
       return false;
     }
+
     if (isProcessAlive(pid)) return false;
-    await rm(this.path, { force: true });
+    await rm(this.lockPath, { force: true });
     return true;
   }
 }

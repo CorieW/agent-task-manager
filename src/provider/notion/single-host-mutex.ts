@@ -3,12 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { HostFileMutex } from "../../core/host-file-mutex.js";
 
-/** Implements single-host mutex. */
+/** Preserves Notion's provider-specific lock naming over the shared mutex primitive. */
 export class SingleHostMutex {
   /** Shared lock primitive bound to the provider-specific file identity. */
   readonly #mutex: HostFileMutex;
 
-  /** Initializes single-host mutex. */
+  /** Binds an environment identity to a normalized lock path under the chosen root. */
   public constructor(identity: string, root = tmpdir()) {
     this.#mutex = new HostFileMutex(
       join(root, `agent-task-manager-${safeName(identity)}.lock`),

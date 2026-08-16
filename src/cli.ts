@@ -133,62 +133,7 @@ export async function main(
   }
 
   if (command === "run") {
-    /** Agent definition explicitly selected for the managed run. */
-    const agentId = option(args, "--agent");
-    /** Stable logical operation key required for replay. */
-    const operationKey = option(args, "--operation-key");
-    /** Explicitly authorized local host module path. */
-    const hostPath = option(args, "--host");
-    /** Task explicitly selected for the managed run. */
-    const taskId = option(args, "--task");
-    /** Assignment expiry supplied by the caller or bounded to two hours. */
-    const expiresAt =
-      optionalOption(args, "--expires-at") ??
-      new Date(Date.now() + 2 * 60 * 60 * 1_000).toISOString();
-    assertCanonicalFutureTimestamp(expiresAt, "--expires-at");
-    /** Configuration path parsed before any filesystem or provider access. */
-    const runConfigPath = configPath(args);
-    /** Validated configuration for the execution host. */
-    const config = await loadConfig(runConfigPath);
-    /** Notion provider used for the managed run. */
-    const provider = notionProvider(config);
-    /** Provider environment validation completed before host loading or mutation. */
-    const environment = await provider.validateEnvironment(config.provider);
-    if (!environment.valid)
-      throw new Error(
-        environment.issues
-          .map((issue) => `${issue.path}: ${issue.message}`)
-          .join("\n"),
-      );
-    /** Table validation completed before host loading or mutation. */
-    const tables = await provider.validateTables();
-    if (tables.state !== "ready")
-      throw new Error(`Workspace is not ready: ${tables.state}`);
-    /** Validated trusted execution bindings loaded from the selected module. */
-    const bindings = await loadAgentExecutionHost(hostPath, {
-      config,
-      provider,
-    });
-    /** Terminal managed-run report. */
-    const report = await runExplicitAgentTask({
-      bindings,
-      request: {
-        agentId,
-        assignmentDepth: 0,
-        config,
-        expiresAt,
-        operationKey,
-        provider,
-        taskId,
-      },
-    });
-    if (args.includes("--json"))
-      process.stdout.write(`${canonicalize(toJsonValue(report))}\n`);
-    else
-      process.stdout.write(
-        `Run ${report.runId} routed ${report.agentId} outcome ${report.outcome} for Task ${report.taskId}.\n`,
-      );
-    return 0;
+    return runAgentCommand(args);
   }
 
   if (command === "validate") {
@@ -417,8 +362,69 @@ export async function main(
   return 2;
 }
 
+/** Executes one managed Agent run after validating every command option. */
+async function runAgentCommand(args: readonly string[]): Promise<number> {
+  /** Agent definition explicitly selected for the managed run. */
+  const agentId = option(args, "--agent");
+  /** Stable logical operation key required for replay. */
+  const operationKey = option(args, "--operation-key");
+  /** Explicitly authorized local host module path. */
+  const hostPath = option(args, "--host");
+  /** Task explicitly selected for the managed run. */
+  const taskId = option(args, "--task");
+  /** Assignment expiry supplied by the caller or bounded to two hours. */
+  const expiresAt =
+    optionalOption(args, "--expires-at") ??
+    new Date(Date.now() + 2 * 60 * 60 * 1_000).toISOString();
+  assertCanonicalFutureTimestamp(expiresAt, "--expires-at");
+  /** Configuration path parsed before any filesystem or provider access. */
+  const runConfigPath = configPath(args);
+  /** Validated configuration for the execution host. */
+  const config = await loadConfig(runConfigPath);
+  /** Notion provider used for the managed run. */
+  const provider = notionProvider(config);
+  /** Provider environment validation completed before host loading or mutation. */
+  const environment = await provider.validateEnvironment(config.provider);
+  if (!environment.valid)
+    throw new Error(
+      environment.issues
+        .map((issue) => `${issue.path}: ${issue.message}`)
+        .join("\n"),
+    );
+  /** Table validation completed before host loading or mutation. */
+  const tables = await provider.validateTables();
+  if (tables.state !== "ready")
+    throw new Error(`Workspace is not ready: ${tables.state}`);
+  /** Validated trusted execution bindings loaded from the selected module. */
+  const bindings = await loadAgentExecutionHost(hostPath, {
+    config,
+    provider,
+  });
+  /** Terminal managed-run report. */
+  const report = await runExplicitAgentTask({
+    bindings,
+    request: {
+      agentId,
+      assignmentDepth: 0,
+      config,
+      expiresAt,
+      operationKey,
+      provider,
+      taskId,
+    },
+  });
+  if (args.includes("--json"))
+    process.stdout.write(`${canonicalize(toJsonValue(report))}\n`);
+  else
+    process.stdout.write(
+      `Run ${report.runId} routed ${report.agentId} outcome ${report.outcome} for Task ${report.taskId}.\n`,
+    );
+  return 0;
+}
+
 /** Rejects noncanonical or expired command-line timestamps before any I/O. */
 function assertCanonicalFutureTimestamp(value: string, label: string): void {
+  /** Parsed instant used for canonical-form and future-bound checks. */
   const milliseconds = Date.parse(value);
   if (
     !Number.isFinite(milliseconds) ||

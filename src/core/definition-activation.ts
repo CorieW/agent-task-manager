@@ -12,13 +12,13 @@ import {
 import { validateDefinitionSet } from "./agent-definition.js";
 import type { AgentTaskProvider } from "../provider/agent-task-provider.js";
 
-/** Canonical fields for activated definition. */
+/** Binds a validated definition and Resource graph to its executable authority grant. */
 export interface ActivatedDefinition {
   /** SHA-256 digest of the activated definition and resolved Resources. */
   readonly digest: string;
-  /** Grant for activated definition. */
+  /** Capabilities and effect intents authorized for this activation. */
   readonly grant: CapabilityGrant;
-  /** Resolved for activated definition. */
+  /** Validated definition with its immutable Resource graph. */
   readonly resolved: ResolvedDefinition;
 }
 
@@ -26,18 +26,18 @@ export interface ActivatedDefinition {
 export async function activateDefinitions(input: {
   /** Optional exact definition IDs to activate after validating the complete set. */
   readonly definitionIds?: readonly string[];
-  /** Installed capabilities included in activate definitions input. */
+  /** Capability identifiers implemented by the current host. */
   readonly installedCapabilities: readonly string[];
-  /** Installed intents included in activate definitions input. */
+  /** Effect-intent kinds implemented by the current host. */
   readonly installedIntents: readonly string[];
-  /** Installed runner profiles included in activate definitions input. */
+  /** Runner profiles available in the current host. */
   readonly installedRunnerProfiles: readonly string[];
-  /** Provider for activate definitions input. */
+  /** Provider supplying definitions, Resources, statuses, and capabilities. */
   readonly provider: AgentTaskProvider;
-  /** Supported models included in activate definitions input. */
+  /** Allowed reasoning levels keyed by installed model identifier. */
   readonly supportedModels: Readonly<Record<string, readonly string[]>>;
 }): Promise<readonly ActivatedDefinition[]> {
-  /** Definitions loaded during activate definitions. */
+  /** Complete definition set validated before target filtering. */
   const definitions = await input.provider.listAgentDefinitions();
   /** Validation issues collected during this operation. */
   const issues = validateDefinitionSet(definitions);
@@ -45,18 +45,20 @@ export async function activateDefinitions(input: {
     throw new Error(
       `Agent definition set is invalid:\n${issues.map((issue) => `${issue.path}: ${issue.message}`).join("\n")}`,
     );
-  /** Provider capabilities loaded during activate definitions. */
+  /** Provider features used to compile each activation grant. */
   const providerCapabilities = await input.provider.getCapabilities();
-  /** Distinct statuses tracked during activate definitions. */
+  /** Valid Task statuses accepted by outcome routes. */
   const statuses = new Set(await input.provider.listTaskStatusOptions());
-  /** Activated used during activate definitions. */
+  /** Successfully validated activations returned in definition-ID order. */
   const activated: ActivatedDefinition[] = [];
+  /** Optional exact target set, distinct from complete-set validation. */
   const requestedIds =
     input.definitionIds === undefined ? null : new Set(input.definitionIds);
   if (requestedIds !== null) {
     if (requestedIds.size !== input.definitionIds?.length)
       throw new Error("Definition activation IDs contain duplicates");
     for (const id of requestedIds) {
+      /** Requested definition whose availability is checked before activation. */
       const definition = definitions.find((candidate) => candidate.id === id);
       if (definition === undefined)
         throw new Error(`Agent definition is unavailable: ${id}`);
@@ -73,7 +75,7 @@ export async function activateDefinitions(input: {
       throw new Error(
         `${definition.id}.runnerProfile is unavailable: ${definition.runnerProfile}`,
       );
-    /** Reasoning used during activate definitions. */
+    /** Reasoning levels installed for the definition's selected model. */
     const reasoning = input.supportedModels[definition.model];
     if (reasoning === undefined || !reasoning.includes(definition.reasoning))
       throw new Error(
@@ -85,9 +87,9 @@ export async function activateDefinitions(input: {
           `${definition.id}.transitions.${outcome} targets unavailable Task status ${status}`,
         );
     }
-    /** Resolved loaded during activate definitions. */
+    /** Definition and immutable Resources resolved at their declared revisions. */
     const resolved = await resolveLoadedDefinition(input.provider, definition);
-    /** Grant used during activate definitions. */
+    /** Least authority compiled from the definition and installed host surface. */
     const grant = compileCapabilityGrant({
       definition: resolved.definition,
       installedCapabilities: input.installedCapabilities,

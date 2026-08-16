@@ -128,7 +128,9 @@ export async function readExecutionCheckpoint(
   request: ExecutionJournalRequest,
   requestDigest: string,
 ): Promise<AgentExecutionCheckpoint | null> {
+  /** Deterministic Resource address for the mutable execution checkpoint. */
   const key = executionCheckpointKey(request);
+  /** Persisted checkpoint envelope, when the logical run has advanced. */
   const resource = await provider.getOptionalResource(key);
   if (resource === null) return null;
   if (
@@ -140,6 +142,8 @@ export async function readExecutionCheckpoint(
     resource.digest !== sha256(resource.body)
   )
     throw new Error("Agent execution checkpoint Resource is invalid");
+
+  /** Closed checkpoint decoded only after its Resource envelope verifies. */
   const checkpoint = parseExecutionCheckpoint(JSON.parse(resource.body));
   if (checkpoint.requestDigest !== requestDigest)
     throw new Error(
@@ -154,9 +158,13 @@ export async function writeExecutionCheckpoint(
   request: ExecutionJournalRequest,
   checkpoint: AgentExecutionCheckpoint,
 ): Promise<void> {
+  /** Canonical checkpoint bytes used for persistence and verification. */
   const body = canonicalize(toJsonValue(checkpoint));
+  /** SHA-256 binding for the exact checkpoint body. */
   const digest = sha256(body);
+  /** Stable Resource key shared by every forward phase. */
   const key = executionCheckpointKey(request);
+  /** Manager-owned mutation carrying the next forward checkpoint. */
   const mutation: ResourceMutation = {
     body,
     dependencies: [],
@@ -168,6 +176,8 @@ export async function writeExecutionCheckpoint(
     version: "v1",
   };
   await provider.putResource(mutation);
+
+  /** Stored checkpoint read back before the phase is considered durable. */
   const verified = await provider.getOptionalResource(key);
   if (
     verified === null ||
@@ -181,6 +191,7 @@ export async function writeExecutionCheckpoint(
 
 /** Parses a terminal report returned by the provider operation journal. */
 export function parseExecutionReport(value: JsonValue): AgentExecutionReport {
+  /** Closed report record validated before terminal replay. */
   const report = objectValue(value, "Agent execution report");
   exactKeys(report, [
     "agentId",
@@ -225,6 +236,7 @@ function executionCheckpointKey(request: ExecutionJournalRequest): string {
 
 /** Parses the manager-owned execution checkpoint closed representation. */
 function parseExecutionCheckpoint(value: unknown): AgentExecutionCheckpoint {
+  /** Closed checkpoint record whose nested phase values are validated below. */
   const record = objectValue(value, "Agent execution checkpoint");
   exactKeys(record, [
     "assignment",
@@ -244,8 +256,10 @@ function parseExecutionCheckpoint(value: unknown): AgentExecutionCheckpoint {
   if (record.promotion !== null)
     objectValue(record.promotion, "Execution checkpoint promotion");
   if (record.result !== null) {
+    /** Checkpointed Agent result whose digest is verified before replay. */
     const result = objectValue(record.result, "Execution checkpoint result");
     digestValue(result.digest, "Execution checkpoint result digest");
+    /** Result fields covered by the stored digest, excluding the digest itself. */
     const { digest: _digest, ...core } = result;
     if (digestJson(toJsonValue(core)) !== result.digest)
       throw new TypeError("Execution checkpoint result digest is invalid");
@@ -286,6 +300,7 @@ function stringValue(value: unknown, label: string): string {
 
 /** Requires a lowercase SHA-256 digest. */
 function digestValue(value: unknown, label: string): string {
+  /** Non-empty candidate narrowed before digest-format validation. */
   const digest = stringValue(value, label);
   if (!/^[a-f0-9]{64}$/u.test(digest))
     throw new TypeError(`${label} must be a digest`);

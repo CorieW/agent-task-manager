@@ -1,4 +1,4 @@
-/** Invokes a trusted HTTPS model gateway without exposing tools or credentials to Agent code. */
+/** Makes one non-redirecting HTTPS model request while keeping credentials outside Agent input. */
 import type { NoToolModelClient } from "./no-tool-adapters.js";
 
 /** Configuration for the direct no-tool model gateway. */
@@ -20,7 +20,7 @@ export class HttpNoToolModelClient implements NoToolModelClient {
   /** Bearer credential never included in the model request body. */
   readonly #token: string;
 
-  /** Creates a single-attempt HTTPS model client. */
+  /** Creates a single-attempt HTTPS client that rejects URL-embedded credentials. */
   public constructor(options: HttpNoToolModelClientOptions) {
     if (options.bearerToken === "")
       throw new TypeError("Model gateway bearer token is required");
@@ -39,6 +39,7 @@ export class HttpNoToolModelClient implements NoToolModelClient {
   public async *stream(
     input: Parameters<NoToolModelClient["stream"]>[0],
   ): AsyncIterable<Uint8Array> {
+    /** Single gateway response produced without automatic redirect following. */
     const response = await this.#fetch(this.#endpoint, {
       body: JSON.stringify({
         context: input.context,
@@ -65,9 +66,12 @@ export class HttpNoToolModelClient implements NoToolModelClient {
     }
     if (response.body === null)
       throw new Error("Model gateway response body is missing");
+
+    /** Reader forwarding raw response bytes to the bounded no-tool adapter. */
     const reader = response.body.getReader();
     try {
       while (true) {
+        /** Next response chunk or terminal stream marker. */
         const chunk = await reader.read();
         if (chunk.done) break;
         yield chunk.value;

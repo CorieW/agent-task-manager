@@ -1,10 +1,12 @@
 # Execution hosts
 
-`agent-task-manager run` is the provider-neutral execution entry point. It
-validates the configured provider workspace, loads one explicitly authorized
-local host module, promotes an explicit assignment, dispatches the Agent,
-executes proposed effects in order, applies the provider-defined outcome route,
-then releases leases and reconciles Agent activity.
+`runExplicitAgentTask` is the provider-neutral execution entry point. The
+packaged `agent-task-manager run` command currently constructs a Notion
+provider, validates that workspace, and then calls the same library workflow.
+The workflow loads one explicitly authorized local host module, promotes an
+explicit assignment, dispatches the Agent, executes proposed effects in order,
+applies the provider-defined outcome route, then releases leases and reconciles
+Agent activity.
 
 ```powershell
 agent-task-manager run `
@@ -27,6 +29,12 @@ terminal report. A retry resumes the first incomplete phase; a completed retry
 returns the stored report without redispatching the model. Hosts must still use
 durable effect brokers because a process can stop between an external response
 and the next checkpoint write.
+
+An expiry must be a canonical UTC timestamp. It must still be in the future for
+stages that create or promote an assignment. A terminal operation can replay
+after expiry, and a checkpoint with a durable outcome can finish cleanup after
+expiry. Cleanup releases the Task lease, releases the run lease, reconciles
+Agent activity, and only then persists the terminal operation report.
 
 ## Host module contract
 

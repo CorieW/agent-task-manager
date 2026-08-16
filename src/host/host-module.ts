@@ -16,19 +16,32 @@ export async function loadAgentExecutionHost(
 ): Promise<AgentExecutionBindings> {
   if (modulePath === "")
     throw new TypeError("Execution host module path is required");
+  /** Absolute caller-selected path before symlink resolution. */
   const absolutePath = isAbsolute(modulePath)
     ? modulePath
     : resolve(modulePath);
+  /** Canonical filesystem path used as the sole dynamic-import target. */
   const canonicalPath = await realpath(absolutePath);
-  const loaded: unknown = await import(pathToFileURL(canonicalPath).href);
-  if (loaded === null || typeof loaded !== "object")
+  /** Imported namespace retained as untrusted data until shape validation. */
+  const moduleNamespace: unknown = await import(
+    pathToFileURL(canonicalPath).href
+  );
+  if (moduleNamespace === null || typeof moduleNamespace !== "object")
     throw new TypeError("Execution host module is invalid");
-  const factory = (loaded as { createAgentExecutionHost?: unknown })
-    .createAgentExecutionHost;
+
+  /** Candidate factory exported by the explicitly selected module. */
+  const factory = (
+    moduleNamespace as {
+      /** Optional export narrowed to the trusted host-factory contract below. */
+      createAgentExecutionHost?: unknown;
+    }
+  ).createAgentExecutionHost;
   if (typeof factory !== "function")
     throw new TypeError(
       "Execution host module must export createAgentExecutionHost",
     );
+
+  /** Host-owned bindings returned by the validated factory export. */
   const bindings = await (factory as AgentExecutionHostFactory)(input);
   validateBindings(bindings);
   return bindings;
@@ -40,6 +53,7 @@ function validateBindings(
 ): asserts value is AgentExecutionBindings {
   if (value === null || typeof value !== "object")
     throw new TypeError("Execution host bindings are invalid");
+  /** Partial binding surface inspected without invoking host callbacks. */
   const bindings = value as Partial<AgentExecutionBindings>;
   if (
     bindings.activationRuntime === undefined ||

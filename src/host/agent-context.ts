@@ -31,11 +31,14 @@ export async function materializeAgentContexts(input: {
   /** Task snapshot delegated through every generated context. */
   readonly task: TaskSnapshot;
 }): Promise<readonly AgentContextCatalogEntry[]> {
-  const uniqueTargets = new Set(
+  /** Distinct child definition IDs required for an unambiguous catalog. */
+  const targetDefinitionIds = new Set(
     input.targets.map((target) => target.resolved.definition.id),
   );
-  if (uniqueTargets.size !== input.targets.length)
+  if (targetDefinitionIds.size !== input.targets.length)
     throw new Error("Agent context targets contain duplicate definition IDs");
+
+  /** Digest-pinned contexts exposed to the parent in target-ID order. */
   const catalog: AgentContextCatalogEntry[] = [];
   for (const target of [...input.targets].sort((left, right) =>
     left.resolved.definition.id.localeCompare(right.resolved.definition.id),
@@ -53,10 +56,13 @@ export async function materializeAgentContexts(input: {
       throw new Error(
         `Agent context target cannot accept this delegation: ${target.resolved.definition.id}`,
       );
+
+    /** Immutable target Resource pins shared by the body and dependency envelope. */
     const targetResourcePins = target.resolved.resources.map(
       ({ digest, key, version }) => ({ digest, key, version }),
     );
-    const bodyObject: AgentContextBody = {
+    /** Closed authority record delegated to this exact child activation. */
+    const contextBody: AgentContextBody = {
       assignmentDepth: input.assignmentDepth + 1,
       parentActivationDigest: input.parent.digest,
       parentDefinitionDigest: input.parent.resolved.digest,
@@ -71,11 +77,14 @@ export async function materializeAgentContexts(input: {
       targetDefinitionId: target.resolved.definition.id,
       targetResourcePins,
     };
-    const body = canonicalize(toJsonValue(bodyObject));
-    const digest = sha256(body);
-    const key = `agent-context/${digestJson(
+    /** Canonical persisted representation of the immutable context. */
+    const serializedContext = canonicalize(toJsonValue(contextBody));
+    /** Digest binding the catalog entry to the persisted context bytes. */
+    const contextDigest = sha256(serializedContext);
+    /** Deterministic Resource address for this delegation snapshot. */
+    const contextKey = `agent-context/${digestJson(
       toJsonValue({
-        bodyDigest: digest,
+        bodyDigest: contextDigest,
         parentId: input.parent.resolved.definition.id,
         targetId: target.resolved.definition.id,
         taskId: input.task.id,
@@ -83,20 +92,27 @@ export async function materializeAgentContexts(input: {
       }),
     )}`;
     await input.provider.putResource({
-      body,
+      body: serializedContext,
       dependencies: targetResourcePins,
-      digest,
-      idempotencyKey: `materialize:${key}:${digest}`,
-      key,
+      digest: contextDigest,
+      idempotencyKey: `materialize:${contextKey}:${contextDigest}`,
+      key: contextKey,
       kind: "agent/context",
       state: "active",
       version: "v1",
     });
-    const verified = await input.provider.getOptionalResource(key);
-    assertContextRecord(verified, key, body, digest);
+
+    /** Stored context read back before its pins enter the parent catalog. */
+    const storedContext = await input.provider.getOptionalResource(contextKey);
+    assertContextRecord(
+      storedContext,
+      contextKey,
+      serializedContext,
+      contextDigest,
+    );
     catalog.push({
-      contextDigest: digest,
-      contextResource: key,
+      contextDigest,
+      contextResource: contextKey,
       contextVersion: "v1",
       definitionId: target.resolved.definition.id,
     });

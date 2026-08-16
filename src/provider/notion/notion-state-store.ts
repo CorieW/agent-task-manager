@@ -200,31 +200,33 @@ export class NotionStateStore {
     };
   }
 
-  /** Acquires lease. */
+  /** Acquires a lease after canonical-expiry preflight and replays an existing exact intent. */
   public async acquireLease(request: LeaseRequest): Promise<LeaseResult> {
     return this.mutex.run(async () => {
       validateLeaseRequestShape(request);
-      const existing = await this.operationIntent(request.idempotencyKey);
-      if (existing === null) validateLeaseExpiry(request.expiresAt, this.now());
-      /** Result of `this.beginIntent`, retained for `acquireLease`. */
+      /** Existing exact intent whose replay does not require a still-future expiry. */
+      const existingIntent = await this.operationIntent(request.idempotencyKey);
+      if (existingIntent === null)
+        validateLeaseExpiry(request.expiresAt, this.now());
+      /** Replayed terminal result, or undefined while this acquisition is pending. */
       const prior = await this.beginIntent(
         request.idempotencyKey,
         "lease_acquire",
         request,
       );
       if (prior !== undefined) return parseLeaseResult(prior);
-      /** Result of `leaseKey`, retained for `acquireLease`. */
+      /** Stable lease slot for the requested run or Task scope. */
       const key = leaseKey(
         request.scope,
         request.scope === "agent_run"
           ? `${request.agentId}\0${request.ownerId}`
           : requiredTaskId(request),
       );
-      /** Result of `this.readRecord`, retained for `acquireLease`. */
+      /** Persisted lease value occupying the requested scope, when present. */
       const currentValue = await this.readRecord(key);
-      /** Current snapshot used consistently during `acquireLease`. */
+      /** Parsed current owner used for conflict and expiry checks. */
       const current = currentValue === null ? null : parseLease(currentValue);
-      /** Result of `acquireLease`, retained for validation and reuse. */
+      /** Receipt completed into the idempotency journal after this decision. */
       let result: LeaseResult;
       if (
         current !== null &&
@@ -237,7 +239,7 @@ export class NotionStateStore {
           leaseId: null,
         };
       } else {
-        /** Lease snapshot used consistently during `acquireLease`. */
+        /** New active lease persisted into the unoccupied or expired scope. */
         const lease: LeaseRecord = {
           expiresAt: request.expiresAt,
           leaseId: randomUUID(),
@@ -270,23 +272,25 @@ export class NotionStateStore {
     });
   }
 
-  /** Renews lease. */
+  /** Renews an owned live lease after canonical timestamp preflight. */
   public async renewLease(request: LeaseRenewal): Promise<LeaseResult> {
     return this.mutex.run(async () => {
       canonicalTimestamp(request.expectedExpiresAt, "Lease expectedExpiresAt");
       canonicalTimestamp(request.nextExpiresAt, "Lease nextExpiresAt");
+      /** Millisecond form used for strict renewal ordering. */
       const expectedExpiresAtMs = Date.parse(request.expectedExpiresAt);
+      /** Millisecond form reused for ordering and future-expiry checks. */
       const nextExpiresAtMs = Date.parse(request.nextExpiresAt);
-      /** Result of `this.beginIntent`, retained for `renewLease`. */
+      /** Replayed terminal result, or undefined while this renewal is pending. */
       const prior = await this.beginIntent(
         request.idempotencyKey,
         "lease_renew",
         request,
       );
       if (prior !== undefined) return parseLeaseResult(prior);
-      /** Result of `this.findLeaseById`, retained for `renewLease`. */
+      /** Persisted lease matched by opaque lease ID, when present. */
       const located = await this.findLeaseById(request.leaseId);
-      /** Result of `renewLease`, retained for validation and reuse. */
+      /** Receipt completed into the idempotency journal after this decision. */
       let result: LeaseResult;
       if (
         located === null ||

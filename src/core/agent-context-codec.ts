@@ -48,6 +48,7 @@ export interface AgentContextBody {
 
 /** Parses the closed, run-bound child-context body before driver exposure. */
 export function parseAgentContextBody(value: unknown): AgentContextBody {
+  /** Closed top-level record validated before any nested authority data. */
   const record = objectValue(value, "Agent context");
   exactKeys(record, [
     "assignmentDepth",
@@ -71,8 +72,12 @@ export function parseAgentContextBody(value: unknown): AgentContextBody {
     !Array.isArray(record.targetResourcePins)
   )
     throw new TypeError("Agent context schema or assignment depth is invalid");
+
+  /** Immutable Task snapshot delegated by the parent assignment. */
   const task = objectValue(record.task, "Agent context Task");
+  /** Exact Resource revisions selected for the target Agent. */
   const pins = record.targetResourcePins.map((value, index) => {
+    /** One closed Resource reference before field-level validation. */
     const pin = objectValue(value, `Agent context Resource pin ${index}`);
     exactKeys(pin, ["digest", "key", "version"]);
     return {
@@ -138,6 +143,7 @@ function stringValue(value: unknown, label: string): string {
 
 /** Requires a lowercase SHA-256 digest. */
 function digestValue(value: unknown, label: string): string {
+  /** Non-empty candidate narrowed before digest-format validation. */
   const result = stringValue(value, label);
   if (!/^[a-f0-9]{64}$/u.test(result))
     throw new TypeError(`${label} must be a digest`);

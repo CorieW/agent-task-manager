@@ -120,7 +120,7 @@ export interface AgentExecutionRequest {
   readonly assignmentDepth: number;
   /** Parsed provider/runtime environment definition. */
   readonly config: EnvironmentConfig;
-  /** Timestamp after which the assignment leases are invalid. */
+  /** Canonical UTC lease expiry; stages that acquire authority require it to remain in the future. */
   readonly expiresAt: string;
   /** Stable key used to resume the same logical run. */
   readonly operationKey: string;
@@ -137,10 +137,13 @@ export async function runExplicitAgentTask(input: {
   /** Stable execution request. */
   readonly request: AgentExecutionRequest;
 }): Promise<AgentExecutionReport> {
+  /** Trusted bindings and immutable caller request retained through cleanup. */
   const { bindings, request } = input;
+  /** Primary failure preserved if host cleanup also fails. */
   let primaryError: unknown;
   try {
     validateRequestShape(request);
+    /** Same-host lock identity derived without exposing the operation key. */
     const lockIdentity = `execution-${sha256(
       `${request.config.environmentId}\0${request.operationKey}`,
     )}`;
@@ -171,10 +174,15 @@ async function runLocked(
   bindings: AgentExecutionBindings,
   request: AgentExecutionRequest,
 ): Promise<AgentExecutionReport> {
+  /** Stable runtime owner derived from the logical operation key. */
   const runId = `run-${sha256(request.operationKey)}`;
+  /** Canonical request fields bound to the provider operation intent. */
   const requestPayload = executionRequestPayload(request);
+  /** Request fingerprint persisted in every forward checkpoint. */
   const requestDigest = digestJson(requestPayload);
+  /** Provider operation address for terminal replay. */
   const intentId = executionIntentId(request);
+  /** Existing terminal intent checked before any new-expiry requirement. */
   const existingIntent = await request.provider.getOperationIntent(intentId);
   if (existingIntent?.state === "applied") {
     assertExecutionIntent(
@@ -185,6 +193,7 @@ async function runLocked(
     return parseExecutionReport(existingIntent.result);
   }
   if (existingIntent === null) validateFutureExpiry(request.expiresAt);
+  /** Pending or concurrently completed terminal operation for this request. */
   const intent = await request.provider.beginOperationIntent(
     intentId,
     EXECUTION_OPERATION,
@@ -192,6 +201,7 @@ async function runLocked(
   );
   if (intent.state === "applied") return parseExecutionReport(intent.result);
 
+  /** Last durable forward phase, when this logical run is resuming. */
   let checkpoint = await readExecutionCheckpoint(
     request.provider,
     request,
@@ -206,22 +216,27 @@ async function runLocked(
       checkpoint,
     );
 
+  /** Exact requested activation set validated against the installed host surface. */
   const activatedDefinitions = await activateDefinitions({
     ...bindings.activationRuntime,
     definitionIds: [request.agentId],
     provider: request.provider,
   });
+  /** Requested Agent activation used by every subsequent authority check. */
   const activated = activatedDefinitions[0];
   if (activated === undefined)
     throw new Error(`Agent definition is unavailable: ${request.agentId}`);
 
   if (checkpoint === null) {
     validateFutureExpiry(request.expiresAt);
+    /** Immutable provider selection basis frozen before assignment creation. */
     const selectionContext = await prepareSelection(
       request.provider,
       activated.resolved,
       activatedDefinitions,
     );
+
+    /** Deterministic explicit assignment persisted before lease acquisition. */
     const assignment = finalizeExplicitAssignment({
       authorityId: runId,
       idempotencyKey: `${request.operationKey}:assignment`,
@@ -241,6 +256,7 @@ async function runLocked(
       selectionContext,
       transition: null,
     };
+
     await writeExecutionCheckpoint(request.provider, request, checkpoint);
   }
 
@@ -255,6 +271,7 @@ async function runLocked(
 
   if (checkpoint.promotion === null) {
     validateFutureExpiry(request.expiresAt);
+    /** Provider-backed assignment promotion acquiring run and Task leases. */
     const promotion = await promoteExplicitAssignment({
       activationRuntime: bindings.activationRuntime,
       assignment: checkpoint.assignment,
@@ -268,62 +285,77 @@ async function runLocked(
     checkpoint = { ...checkpoint, promotion };
     await writeExecutionCheckpoint(request.provider, request, checkpoint);
   }
+  /** Durable promotion authorizing dispatch, effects, and outcome routing. */
   const promotion = requiredCheckpointValue(checkpoint.promotion, "promotion");
 
   if (checkpoint.result === null) {
-    const task = await exactPromotedTask(
+    /** Exact live Task basis authorized by the promotion. */
+    const task = await verifyAndLoadAssignedTask(
       request.provider,
       promotion,
       activated,
       bindings.activationRuntime,
     );
-    const prepared = await bindings.prepare({
+
+    /** Trusted runtime and additional input prepared for this assignment. */
+    const preparedRun = await bindings.prepare({
       activated,
       config: request.config,
       promotion,
       provider: request.provider,
       task,
     });
-    const dispatched = await dispatchActivatedAgent({
+
+    /** Validated dispatch result checkpointed before any proposed effect. */
+    const dispatchResult = await dispatchActivatedAgent({
       activated,
       activationRuntime: bindings.activationRuntime,
-      additionalInput: prepared.additionalInput,
+      additionalInput: preparedRun.additionalInput,
       promotion,
       provider: request.provider,
-      runtime: prepared.runtime,
+      runtime: preparedRun.runtime,
     });
-    checkpoint = { ...checkpoint, result: dispatched.result };
+
+    checkpoint = { ...checkpoint, result: dispatchResult.result };
     await writeExecutionCheckpoint(request.provider, request, checkpoint);
   }
+  /** Immutable validated result reused instead of redispatching on resume. */
   const result = requiredCheckpointValue(checkpoint.result, "Agent result");
 
   if (checkpoint.effectIds === null) {
-    await exactPromotedTask(
+    await verifyAndLoadAssignedTask(
       request.provider,
       promotion,
       activated,
       bindings.activationRuntime,
     );
-    const effects = await bindings.executeEffects({
+
+    /** Ordered effect executions returned by the host's durable broker. */
+    const effectExecutions = await bindings.executeEffects({
       deadlineAt:
         Date.now() + activated.resolved.definition.deadlineSeconds * 1_000,
       result,
     });
-    assertAppliedEffects(result, effects);
+
+    assertAppliedEffects(result, effectExecutions);
     checkpoint = {
       ...checkpoint,
-      effectIds: effects.map((effect) => effect.request.effectId),
+      effectIds: effectExecutions.map((effect) => effect.request.effectId),
     };
+
     await writeExecutionCheckpoint(request.provider, request, checkpoint);
   }
 
   if (checkpoint.transition === null) {
-    const task = await exactPromotedTask(
+    /** Live assigned Task reloaded after the host-controlled effect boundary. */
+    const task = await verifyAndLoadAssignedTask(
       request.provider,
       promotion,
       activated,
       bindings.activationRuntime,
     );
+
+    /** Durable provider transition applied from the checkpointed Agent result. */
     const transition = await applyOutcome({
       activated,
       bindings,
@@ -334,6 +366,7 @@ async function runLocked(
       task,
       taskId: request.taskId,
     });
+
     checkpoint = { ...checkpoint, transition };
     await writeExecutionCheckpoint(request.provider, request, checkpoint);
   }
@@ -355,17 +388,25 @@ async function completeExecution(
   requestPayload: JsonValue,
   checkpoint: AgentExecutionCheckpoint,
 ): Promise<AgentExecutionReport> {
+  /** Completed promotion whose leases must be released idempotently. */
   const promotion = requiredCheckpointValue(checkpoint.promotion, "promotion");
+  /** Checkpointed Agent result used to assemble the terminal report. */
   const result = requiredCheckpointValue(checkpoint.result, "Agent result");
+
   await releaseAssignment(request.provider, promotion, request.operationKey);
+
+  /** Applied effect identities retained in original proposal order. */
   const effectIds = requiredCheckpointValue(
     checkpoint.effectIds,
     "effect receipts",
   );
+  /** Durable outcome receipt proving routing completed before cleanup. */
   const transition = requiredCheckpointValue(
     checkpoint.transition,
     "outcome transition",
   );
+
+  /** Exact terminal report persisted for read-only replay. */
   const report: AgentExecutionReport = {
     agentId: request.agentId,
     contextDigest: result.contextDigest,
@@ -378,13 +419,15 @@ async function completeExecution(
     taskId: request.taskId,
     transition,
   };
-  const completed = await request.provider.completeOperationIntent(
+
+  /** Applied operation intent that owns the canonical replay result. */
+  const completedIntent = await request.provider.completeOperationIntent(
     intentId,
     EXECUTION_OPERATION,
     requestPayload,
     toJsonValue(report),
   );
-  return parseExecutionReport(completed.result);
+  return parseExecutionReport(completedIntent.result);
 }
 
 /** Returns a completed checkpoint field or rejects corrupt phase ordering. */
@@ -395,7 +438,7 @@ function requiredCheckpointValue<T>(value: T | null, label: string): T {
 }
 
 /** Revalidates the full assignment and returns its exact promoted Task basis. */
-async function exactPromotedTask(
+async function verifyAndLoadAssignedTask(
   provider: AgentTaskProvider,
   promotion: AssignmentPromotion,
   activated: ActivatedDefinition,
@@ -412,32 +455,46 @@ async function exactPromotedTask(
 
 /** Applies the provider-defined result route after every proposed effect is durable. */
 async function applyOutcome(input: {
+  /** Activated definition whose route and authority govern the result. */
   readonly activated: ActivatedDefinition;
+  /** Trusted callbacks used to materialize optional outcome evidence. */
   readonly bindings: AgentExecutionBindings;
+  /** Stable operation key used to derive the ordinary transition key. */
   readonly operationKey: string;
+  /** Live assignment basis that the outcome must still match. */
   readonly promotion: AssignmentPromotion;
+  /** Provider receiving the durable outcome transition. */
   readonly provider: AgentTaskProvider;
+  /** Checkpointed Agent result whose outcome is being routed. */
   readonly result: AgentResult;
+  /** Task snapshot supplied to host-owned outcome materializers. */
   readonly task: TaskSnapshot;
+  /** Explicit Task identity repeated at the broker boundary. */
   readonly taskId: string;
 }): Promise<OutcomeTransitionReceipt> {
+  /** Activated transition contract for the selected Agent. */
   const definition = input.activated.resolved.definition;
+  /** Provider-backed broker enforcing replay and Task preconditions. */
   const broker = new OutcomeTransitionBroker(input.provider);
+
   if (definition.humanResolutionOutcomes.includes(input.result.outcome)) {
     if (input.bindings.humanResolution === undefined)
       throw new Error(
         "Execution host cannot materialize the required human resolution",
       );
+    /** Human-resolution payload derived before assignment revalidation. */
     const resolution = await input.bindings.humanResolution({
       result: input.result,
       task: input.task,
     });
-    await exactPromotedTask(
+
+    await verifyAndLoadAssignedTask(
       input.provider,
       input.promotion,
       input.activated,
       input.bindings.activationRuntime,
     );
+
     return broker.apply({
       definition,
       expectedTaskStatus: input.promotion.taskStatus,
@@ -448,17 +505,21 @@ async function applyOutcome(input: {
       taskId: input.taskId,
     });
   }
-  const cycle =
+
+  /** Optional review or test evidence supplied to the ordinary transition. */
+  const remediationCycle =
     (await input.bindings.remediationCycle?.({
       result: input.result,
       task: input.task,
     })) ?? {};
-  await exactPromotedTask(
+
+  await verifyAndLoadAssignedTask(
     input.provider,
     input.promotion,
     input.activated,
     input.bindings.activationRuntime,
   );
+
   return broker.apply({
     definition,
     expectedTaskStatus: input.promotion.taskStatus,
@@ -467,7 +528,7 @@ async function applyOutcome(input: {
     kind: "task_transition",
     outcome: input.result.outcome,
     taskId: input.taskId,
-    ...cycle,
+    ...remediationCycle,
   });
 }
 
@@ -481,9 +542,11 @@ function assertAppliedEffects(
       "Execution host did not return one effect execution per proposed intent",
     );
   for (const [index, effect] of effects.entries()) {
+    /** Proposed intent occupying this exact ordered effect position. */
     const intent = result.proposedIntents[index];
     if (intent === undefined)
       throw new Error(`External effect ${index} has no matching intent`);
+    /** Canonical request authorized by the immutable Agent result and index. */
     const expectedRequest = finalizeRequest({
       kind: intent.kind,
       payload: intent.payload,
@@ -522,6 +585,7 @@ async function releaseAssignment(
   operationKey: string,
 ): Promise<void> {
   for (const leaseId of [promotion.taskLeaseId, promotion.runLeaseId]) {
+    /** Current exact-owner lease snapshot, including released leases on replay. */
     const lease = await provider.getLeaseSnapshot(leaseId);
     if (lease === null || lease.ownerId !== promotion.ownerId)
       throw new Error(
@@ -534,6 +598,8 @@ async function releaseAssignment(
         ownerId: promotion.ownerId,
       });
   }
+
+  /** Agent projection reconciled only after both assignment leases are released. */
   const reconciled = await provider.reconcileAgentActivity(
     promotion.targetAgentId,
     `${operationKey}:activity`,
@@ -555,6 +621,7 @@ function validateRequestShape(request: AgentExecutionRequest): void {
     request.assignmentDepth < 0
   )
     throw new TypeError("Assignment depth must be a non-negative integer");
+  /** Parsed expiry used only to verify canonical UTC representation. */
   const milliseconds = Date.parse(request.expiresAt);
   if (
     !Number.isFinite(milliseconds) ||

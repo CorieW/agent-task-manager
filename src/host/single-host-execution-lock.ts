@@ -19,6 +19,7 @@ export async function withSingleHostExecutionLock<T>(
   identity: string,
   operation: () => Promise<T>,
 ): Promise<T> {
+  /** Shared queue entry retained while any caller is running or waiting. */
   const entry =
     mutexes.get(identity) ??
     ({

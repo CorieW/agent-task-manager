@@ -37,9 +37,9 @@ export interface HumanRequestInput extends NewHumanInteractionSlot {
     ErrorMutation,
     "idempotencyKey" | "relatedTaskId"
   > | null;
-  /** Task status frozen before the human request was materialized. */
+  /** Optional first-install status precondition; omission skips only this stale-basis check. */
   readonly expectedTaskStatus?: string;
-  /** Task version frozen before the human request was materialized. */
+  /** Optional first-install version precondition; omission skips only this stale-basis check. */
   readonly expectedTaskVersion?: string;
   /** Names the Task status that owns the unanswered slot. */
   readonly waitingStatus: string;

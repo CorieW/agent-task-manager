@@ -44,9 +44,9 @@ interface OutcomeTransitionBase {
     AgentDefinition,
     "humanResolutionOutcomes" | "transitions"
   >;
-  /** Task status frozen by the assignment that produced the result. */
+  /** Optional first-application status precondition; omission skips only this stale-basis check. */
   readonly expectedTaskStatus?: string;
-  /** Task version frozen by the assignment that produced the result. */
+  /** Optional first-application version precondition; omission skips only this stale-basis check. */
   readonly expectedTaskVersion?: string;
   /** Agent result outcome to resolve through the definition routes. */
   readonly outcome: string;

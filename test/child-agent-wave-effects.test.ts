@@ -36,7 +36,7 @@ test("runs dependency-ordered nodes and persists each receipt in Resources", asy
   /** Provides isolated provider state for the scenario. */
   const provider = new InMemoryProvider(environment, target);
   /** Creates the first pinned child-agent context Resource. */
-  const contextA = await context(provider, "context/a");
+  const contextA = await seedAgentContext(provider, "context/a");
   /** Records dependency-ordered child-agent execution. */
   const order: string[] = [];
   /** Simulates child-agent execution and records call order. */
@@ -113,7 +113,7 @@ test("rejects malformed node receipts and changed context pins", async () => {
   /** Provides isolated provider state for the scenario. */
   const provider = new InMemoryProvider(environment, target);
   /** Pins the child-agent context expected by the receipt. */
-  const contextDigest = await context(provider, "context/a");
+  const contextDigest = await seedAgentContext(provider, "context/a");
   /** Identifies the persisted child-agent node intent. */
   const effectId = "d".repeat(64);
   /** Describes the child-agent wave node being reconciled. */
@@ -186,15 +186,17 @@ test("rejects contexts outside the exact parent run and Agent catalog", async ()
   /** Provides a valid context whose authority will be deliberately mismatched. */
   const provider = new InMemoryProvider(environment, target);
   /** Pins the valid reviewer context used by both rejection cases. */
-  const contextDigest = await context(provider, "context/a");
+  const contextDigest = await seedAgentContext(provider, "context/a");
   /** Counts driver calls to prove rejection occurs before child execution. */
   let driverCalls = 0;
   /** Driver that must remain unreachable for unauthorized contexts. */
   const driver: ChildAgentNodeDriver = {
+    /** Records any unauthorized reconciliation attempt. */
     async reconcile() {
       driverCalls += 1;
       return notApplied;
     },
+    /** Records any unauthorized child execution attempt. */
     async run() {
       driverCalls += 1;
       return notApplied;
@@ -215,13 +217,14 @@ test("rejects contexts outside the exact parent run and Agent catalog", async ()
     signal: new AbortController().signal,
   };
 
-  const wrongDefinition = new ProviderChildAgentWaveEffects(
+  /** Effects boundary tested with a node/context definition mismatch. */
+  const wrongDefinitionEffects = new ProviderChildAgentWaveEffects(
     provider,
     driver,
     authority([entry("context/a", contextDigest)]),
   );
   await assert.rejects(
-    wrongDefinition.apply({
+    wrongDefinitionEffects.apply({
       control,
       effectId: "e".repeat(64),
       payload: {
@@ -232,12 +235,13 @@ test("rejects contexts outside the exact parent run and Agent catalog", async ()
     (error: unknown) => aggregateContains(error, /authorized catalog/u),
   );
 
-  const staleRun = new ProviderChildAgentWaveEffects(provider, driver, {
+  /** Effects boundary tested with authority from a different parent run. */
+  const staleRunEffects = new ProviderChildAgentWaveEffects(provider, driver, {
     ...authority([entry("context/a", contextDigest)]),
     parentRunId: "another-run",
   });
   await assert.rejects(
-    staleRun.apply({
+    staleRunEffects.apply({
       control,
       effectId: "f".repeat(64),
       payload: { maxConcurrency: 1, nodes: [node] },
@@ -248,20 +252,23 @@ test("rejects contexts outside the exact parent run and Agent catalog", async ()
 });
 
 /** Persists and returns the digest of a pinned Agent context Resource. */
-async function context(
+async function seedAgentContext(
   provider: InMemoryProvider,
   key: string,
 ): Promise<string> {
+  /** Target definition whose live digest is embedded in the context. */
   const definition = childDefinition();
   provider.seedDefinition(definition);
   for (const resource of childResources()) await provider.putResource(resource);
+  /** Validated target definition and immutable Resource graph. */
   const resolved = await resolveDefinition(provider, definition.id);
+  /** Ordered dependency pins shared by the context body and Resource envelope. */
   const resourcePins = resolved.resources.map(({ digest, key, version }) => ({
     digest,
     key,
     version,
   }));
-  /** Decodes the request body consumed by the fake transport. */
+  /** Canonical persisted Agent-context authority record. */
   const body = canonicalize(
     toJsonValue({
       assignmentDepth: 1,
@@ -334,6 +341,7 @@ function childDefinition(): AgentDefinition {
 
 /** Supplies the immutable Resource graph resolved for the reviewer context. */
 function childResources() {
+  /** Resource tuples converted into active, digest-bound mutations. */
   const records = [
     ["prompt/reviewer", "prompt", "Review the task."],
     [

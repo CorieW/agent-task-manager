@@ -68,8 +68,9 @@ test("runs an explicit Agent through effects, outcome routing, and cleanup", asy
   const provider = await executionProvider();
   /** Parsed runtime environment supplied to the execution request. */
   const config = environmentConfig();
-  /** Registered no-tool model adapter returning one schema-valid result. */
+  /** Counts model invocations across the initial run and terminal replay. */
   let modelCalls = 0;
+  /** Registered no-tool model adapter returning one schema-valid result. */
   const model = new NoToolModelTransportAdapter(
     "no-tool-model",
     {
@@ -93,47 +94,26 @@ test("runs an explicit Agent through effects, outcome routing, and cleanup", asy
   );
   /** Runtime resolved from the exact adapters named by configuration. */
   const runtime = runtimeEnvironment(config, model);
-  /** Activated worker reused as a deterministic child-context fixture. */
-  const activated = await activateDefinitions({
-    ...activationRuntime,
-    definitionIds: ["worker"],
-    provider,
-  });
-  assert.ok(activated[0]);
-  /** First deterministic child-context catalog. */
-  const firstCatalog = await materializeAgentContexts({
-    assignmentDepth: 0,
-    parent: activated[0],
-    parentRunId: "run-context-test",
-    provider,
-    targets: activated,
-    task: await provider.getTaskSnapshot("task-1"),
-  });
-  /** Replayed catalog proving idempotent context materialization. */
-  const replayedCatalog = await materializeAgentContexts({
-    assignmentDepth: 0,
-    parent: activated[0],
-    parentRunId: "run-context-test",
-    provider,
-    targets: activated,
-    task: await provider.getTaskSnapshot("task-1"),
-  });
-  assert.deepEqual(replayedCatalog, firstCatalog);
-  /** Terminal execution report returned after the Task transition. */
+  /** Counts cleanup calls across the initial run and terminal replay. */
   let closeCalls = 0;
+  /** Trusted bindings used by both invocations of the same logical run. */
   const bindings: AgentExecutionBindings = {
     activationRuntime,
+    /** Records release of host-owned resources after each invocation. */
     async close() {
       closeCalls += 1;
     },
+    /** Confirms the no-intent result requires no external effect execution. */
     async executeEffects({ result }) {
       assert.deepEqual(result.proposedIntents, []);
       return [];
     },
+    /** Supplies the exact resolved runtime for dispatch. */
     async prepare() {
       return { additionalInput: { source: "test" }, runtime };
     },
   };
+  /** Stable request reused to exercise exact terminal replay. */
   const request = {
     agentId: "worker",
     assignmentDepth: 0,
@@ -143,6 +123,8 @@ test("runs an explicit Agent through effects, outcome routing, and cleanup", asy
     provider,
     taskId: "task-1",
   };
+
+  /** Terminal execution report returned after the Task transition. */
   const report = await runExplicitAgentTask({ bindings, request });
   assert.equal(report.outcome, "succeeded");
   assert.equal((await provider.getTaskSnapshot("task-1")).status, "Done");
@@ -159,6 +141,39 @@ test("runs an explicit Agent through effects, outcome routing, and cleanup", asy
   assert.equal(closeCalls, 2);
 });
 
+test("materializes Agent contexts idempotently", async () => {
+  /** Isolated provider containing the parent Agent, Task, and Resource graph. */
+  const provider = await executionProvider();
+  /** Activated parent reused as the sole deterministic child target. */
+  const activated = await activateDefinitions({
+    ...activationRuntime,
+    definitionIds: ["worker"],
+    provider,
+  });
+  assert.ok(activated[0]);
+
+  /** First deterministic child-context catalog. */
+  const firstCatalog = await materializeAgentContexts({
+    assignmentDepth: 0,
+    parent: activated[0],
+    parentRunId: "run-context-test",
+    provider,
+    targets: activated,
+    task: await provider.getTaskSnapshot("task-1"),
+  });
+  /** Replayed catalog for the identical parent, target, and Task snapshot. */
+  const replayedCatalog = await materializeAgentContexts({
+    assignmentDepth: 0,
+    parent: activated[0],
+    parentRunId: "run-context-test",
+    provider,
+    targets: activated,
+    task: await provider.getTaskSnapshot("task-1"),
+  });
+
+  assert.deepEqual(replayedCatalog, firstCatalog);
+});
+
 test("closes trusted bindings when request validation fails", async () => {
   /** Provider that must remain untouched by malformed request handling. */
   const provider = new InMemoryProvider(providerEnvironment, schema);
@@ -168,12 +183,15 @@ test("closes trusted bindings when request validation fails", async () => {
     runExplicitAgentTask({
       bindings: {
         activationRuntime,
+        /** Records cleanup even though validation rejects before provider access. */
         async close() {
           closeCalls += 1;
         },
+        /** Must remain unreachable for a malformed request. */
         async executeEffects() {
           throw new Error("unreachable");
         },
+        /** Must remain unreachable for a malformed request. */
         async prepare() {
           throw new Error("unreachable");
         },
@@ -222,7 +240,9 @@ test("rejects an applied effect that is not bound to the exact Agent intent", as
     runExplicitAgentTask({
       bindings: {
         activationRuntime: effectRuntime,
+        /** Returns an applied execution for a deliberately different payload. */
         async executeEffects({ result }) {
+          /** Canonical wrong-payload request used to test correlation rejection. */
           const request = finalizeRequest({
             kind: "test.effect",
             payload: { value: "wrong" },
@@ -250,6 +270,7 @@ test("rejects an applied effect that is not bound to the exact Agent intent", as
             },
           ];
         },
+        /** Supplies the resolved runtime for the correlation scenario. */
         async prepare() {
           return { additionalInput: {}, runtime };
         },
@@ -283,7 +304,9 @@ test("rejects a result when the promoted Task changes before outcome routing", a
     runExplicitAgentTask({
       bindings: {
         activationRuntime,
+        /** Simulates a concurrent human edit after dispatch but before routing. */
         async executeEffects() {
+          /** Live Task snapshot used as the expected version for the human edit. */
           const task = await provider.getTaskSnapshot("task-1");
           await provider.applyTaskMutation({
             expectedVersion: task.version,
@@ -295,6 +318,7 @@ test("rejects a result when the promoted Task changes before outcome routing", a
           });
           return [];
         },
+        /** Supplies the resolved runtime before the concurrent edit is injected. */
         async prepare() {
           return { additionalInput: {}, runtime };
         },
@@ -303,6 +327,7 @@ test("rejects a result when the promoted Task changes before outcome routing", a
     }),
     /Assigned Task changed after selection/u,
   );
+  /** Task state retained after stale Agent output is rejected. */
   const task = await provider.getTaskSnapshot("task-1");
   assert.equal(task.status, "Ready");
   assert.match(task.body, /Human clarification/u);
@@ -319,6 +344,7 @@ test("resumes cleanup after one assignment lease was already released", async ()
   const model = new NoToolModelTransportAdapter(
     "no-tool-model",
     {
+      /** Streams the one result that must survive the cleanup interruption. */
       async *stream({ context }) {
         modelCalls += 1;
         yield JSON.stringify(
@@ -350,9 +376,11 @@ test("resumes cleanup after one assignment lease was already released", async ()
   /** Bindings reused by the exact logical retry. */
   const bindings: AgentExecutionBindings = {
     activationRuntime,
+    /** Confirms the checkpointed result has no proposed effects. */
     async executeEffects() {
       return [];
     },
+    /** Supplies the same runtime to the initial attempt and retry. */
     async prepare() {
       return { additionalInput: {}, runtime };
     },
@@ -364,6 +392,7 @@ test("resumes cleanup after one assignment lease was already released", async ()
     runExplicitAgentTask({ bindings, request }),
     /simulated cleanup interruption/u,
   );
+  /** Terminal report produced by resuming after the first lease release. */
   const report = await runExplicitAgentTask({ bindings, request });
   assert.equal(report.outcome, "succeeded");
   assert.equal(modelCalls, 1);
@@ -406,6 +435,7 @@ function environmentConfig(): ReturnType<typeof parseEnvironmentConfig> {
 async function executionProvider(
   definition: AgentDefinition = agentDefinition(),
 ): Promise<InMemoryProvider> {
+  /** Fresh provider preventing execution state from leaking between tests. */
   const provider = new InMemoryProvider(providerEnvironment, schema);
   provider.seedDefinition(definition);
   provider.seedTaskStatusOptions(["Done", "Ready"]);
@@ -428,7 +458,9 @@ async function executionProvider(
 function modelAdapter(
   result: (context: RunContext) => AgentResultCore,
 ): NoToolModelTransportAdapter {
+  /** Minimal client that binds the supplied result factory to each run context. */
   const client: NoToolModelClient = {
+    /** Streams one finalized result for the immutable context. */
     async *stream({ context }) {
       yield JSON.stringify(finalizeAgentResult(result(context)));
     },
