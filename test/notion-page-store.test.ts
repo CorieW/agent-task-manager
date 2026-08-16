@@ -22,6 +22,8 @@ const TABLES = {
 class MutableTransport implements NotionTransport {
   /** Contains blocks for mutable transport. */
   public readonly blocks = new Map<string, JsonObject[]>();
+  /** Contains native page Markdown for mutable transport. */
+  public readonly markdown = new Map<string, string>();
   /** Contains pages for mutable transport. */
   public readonly pages = new Map<string, JsonObject>();
   /** Contains requests for mutable transport. */
@@ -76,12 +78,45 @@ class MutableTransport implements NotionTransport {
       this.pages.set(id, page);
       this.blocks.set(
         id,
-        (body.children as JsonObject[]).map((block, index) => ({
-          ...block,
-          id: `${id}-block-${index}`,
-        })),
+        Array.isArray(body.children)
+          ? (body.children as JsonObject[]).map((block, index) => ({
+              ...block,
+              id: `${id}-block-${index}`,
+            }))
+          : [],
       );
+      if (typeof body.markdown === "string") {
+        this.markdown.set(id, body.markdown);
+      }
       return page;
+    }
+    /** Defines the native Markdown endpoint match. */
+    const markdownMatch = /^\/v1\/pages\/(.+)\/markdown$/u.exec(request.path);
+    if (markdownMatch?.[1] !== undefined) {
+      /** Identifies the page read or updated through native Markdown. */
+      const pageId = markdownMatch[1];
+      if (request.method === "PATCH") {
+        /** Reads the replacement Markdown command. */
+        const body = objectValue(request.body);
+        /** Reads the complete replacement page Markdown. */
+        const newString = objectValue(body.replace_content).new_str;
+        if (body.type !== "replace_content" || typeof newString !== "string") {
+          throw new TypeError("Invalid Markdown replacement fixture");
+        }
+        this.markdown.set(pageId, newString);
+      }
+      /** Reads the current canonical page Markdown. */
+      const markdown = this.markdown.get(pageId);
+      if (markdown === undefined) {
+        throw new Error(`Markdown fixture is missing for ${pageId}`);
+      }
+      return {
+        id: pageId,
+        markdown,
+        object: "page_markdown",
+        truncated: false,
+        unknown_block_ids: [],
+      };
     }
     /** Defines the page match fixture used by request. */
     const pageMatch = /^\/v1\/pages\/(.+)$/u.exec(request.path);
@@ -136,27 +171,7 @@ class MutableTransport implements NotionTransport {
           id: `${children[1]}-block-${existing.length + index}`,
         }),
       );
-      /** Reads the optional positioned-insertion anchor. */
-      const position = objectValue(request.body).position;
-      /** Selects the insertion offset after the requested anchor, or at the end. */
-      let insertionIndex = existing.length;
-      if (
-        position !== null &&
-        typeof position === "object" &&
-        !Array.isArray(position)
-      ) {
-        /** Reads the positioned insertion's block reference. */
-        const afterId = objectValue(position.after_block).id;
-        if (typeof afterId === "string") {
-          insertionIndex =
-            existing.findIndex((candidate) => candidate.id === afterId) + 1;
-        }
-      }
-      this.blocks.set(children[1], [
-        ...existing.slice(0, insertionIndex),
-        ...added,
-        ...existing.slice(insertionIndex),
-      ]);
+      this.blocks.set(children[1], [...existing, ...added]);
       /** Defines the page fixture used by request. */
       const page = required(this.pages.get(children[1]));
       this.pages.set(
@@ -171,18 +186,6 @@ class MutableTransport implements NotionTransport {
     }
     /** Defines the block fixture used by request. */
     const block = /^\/v1\/blocks\/(.+)$/u.exec(request.path);
-    if (block?.[1] !== undefined && request.method === "DELETE") {
-      for (const blocks of this.blocks.values()) {
-        /** Locates the block moved to trash by this request. */
-        const index = blocks.findIndex(
-          (candidate) => candidate.id === block[1],
-        );
-        if (index >= 0) {
-          blocks.splice(index, 1);
-          return { id: block[1], object: "block" };
-        }
-      }
-    }
     if (block?.[1] !== undefined && request.method === "PATCH") {
       for (const [pageId, blocks] of this.blocks) {
         /** Defines the index fixture used by request. */
@@ -290,12 +293,8 @@ test("creates one managed Resource row and verifies its content", async () => {
   });
   assert.equal(receipt.providerRecord.table, "resources");
   assert.equal(
-    await store.managedText(receipt.providerRecord.id, "Resource body"),
-    "prompt body",
-  );
-  assert.deepEqual(
-    transport.blocks.get(receipt.providerRecord.id)?.map((block) => block.type),
-    ["heading_2", "paragraph"],
+    transport.markdown.get(receipt.providerRecord.id),
+    "## Resource body\nprompt body",
   );
   assert.equal(transport.pages.size, 1);
 });
@@ -317,9 +316,9 @@ test("migrates a legacy prompt snippet when the Resource is updated", async () =
   });
 
   await store.createResource({
-    body: "Readable first paragraph.\n\nReadable second paragraph.",
+    body: "Readable first paragraph.\nReadable second paragraph.",
     dependencies: [],
-    digest: sha256("Readable first paragraph.\n\nReadable second paragraph."),
+    digest: sha256("Readable first paragraph.\nReadable second paragraph."),
     idempotencyKey: "write-readable",
     key: "prompt/example",
     kind: "prompt",
@@ -328,12 +327,8 @@ test("migrates a legacy prompt snippet when the Resource is updated", async () =
   });
 
   assert.equal(
-    await store.managedText("page-1", "Resource body"),
-    "Readable first paragraph.\n\nReadable second paragraph.",
-  );
-  assert.deepEqual(
-    transport.blocks.get("page-1")?.map((block) => block.type),
-    ["heading_2", "paragraph", "paragraph"],
+    transport.markdown.get("page-1"),
+    "## Resource body\nReadable first paragraph.\nReadable second paragraph.",
   );
 });
 

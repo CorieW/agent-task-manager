@@ -56,10 +56,14 @@ class RecordsTransport implements NotionTransport {
       return blocks([{ paragraph: rich("Task details"), type: "paragraph" }]);
     if (request.path === "/v1/blocks/agent-1/children")
       return blocks(managed("Agent definition", JSON.stringify(definition())));
-    if (request.path === "/v1/blocks/resource-1/children")
-      return blocks(
-        readablePrompt("Resource body", "resource text\n\nSecond paragraph"),
-      );
+    if (request.path === "/v1/pages/resource-1/markdown") {
+      return {
+        markdown: "## Resource body\nresource text\nSecond paragraph",
+        object: "page_markdown",
+        truncated: false,
+        unknown_block_ids: [],
+      };
+    }
     throw new Error(`Unexpected request ${request.method} ${request.path}`);
   }
 }
@@ -105,12 +109,12 @@ test("verifies Resources against their content digest", async () => {
   /** Defines the resource fixture for “verifies Resources against their content digest”. */
   const [resource] = await reader.getResources([
     {
-      digest: sha256("resource text\n\nSecond paragraph"),
+      digest: sha256("resource text\nSecond paragraph"),
       key: "prompt/coordinator",
       version: "v1",
     },
   ]);
-  assert.equal(resource?.body, "resource text\n\nSecond paragraph");
+  assert.equal(resource?.body, "resource text\nSecond paragraph");
 });
 
 /** Builds page. */
@@ -173,9 +177,7 @@ function resourcePage(): JsonObject {
       Dependencies: { id: "dependencies", rich_text: [], type: "rich_text" },
       Digest: {
         id: "digest",
-        rich_text: [
-          { plain_text: sha256("resource text\n\nSecond paragraph") },
-        ],
+        rich_text: [{ plain_text: sha256("resource text\nSecond paragraph") }],
         type: "rich_text",
       },
       Kind: { id: "kind", select: { name: "prompt" }, type: "select" },
@@ -242,18 +244,6 @@ function managed(heading: string, body: string): JsonObject[] {
   return [
     { heading_2: rich(heading), id: "heading", type: "heading_2" },
     { code: { ...rich(body), language: "json" }, id: "code", type: "code" },
-  ];
-}
-
-/** Builds a readable managed prompt section from canonical paragraphs. */
-function readablePrompt(heading: string, body: string): JsonObject[] {
-  return [
-    { heading_2: rich(heading), id: "heading", type: "heading_2" },
-    ...body.split("\n\n").map((paragraph, index) => ({
-      id: `paragraph-${index}`,
-      paragraph: rich(paragraph),
-      type: "paragraph",
-    })),
   ];
 }
 

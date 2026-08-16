@@ -21,7 +21,7 @@ import {
 } from "./notion-transport.js";
 import { NOTION_TASK_MUTATION_PROPERTY } from "./notion-schema.js";
 import { activeTaskBodyGeneration } from "./notion-task-body-generation.js";
-import { promptBodyText } from "./notion-prompt-body.js";
+import { promptBodyFromMarkdownResponse } from "./notion-prompt-markdown.js";
 
 /** Defines Notion table IDs. */
 export interface NotionTableIds {
@@ -325,12 +325,14 @@ export class NotionRecordReader {
   private async resourceRecord(page: JsonObject): Promise<ResourceRecord> {
     /** Holds the `id` intermediate used by `resourceRecord`. */
     const id = requiredString(page.id, "Resource page id");
-    /** Holds the `body` intermediate used by `resourceRecord`. */
+    /** Reads the expected digest before selecting legacy prompt compatibility. */
+    const digest = propertyText(page, "Digest");
+    /** Identifies the Resource representation selected by the provider row. */
     const kind = propertyOption(page, "Kind");
     /** Holds the `body` intermediate used by `resourceRecord`. */
     const body =
       kind === "prompt"
-        ? await this.managedPromptText(id, "Resource body")
+        ? await this.managedPromptMarkdown(id, digest)
         : await this.managedText(id, "Resource body");
     /** Holds the `dependencyValue` intermediate used by `resourceRecord`. */
     const dependencyValue = propertyText(page, "Dependencies");
@@ -343,7 +345,7 @@ export class NotionRecordReader {
     const record: ResourceRecord = {
       body,
       dependencies,
-      digest: propertyText(page, "Digest"),
+      digest,
       key: propertyText(page, "Resource"),
       kind,
       state: parseResourceState(propertyOption(page, "State")),
@@ -400,31 +402,17 @@ export class NotionRecordReader {
     return blockText(content).replace(/\r\n?/gu, "\n").normalize("NFC");
   }
 
-  /** Reads a prompt Resource from readable paragraphs or its legacy code block. */
-  private async managedPromptText(
+  /** Reads a prompt Resource through Notion's native enhanced-Markdown endpoint. */
+  private async managedPromptMarkdown(
     pageId: string,
-    heading: string,
+    expectedDigest: string,
   ): Promise<string> {
-    /** Reads every top-level page block once for deterministic section parsing. */
-    const blocks = await this.readChildBlocks(pageId);
-    /** Locates the unique managed prompt heading. */
-    const matches = blocks
-      .map((block, index) => ({ block, index }))
-      .filter(
-        ({ block }) =>
-          block.type === "heading_2" && blockText(block) === heading,
-      );
-    if (matches.length !== 1) {
-      throw new Error(
-        `Page ${pageId} must contain exactly one ## ${heading} section`,
-      );
-    }
-    /** Selects the first block owned by the prompt section. */
-    const index = matches[0]?.index;
-    if (index === undefined) {
-      throw new Error(`Page ${pageId} managed prompt section is missing`);
-    }
-    return promptBodyText(blocks.slice(index + 1));
+    /** Retrieves the complete page projection and its truncation evidence. */
+    const response = await this.transport.request({
+      method: "GET",
+      path: `/v1/pages/${pageId}/markdown`,
+    });
+    return promptBodyFromMarkdownResponse(response, expectedDigest);
   }
 
   /** Reads IDs. */
