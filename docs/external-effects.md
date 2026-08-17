@@ -13,7 +13,7 @@ implementations.
 
 - `workspace.provision` and `workspace.release`
 - `git.observe`, `git.branch`, `git.commit`, and `git.push`
-- `publication.draft_pr`
+- `publication.draft_pr` and `publication.pr_comment`
 - `command.run`
 - `browser.run`
 - `child_agent.wave`
@@ -107,17 +107,23 @@ if the matching PR is closed, merged, no longer a draft, points at an
 unexpected head, or cannot be reconciled without overwriting human-controlled
 state. Coder never merges, marks ready, approves, or closes the PR.
 
+Reviewer and Tester publish bounded Markdown through
+`publication.pr_comment`. The payload identifies the configured publication
+target, repository, and pull-request number. These comments report findings or
+verification only; they do not approve, merge, close, or change draft state.
+
 ## Closed payloads
 
-| Kind                   | Required fields                                                                                                                                                        |
-| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `workspace.provision`  | `mode`, `repositoryId`, `sourceRevision`, `workspaceKey`                                                                                                               |
-| `workspace.release`    | `repositoryId`, `workspaceKey`                                                                                                                                         |
-| `git.observe`          | `repositoryId`, `revision`, `workspaceKey`                                                                                                                             |
-| `git.branch`           | `branch`, `expectedHead`, `repositoryId`, `workspaceKey`                                                                                                               |
-| `git.commit`           | `expectedHead`, `message`, nonempty repository-relative `paths`, `repositoryId`, `workspaceKey`                                                                        |
-| `git.push`             | `branch`, `expectedLocalHead`, nullable `expectedRemoteHead`, configured `remote`, `repositoryId`, `workspaceKey`                                                      |
-| `publication.draft_pr` | `baseBranch`, bounded `body`, `expectedHead`, `headBranch`, `publicationTarget`, `repositoryId`, bounded `title`                                                       |
-| `command.run`          | bounded `arguments`, configured `commandKey`, `repositoryId`, `workspaceKey`                                                                                           |
-| `browser.run`          | configured `environmentKey`, `repositoryId`, `scenarioResource`, `workspaceKey`                                                                                        |
-| `child_agent.wave`     | `maxConcurrency` (1–32) and an acyclic `nodes` array; every node pins `contextResource`, `contextVersion`, `contextDigest`, `definitionId`, `dependsOn`, and `nodeKey` |
+| Kind                     | Required fields                                                                                                                                                        |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `workspace.provision`    | `mode`, `repositoryId`, `sourceRevision`, `workspaceKey`                                                                                                               |
+| `workspace.release`      | `repositoryId`, `workspaceKey`                                                                                                                                         |
+| `git.observe`            | `repositoryId`, `revision`, `workspaceKey`                                                                                                                             |
+| `git.branch`             | `branch`, `expectedHead`, `repositoryId`, `workspaceKey`                                                                                                               |
+| `git.commit`             | `expectedHead`, `message`, nonempty repository-relative `paths`, `repositoryId`, `workspaceKey`                                                                        |
+| `git.push`               | `branch`, `expectedLocalHead`, nullable `expectedRemoteHead`, configured `remote`, `repositoryId`, `workspaceKey`                                                      |
+| `publication.draft_pr`   | `baseBranch`, bounded `body`, `expectedHead`, `headBranch`, `publicationTarget`, `repositoryId`, bounded `title`                                                       |
+| `publication.pr_comment` | bounded `body`, `publicationTarget`, positive integer `pullRequestNumber`, `repositoryId`                                                                              |
+| `command.run`            | bounded `arguments`, configured `commandKey`, `repositoryId`, `workspaceKey`                                                                                           |
+| `browser.run`            | configured `environmentKey`, `repositoryId`, `scenarioResource`, `workspaceKey`                                                                                        |
+| `child_agent.wave`       | `maxConcurrency` (1–32) and an acyclic `nodes` array; every node pins `contextResource`, `contextVersion`, `contextDigest`, `definitionId`, `dependsOn`, and `nodeKey` |

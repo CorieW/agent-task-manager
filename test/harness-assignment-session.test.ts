@@ -5,6 +5,7 @@ import test from "node:test";
 import {
   InMemoryProvider,
   completeHarnessAssignment,
+  parseHarnessAssignmentCompletion,
   prepareHarnessAssignment,
   prepareHarnessSelection,
   type AgentDefinition,
@@ -376,7 +377,7 @@ test("requires ordered harness attestations for every proposed effect", async ()
       operationKey: "issue-001-publish",
       provider,
     }),
-    /attest every proposed intent/u,
+    /attest every proposed external intent/u,
   );
   assert.equal((await provider.getTaskSnapshot("task-1")).status, "Ready");
 
@@ -405,6 +406,214 @@ test("requires ordered harness attestations for every proposed effect", async ()
   assert.equal(report.effectIds.length, 1);
   assert.match(report.effectIds[0] ?? "", /^[a-f0-9]{64}$/u);
   assert.equal((await provider.getTaskSnapshot("task-1")).status, "Planned");
+});
+
+test("publishes a Planner plan to the Task without an external attestation", async () => {
+  /** Provider whose Planner may publish manager-owned Task content. */
+  const provider = await preparedProvider(["task.plan.publish"]);
+  await prepareHarnessAssignment({
+    agentId: "planner",
+    assignmentDepth: 0,
+    environmentId: "demo",
+    expiresAt: EXPIRY,
+    input: {},
+    operationKey: "issue-001-plan-publish",
+    provider,
+    taskId: "task-1",
+  });
+
+  /** Completion whose sole intent is applied by the manager itself. */
+  const report = await completeHarnessAssignment({
+    completion: {
+      effectAttestations: [],
+      humanResolution: null,
+      result: {
+        outcome: "succeeded",
+        payload: { summary: "Plan ready" },
+        proposedIntents: [
+          {
+            kind: "task.plan.publish",
+            payload: {
+              planMarkdown: "1. Define the contract.\n2. Verify the behavior.",
+              questions: [],
+            },
+          },
+        ],
+        schema: "harness-agent-result-v1",
+      },
+      reviewFindingKeys: null,
+      schema: "harness-assignment-completion-v1",
+      testFailureKeys: null,
+    },
+    environmentId: "demo",
+    operationKey: "issue-001-plan-publish",
+    provider,
+  });
+
+  const task = await provider.getTaskSnapshot("task-1");
+  assert.equal(report.effectIds.length, 0);
+  assert.equal(task.status, "Planned");
+  assert.match(task.body, /agent-task-manager:plan:start/u);
+  assert.match(task.body, /Define the contract/u);
+});
+
+test("publishes a plan and asks all human questions in one slot", async () => {
+  /** Provider whose Planner may block after publishing its plan. */
+  const provider = await preparedProvider(
+    ["task.plan.publish"],
+    undefined,
+    true,
+  );
+  await prepareHarnessAssignment({
+    agentId: "planner",
+    assignmentDepth: 0,
+    environmentId: "demo",
+    expiresAt: EXPIRY,
+    input: {},
+    operationKey: "issue-001-plan-questions",
+    provider,
+    taskId: "task-1",
+  });
+
+  await completeHarnessAssignment({
+    completion: {
+      effectAttestations: [],
+      humanResolution: {
+        createdAt: "2026-08-17T01:00:00.000Z",
+        error: {
+          description: "Planning decisions are required.",
+          errorKey: "planning/questions",
+          relatedAgentId: "planner",
+          relatedRunId: "run-1",
+          resolution: "Answer every planning question.",
+          severity: "high",
+          status: "Not Fixed",
+          title: "Planning questions require answers",
+        },
+        generation: 1,
+        prompt: "This value is replaced by the canonical question batch.",
+        requestedBy: "planner",
+        resumeStatus: "Ready",
+      },
+      result: {
+        outcome: "needs_human",
+        payload: { summary: "Questions collected" },
+        proposedIntents: [
+          {
+            kind: "task.plan.publish",
+            payload: {
+              planMarkdown: "Implement after the decisions are recorded.",
+              questions: [
+                "Which audience is primary?",
+                "What is out of scope?",
+              ],
+            },
+          },
+        ],
+        schema: "harness-agent-result-v1",
+      },
+      reviewFindingKeys: null,
+      schema: "harness-assignment-completion-v1",
+      testFailureKeys: null,
+    },
+    environmentId: "demo",
+    operationKey: "issue-001-plan-questions",
+    provider,
+  });
+
+  const task = await provider.getTaskSnapshot("task-1");
+  assert.equal(task.status, "Blocked");
+  assert.match(task.body, /## Plan/u);
+  assert.match(task.body, /1\. Which audience is primary\?/u);
+  assert.match(task.body, /2\. What is out of scope\?/u);
+});
+
+test("records a Draft PR link while attesting only the external publication", async () => {
+  /** Provider whose Coder publishes a draft and records its Task link. */
+  const provider = await preparedProvider([
+    "publication.draft_pr",
+    "task.github_link.record",
+  ]);
+  await prepareHarnessAssignment({
+    agentId: "planner",
+    assignmentDepth: 0,
+    environmentId: "demo",
+    expiresAt: EXPIRY,
+    input: {},
+    operationKey: "issue-001-draft-link",
+    provider,
+    taskId: "task-1",
+  });
+  const url = "https://github.com/example/project/pull/12";
+
+  const report = await completeHarnessAssignment({
+    completion: {
+      effectAttestations: [
+        {
+          evidence: { url },
+          intentIndex: 0,
+          kind: "publication.draft_pr",
+          schema: "harness-effect-attestation-v1",
+          state: "applied",
+        },
+      ],
+      humanResolution: null,
+      result: {
+        outcome: "succeeded",
+        payload: { summary: "Draft published" },
+        proposedIntents: [
+          { kind: "publication.draft_pr", payload: { title: "Draft" } },
+          { kind: "task.github_link.record", payload: { url } },
+        ],
+        schema: "harness-agent-result-v1",
+      },
+      reviewFindingKeys: null,
+      schema: "harness-assignment-completion-v1",
+      testFailureKeys: null,
+    },
+    environmentId: "demo",
+    operationKey: "issue-001-draft-link",
+    provider,
+  });
+
+  assert.equal(report.effectIds.length, 1);
+  assert.equal(
+    (await provider.getTaskSnapshot("task-1")).properties["GitHub Links"],
+    url,
+  );
+});
+
+test("preserves original intent indexes when manager intents precede effects", () => {
+  /** Parsed completion whose only external effect follows a manager-owned intent. */
+  const completion = parseHarnessAssignmentCompletion({
+    effectAttestations: [
+      {
+        evidence: { pullRequest: 12 },
+        intentIndex: 1,
+        kind: "publication.draft_pr",
+        schema: "harness-effect-attestation-v1",
+        state: "applied",
+      },
+    ],
+    humanResolution: null,
+    result: {
+      outcome: "succeeded",
+      payload: { summary: "Published" },
+      proposedIntents: [
+        {
+          kind: "task.plan.publish",
+          payload: { planMarkdown: "Plan", questions: [] },
+        },
+        { kind: "publication.draft_pr", payload: { title: "Draft" } },
+      ],
+      schema: "harness-agent-result-v1",
+    },
+    reviewFindingKeys: null,
+    schema: "harness-assignment-completion-v1",
+    testFailureKeys: null,
+  });
+
+  assert.equal(completion.effectAttestations[0]?.intentIndex, 1);
 });
 
 test("rejects operation-key reuse with changed assignment input", async () => {

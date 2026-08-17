@@ -6,6 +6,7 @@ import {
   createChildAgentWaveHandler,
   createGitCommitHandler,
   createGitPushHandler,
+  createPullRequestCommentHandler,
   type ExternalEffectObservation,
   type ReconcilableEffectAdapter,
 } from "../src/index.js";
@@ -126,5 +127,26 @@ test("requires a closed acyclic child-agent wave", () => {
         ],
       }),
     /cycle/,
+  );
+});
+
+test("validates bounded pull-request comments", () => {
+  /** Describes the review or test comment published on a draft PR. */
+  const comment = createPullRequestCommentHandler(adapter());
+  comment.validate({
+    body: "Review finding: make the retry boundary explicit.",
+    publicationTarget: "github",
+    pullRequestNumber: 12,
+    repositoryId: "example/project",
+  });
+  assert.throws(
+    () =>
+      comment.validate({
+        body: "Invalid PR number",
+        publicationTarget: "github",
+        pullRequestNumber: 0,
+        repositoryId: "example/project",
+      }),
+    /pullRequestNumber is invalid/u,
   );
 });

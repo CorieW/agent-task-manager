@@ -52,6 +52,13 @@ interface OutcomeTransitionBase {
   readonly outcome: string;
   /** Task whose status or recovery state will advance. */
   readonly taskId: string;
+  /** Manager-owned Task content and property updates applied with the route. */
+  readonly taskUpdate?: {
+    /** Complete replacement body, when the role published Task content. */
+    readonly nextBody?: string;
+    /** Complete replacement properties, when the role published Task metadata. */
+    readonly nextProperties?: JsonObject;
+  };
 }
 
 /** Outcome transition that must create a durable human-recovery slot. */
@@ -200,6 +207,12 @@ export class OutcomeTransitionBroker {
         prompt: input.resolution.prompt,
         requestedBy: input.resolution.requestedBy,
         resumeStatus: input.resolution.resumeStatus,
+        ...(input.taskUpdate?.nextBody === undefined
+          ? {}
+          : { nextTaskBody: input.taskUpdate.nextBody }),
+        ...(input.taskUpdate?.nextProperties === undefined
+          ? {}
+          : { nextTaskProperties: input.taskUpdate.nextProperties }),
         taskId: input.taskId,
         waitingStatus: targetStatus,
       });
@@ -223,7 +236,8 @@ export class OutcomeTransitionBroker {
     if (
       targetStatus === taskSnapshot.status &&
       input.reviewCycle === undefined &&
-      input.testCycle === undefined
+      input.testCycle === undefined &&
+      input.taskUpdate === undefined
     )
       return {
         humanSlotId: null,
@@ -237,16 +251,17 @@ export class OutcomeTransitionBroker {
       throw new Error("Ordinary transition request was not prepared");
 
     /** Task properties after applying the one selected remediation-cycle policy. */
-    let nextTaskProperties = taskSnapshot.properties;
+    let nextTaskProperties =
+      input.taskUpdate?.nextProperties ?? taskSnapshot.properties;
     if (input.reviewCycle !== undefined) {
       nextTaskProperties = advanceReviewCycle(
-        taskSnapshot.properties,
+        nextTaskProperties,
         input.reviewCycle.findingKeys,
         input.reviewCycle.policy,
       ).nextProperties;
     } else if (input.testCycle !== undefined) {
       nextTaskProperties = advanceTestCycle(
-        taskSnapshot.properties,
+        nextTaskProperties,
         input.testCycle.failureKeys,
         input.testCycle.policy,
       ).nextProperties;
@@ -257,7 +272,7 @@ export class OutcomeTransitionBroker {
       mutation: {
         expectedVersion: taskSnapshot.version,
         idempotencyKey: `${input.idempotencyKey}:task`,
-        nextBody: null,
+        nextBody: input.taskUpdate?.nextBody ?? null,
         nextProperties: taskPropertiesWithStatus(
           nextTaskProperties,
           targetStatus,

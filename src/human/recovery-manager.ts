@@ -45,6 +45,10 @@ export interface HumanRequestInput extends NewHumanInteractionSlot {
   readonly expectedTaskStatus?: string;
   /** Task version frozen before the human request was materialized. */
   readonly expectedTaskVersion?: string;
+  /** Complete Task body to install before appending the human slot. */
+  readonly nextTaskBody?: string;
+  /** Complete Task properties to install with the human slot. */
+  readonly nextTaskProperties?: JsonObject;
   /** Names the Task status that owns the unanswered slot. */
   readonly waitingStatus: string;
 }
@@ -112,11 +116,13 @@ export class HumanRecoveryManager {
     /** Preserves an existing slot or appends the new canonical slot once. */
     const nextBody =
       existingSlot === undefined
-        ? appendHumanInteractionSlot(task.body, slot)
+        ? appendHumanInteractionSlot(input.nextTaskBody ?? task.body, slot)
         : task.body;
-    /** Freezes all non-human Task properties at the waiting status. */
-    const baselineProperties = taskPropertiesWithStatus(
-      withoutDerivedProperties(task.properties, derivedPropertyNames),
+    /** Task properties including any manager-owned role output. */
+    const nextProperties = input.nextTaskProperties ?? task.properties;
+    /** Baseline properties including manager-owned updates made with this request. */
+    const updatedBaselineProperties = taskPropertiesWithStatus(
+      withoutDerivedProperties(nextProperties, derivedPropertyNames),
       input.waitingStatus,
     );
 
@@ -126,8 +132,8 @@ export class HumanRecoveryManager {
         slot,
         taskArchived: task.archived,
         taskBodyDigest: sha256(normalizeText(nextBody)),
-        taskProperties: baselineProperties,
-        taskPropertiesDigest: digestJson(baselineProperties),
+        taskProperties: updatedBaselineProperties,
+        taskPropertiesDigest: digestJson(updatedBaselineProperties),
         waitingStatus: input.waitingStatus,
       },
       derivedPropertyNames,
@@ -140,12 +146,15 @@ export class HumanRecoveryManager {
         relatedTaskId: slot.taskId,
       });
 
-    if (nextBody !== task.body) {
+    if (
+      nextBody !== task.body ||
+      digestJson(nextProperties) !== digestJson(task.properties)
+    ) {
       await this.provider.applyTaskMutation({
         expectedVersion: task.version,
         idempotencyKey: `human-request:${slot.slotId}:slot`,
         nextBody,
-        nextProperties: task.properties,
+        nextProperties,
         nextStatus: null,
         taskId: task.id,
       });

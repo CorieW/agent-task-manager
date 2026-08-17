@@ -33,8 +33,9 @@ Agent Task Manager.
 4. Let the external role perform its work. If it needs Coder, Reviewer, Tester,
    or another child, the harness creates that child itself. Agent Task Manager
    does not invoke a model.
-5. Execute authorized proposed effects externally and retain bounded evidence
-   for each one.
+5. Execute authorized external proposed effects and retain bounded evidence for
+   each one. The manager applies `task.plan.publish` and
+   `task.github_link.record` itself during outcome routing.
 6. Submit the result and attestations:
 
    ```powershell
@@ -70,10 +71,28 @@ canonical Agent-result digest itself.
 }
 ```
 
-For every proposed intent, `effectAttestations` must contain an entry at the
-same index with the same kind, `state: "applied"`, and bounded JSON evidence.
+For every proposed external intent, `effectAttestations` must contain an entry
+with the original proposed-intent index, the same kind, `state: "applied"`, and
+bounded JSON evidence. Manager-owned Task intents are not externally attested.
 An attestation records what the trusted harness did; it does not give Agent
 Task Manager authority to perform that external action.
+
+## Task-owned role output
+
+Task Planner proposes one `task.plan.publish` intent with `planMarkdown` and a
+complete `questions` array. The manager upserts a single `## Plan` section in
+the Task body. When questions are nonempty, the result must use a declared
+human-resolution outcome; the manager renders every question into one human
+request so the human can answer them together.
+
+Coder proposes `task.github_link.record` after `publication.draft_pr`. The
+manager appends the canonical `https://github.com/<owner>/<repo>/pull/<number>`
+URL to the Task's `GitHub Links` property without duplicating it.
+
+Code Reviewer and Code Tester use the external `publication.pr_comment` intent
+to post their review findings or verification result to that Draft PR. The
+trusted harness performs and attests those GitHub writes before completing the
+assignment.
 
 ## Readiness and authority
 

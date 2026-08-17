@@ -81,15 +81,22 @@ declare:
 {
   "schema": "agent-definition-v1",
   "requiredIntentSequenceByOutcome": {
-    "succeeded": ["git.commit", "git.push", "publication.draft_pr"]
+    "succeeded": [
+      "git.commit",
+      "git.push",
+      "publication.draft_pr",
+      "task.github_link.record"
+    ]
   }
 }
 ```
 
-The external harness executes proposed effects in order and submits one
-`applied` attestation for each effect before asking the CLI to route the
-outcome. A missing or out-of-order commit, push, or publication attestation
-leaves the Task in its current state.
+The external harness executes proposed external effects in order and submits
+one `applied` attestation for each before asking the CLI to route the outcome.
+Manager-owned `task.plan.publish` and `task.github_link.record` intents are
+applied to the Task during routing and receive no external attestation. A
+missing or out-of-order required intent or external attestation leaves the Task
+in its current state.
 
 Provider capability requirements use exact `ProviderCapabilities` property
 names. A bare name, such as `stableRecordIds`, requires that boolean

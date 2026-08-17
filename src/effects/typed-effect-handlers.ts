@@ -17,6 +17,7 @@ export const EXTERNAL_EFFECT_KINDS = [
   "git.observe",
   "git.push",
   "publication.draft_pr",
+  "publication.pr_comment",
   "workspace.provision",
   "workspace.release",
 ] as const;
@@ -112,6 +113,18 @@ export interface DraftPrPayload {
   readonly repositoryId: string;
   /** Human-readable title. */
   readonly title: string;
+}
+
+/** Canonical pull-request comment payload representation. */
+export interface PullRequestCommentPayload {
+  /** Markdown comment posted to the draft pull request. */
+  readonly body: string;
+  /** Configured publication target. */
+  readonly publicationTarget: string;
+  /** Pull-request number within the repository. */
+  readonly pullRequestNumber: number;
+  /** Stable repository identifier. */
+  readonly repositoryId: string;
 }
 
 /** Canonical command run payload representation. */
@@ -235,6 +248,13 @@ export function createDraftPrHandler(
   adapter: ReconcilableEffectAdapter<DraftPrPayload>,
 ): ExternalEffectHandler {
   return handler("publication.draft_pr", adapter, parseDraftPr);
+}
+
+/** Creates a pull-request comment handler after validating its inputs. */
+export function createPullRequestCommentHandler(
+  adapter: ReconcilableEffectAdapter<PullRequestCommentPayload>,
+): ExternalEffectHandler {
+  return handler("publication.pr_comment", adapter, parsePullRequestComment);
 }
 
 /** Creates command run handler after validating its inputs. */
@@ -410,6 +430,32 @@ function parseDraftPr(value: JsonObject): DraftPrPayload {
     publicationTarget: key(value.publicationTarget, "publicationTarget"),
     repositoryId: text(value.repositoryId, "repositoryId"),
     title,
+  };
+}
+
+/** Parses and validates a pull-request comment. */
+function parsePullRequestComment(value: JsonObject): PullRequestCommentPayload {
+  exact(value, [
+    "body",
+    "publicationTarget",
+    "pullRequestNumber",
+    "repositoryId",
+  ]);
+  const body = text(value.body, "body");
+  if (body.length > 65_536)
+    throw new TypeError("publication.pr_comment body is too long");
+  const pullRequestNumber = value.pullRequestNumber;
+  if (
+    typeof pullRequestNumber !== "number" ||
+    !Number.isSafeInteger(pullRequestNumber) ||
+    pullRequestNumber < 1
+  )
+    throw new TypeError("publication.pr_comment pullRequestNumber is invalid");
+  return {
+    body,
+    publicationTarget: key(value.publicationTarget, "publicationTarget"),
+    pullRequestNumber,
+    repositoryId: text(value.repositoryId, "repositoryId"),
   };
 }
 

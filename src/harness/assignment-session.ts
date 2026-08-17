@@ -38,6 +38,18 @@ import { verifyLiveAssignment } from "../runtime/dispatcher.js";
 /** Stable provider operation used for one externally executed assignment. */
 const HARNESS_ASSIGNMENT_OPERATION = "harness_assignment";
 
+/** Intent kinds applied directly to the assigned Task by the manager. */
+const MANAGER_TASK_INTENTS = new Set([
+  "task.github_link.record",
+  "task.plan.publish",
+]);
+
+/** Stable markers delimiting the Planner-owned section in a Task body. */
+const PLAN_SECTION = {
+  end: "<!-- agent-task-manager:plan:end -->",
+  start: "<!-- agent-task-manager:plan:start -->",
+} as const;
+
 /** Immutable context emitted to the external Agent harness. */
 export interface HarnessRunContext {
   /** SHA-256 digest of the activated definition and grant. */
@@ -242,7 +254,9 @@ export function parseHarnessAssignmentCompletion(
       if (
         attestation.schema !== "harness-effect-attestation-v1" ||
         attestation.state !== "applied" ||
-        attestation.intentIndex !== intentIndex
+        typeof attestation.intentIndex !== "number" ||
+        !Number.isSafeInteger(attestation.intentIndex) ||
+        attestation.intentIndex < 0
       )
         throw new TypeError(
           `Harness effect attestation ${intentIndex} is invalid`,
@@ -252,7 +266,7 @@ export function parseHarnessAssignmentCompletion(
           attestation.evidence,
           `Harness effect attestation ${intentIndex} evidence`,
         ),
-        intentIndex,
+        intentIndex: attestation.intentIndex,
         kind: requiredString(
           attestation.kind,
           `Harness effect attestation ${intentIndex} kind`,
@@ -631,6 +645,8 @@ export async function completeHarnessAssignment(input: {
     result,
     input.completion.effectAttestations,
   );
+  /** Manager-owned Task content and properties derived from declared intents. */
+  const taskUpdate = managerTaskUpdate(result, assignment.context.task);
   if (intent.state === "applied") {
     /** Terminal report retained by the completed logical operation. */
     const report = parseReport(intent.result);
@@ -681,6 +697,7 @@ export async function completeHarnessAssignment(input: {
     assignment,
     result,
     input.completion,
+    taskUpdate,
   );
   /** Terminal replay record persisted before fallible lease cleanup. */
   const report: HarnessAssignmentReport = {
@@ -788,6 +805,7 @@ async function applyOutcome(
   assignment: HarnessAssignment,
   result: AgentResult,
   completion: HarnessAssignmentCompletion,
+  taskUpdate: ManagerTaskUpdate,
 ): Promise<OutcomeTransitionReceipt> {
   /** Frozen routing contract from the prepared context. */
   const definition = assignment.context.definition;
@@ -805,16 +823,33 @@ async function applyOutcome(
       throw new Error(
         "Human resolution cannot also advance a remediation cycle",
       );
+    if (taskUpdate.planPublished && taskUpdate.questions.length === 0)
+      throw new Error(
+        "A blocking planning result must ask at least one human question",
+      );
     return new OutcomeTransitionBroker(provider).apply({
       definition,
       expectedTaskStatus: assignment.promotion.taskStatus,
       expectedTaskVersion: assignment.promotion.taskVersion,
       kind: "human_resolution",
       outcome: result.outcome,
-      resolution: completion.humanResolution,
+      resolution:
+        taskUpdate.questions.length === 0
+          ? completion.humanResolution
+          : {
+              ...completion.humanResolution,
+              prompt: planningQuestionsPrompt(taskUpdate.questions),
+            },
+      ...(taskUpdate.update === undefined
+        ? {}
+        : { taskUpdate: taskUpdate.update }),
       taskId: assignment.context.task.id,
     });
   }
+  if (taskUpdate.questions.length !== 0)
+    throw new Error(
+      "Planning questions require a declared human-resolution outcome",
+    );
   if (completion.humanResolution !== null)
     throw new Error(
       "Harness completion supplied unexpected human-resolution content",
@@ -839,6 +874,9 @@ async function applyOutcome(
     ...(completion.testFailureKeys === null
       ? {}
       : { testCycle: { failureKeys: completion.testFailureKeys } }),
+    ...(taskUpdate.update === undefined
+      ? {}
+      : { taskUpdate: taskUpdate.update }),
     taskId: assignment.context.task.id,
   });
 }
@@ -848,13 +886,17 @@ function validateEffectAttestations(
   result: AgentResult,
   attestations: readonly HarnessEffectAttestation[],
 ): readonly string[] {
-  if (attestations.length !== result.proposedIntents.length)
+  /** Proposed intents that must be performed by the external harness. */
+  const externalIntents = result.proposedIntents
+    .map((intent, intentIndex) => ({ intent, intentIndex }))
+    .filter(({ intent }) => !MANAGER_TASK_INTENTS.has(intent.kind));
+  if (attestations.length !== externalIntents.length)
     throw new Error(
-      "Harness completion must attest every proposed intent exactly once",
+      "Harness completion must attest every proposed external intent exactly once",
     );
-  return result.proposedIntents.map((intent, intentIndex) => {
+  return externalIntents.map(({ intent, intentIndex }, attestationIndex) => {
     /** Attestation occupying the exact corresponding proposal position. */
-    const attestation = attestations[intentIndex];
+    const attestation = attestations[attestationIndex];
     if (
       attestation === undefined ||
       attestation.schema !== "harness-effect-attestation-v1" ||
@@ -879,6 +921,150 @@ function validateEffectAttestations(
       },
     }).effectId;
   });
+}
+
+/** Task mutation derived from manager-owned Agent intents. */
+interface ManagerTaskUpdate {
+  /** Whether the result published a Planner-owned plan. */
+  readonly planPublished: boolean;
+  /** Human questions emitted with the plan. */
+  readonly questions: readonly string[];
+  /** Optional body/property patch applied with the outcome route. */
+  readonly update:
+    | {
+        readonly nextBody?: string;
+        readonly nextProperties?: JsonObject;
+      }
+    | undefined;
+}
+
+/** Validates manager-owned intents and compiles their Task patch. */
+function managerTaskUpdate(
+  result: AgentResult,
+  task: TaskSnapshot,
+): ManagerTaskUpdate {
+  let nextBody: string | undefined;
+  let nextProperties: JsonObject | undefined;
+  let planPublished = false;
+  let questions: readonly string[] = [];
+  for (const intent of result.proposedIntents) {
+    if (intent.kind === "task.plan.publish") {
+      if (planPublished)
+        throw new Error("An Agent result can publish only one Task plan");
+      const plan = parsePlanIntent(intent.payload);
+      planPublished = true;
+      questions = plan.questions;
+      nextBody = upsertPlanSection(task.body, plan.planMarkdown);
+    } else if (intent.kind === "task.github_link.record") {
+      if (nextProperties !== undefined)
+        throw new Error("An Agent result can record only one GitHub link");
+      const url = parseGitHubLinkIntent(intent.payload);
+      nextProperties = {
+        ...task.properties,
+        "GitHub Links": appendLine(
+          typeof task.properties["GitHub Links"] === "string"
+            ? task.properties["GitHub Links"]
+            : "",
+          url,
+        ),
+      };
+    }
+  }
+  return {
+    planPublished,
+    questions,
+    update:
+      nextBody === undefined && nextProperties === undefined
+        ? undefined
+        : {
+            ...(nextBody === undefined ? {} : { nextBody }),
+            ...(nextProperties === undefined ? {} : { nextProperties }),
+          },
+  };
+}
+
+/** Parses the bounded plan and complete human-question batch. */
+function parsePlanIntent(payload: JsonObject): {
+  readonly planMarkdown: string;
+  readonly questions: readonly string[];
+} {
+  exactKeys(payload, ["planMarkdown", "questions"], "Task plan intent");
+  const planMarkdown = requiredString(
+    payload.planMarkdown,
+    "Task plan intent planMarkdown",
+  ).trim();
+  if (
+    planMarkdown.length > 100_000 ||
+    planMarkdown.includes(PLAN_SECTION.start) ||
+    planMarkdown.includes(PLAN_SECTION.end)
+  )
+    throw new TypeError("Task plan intent planMarkdown is invalid");
+  if (!Array.isArray(payload.questions) || payload.questions.length > 20)
+    throw new TypeError("Task plan intent questions are invalid");
+  const questions = payload.questions.map((question, index) => {
+    const parsed = requiredString(
+      question,
+      `Task plan intent question ${index}`,
+    ).trim();
+    if (parsed.length > 2_000)
+      throw new TypeError(`Task plan intent question ${index} is too long`);
+    return parsed;
+  });
+  if (new Set(questions).size !== questions.length)
+    throw new TypeError("Task plan intent questions contain duplicates");
+  return { planMarkdown, questions };
+}
+
+/** Parses one canonical GitHub pull-request URL. */
+function parseGitHubLinkIntent(payload: JsonObject): string {
+  exactKeys(payload, ["url"], "Task GitHub link intent");
+  const value = requiredString(payload.url, "Task GitHub link intent url");
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new TypeError("Task GitHub link intent url is invalid");
+  }
+  if (
+    url.protocol !== "https:" ||
+    url.username !== "" ||
+    url.password !== "" ||
+    url.hostname.toLowerCase() !== "github.com" ||
+    !/^\/[^/]+\/[^/]+\/pull\/\d+\/?$/u.test(url.pathname) ||
+    url.search !== "" ||
+    url.hash !== ""
+  )
+    throw new TypeError("Task GitHub link intent url is invalid");
+  return url.toString().replace(/\/$/u, "");
+}
+
+/** Replaces or appends the single manager-owned plan section. */
+function upsertPlanSection(body: string, planMarkdown: string): string {
+  const section = `${PLAN_SECTION.start}\n## Plan\n\n${planMarkdown}\n${PLAN_SECTION.end}`;
+  const start = body.indexOf(PLAN_SECTION.start);
+  const end = body.indexOf(PLAN_SECTION.end);
+  if ((start === -1) !== (end === -1) || (start !== -1 && end < start))
+    throw new Error("Task body contains an invalid managed plan section");
+  if (start === -1) return `${body.trimEnd()}\n\n${section}\n`;
+  const after = end + PLAN_SECTION.end.length;
+  return `${body.slice(0, start)}${section}${body.slice(after)}`;
+}
+
+/** Appends one newline-delimited value without duplicating an existing entry. */
+function appendLine(existing: string, value: string): string {
+  const values = existing
+    .split(/\r?\n/u)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry !== "");
+  if (!values.includes(value)) values.push(value);
+  return values.join("\n");
+}
+
+/** Renders all Planner questions into one human-facing request. */
+function planningQuestionsPrompt(questions: readonly string[]): string {
+  return `Please answer all planning questions in one response:\n\n${questions
+    .map((question, index) => `${index + 1}. ${question}`)
+    .join("\n")}`;
 }
 
 /** Releases both assignment leases and reconciles the Agent activity projection. */
