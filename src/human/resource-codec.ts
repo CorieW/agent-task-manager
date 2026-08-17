@@ -90,7 +90,7 @@ export function parseHumanConsumption(value: unknown): HumanConsumptionRecord {
       !isNonEmptyString(found.appliedTaskVersion))
   )
     throw new TypeError("Human consumption fields are invalid");
-  /** Result of `parseHumanAuthority`, retained for the parse human consumption operation. */
+  /** Stores authority used by parse human consumption. */
   const authority = parseHumanAuthority(found.authority);
   if (
     (found.state === "pending" && found.appliedTaskVersion !== null) ||
@@ -121,7 +121,7 @@ function parseHumanSlotBaseline(value: unknown): HumanSlotBaselineRecord {
     "taskPropertiesDigest",
     "waitingStatus",
   ]);
-  /** Result of `jsonObject`, retained for the parse human slot baseline operation. */
+  /** Stores task properties used by parse human slot baseline. */
   const taskProperties = jsonObject(
     found.taskProperties,
     "Human slot Task properties",
@@ -135,7 +135,7 @@ function parseHumanSlotBaseline(value: unknown): HumanSlotBaselineRecord {
     !isNonEmptyString(found.waitingStatus)
   )
     throw new TypeError("Human slot baseline fields are invalid");
-  /** Result of `parseHumanInteractionSlot`, retained for the parse human slot baseline operation. */
+  /** Stores slot used by parse human slot baseline. */
   const slot = parseHumanInteractionSlot(found.slot);
   if (slot.response !== null)
     throw new TypeError("Human slot baseline response must be blank");

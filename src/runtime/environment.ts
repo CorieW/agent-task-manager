@@ -23,11 +23,11 @@ export interface ResolvedRuntimeEnvironment {
   readonly config: RuntimeEnvironmentConfig;
   /** SHA-256 digest binding the canonical content. */
   readonly digest: string;
-  /** Model transport dependency consumed by resolved runtime environment. */
+  /** Provides model transport to resolved runtime environment. */
   readonly modelTransport: ModelTransportAdapter;
   /** Runner used to execute the requested workload. */
   readonly runner: AgentRunnerAdapter;
-  /** Tool isolation dependency consumed by resolved runtime environment. */
+  /** Provides tool isolation to resolved runtime environment. */
   readonly toolIsolation: ToolIsolationAdapter;
 }
 
@@ -35,19 +35,19 @@ export interface ResolvedRuntimeEnvironment {
 export function resolveRuntimeEnvironment(input: {
   /** Validated configuration owned by the effect implementation. */
   readonly config: EnvironmentConfig;
-  /** Model transports dependency consumed by resolve runtime environment. */
+  /** Provides model transports to resolve runtime environment. */
   readonly modelTransports: RuntimeAdapterRegistry<ModelTransportAdapter>;
-  /** Runners dependency consumed by resolve runtime environment. */
+  /** Provides runners to resolve runtime environment. */
   readonly runners: RuntimeAdapterRegistry<AgentRunnerAdapter>;
-  /** Tool isolations dependency consumed by resolve runtime environment. */
+  /** Provides tool isolations to resolve runtime environment. */
   readonly toolIsolations: RuntimeAdapterRegistry<ToolIsolationAdapter>;
 }): ResolvedRuntimeEnvironment {
   assertRuntimeReady(input.config);
-  /** Result of `normalizeRuntimeConfig`, retained for the resolve runtime environment operation. */
+  /** Adapter registry selected by the environment configuration. */
   const adapters = input.config.adapters;
-  /** Result of `normalizeRuntimeConfig`, retained for the resolve runtime environment operation. */
+  /** Untrusted runtime configuration awaiting normalization. */
   const runtime = input.config.runtime;
-  /** Result of `normalizeRuntimeConfig`, retained for the resolve runtime environment operation. */
+  /** Validated runtime configuration supplied to all resolved adapters. */
   const normalized = normalizeRuntimeConfig(runtime);
   return {
     config: normalized,
@@ -66,11 +66,11 @@ export function resolveRuntimeEnvironment(input: {
 
 /** Compiles tool isolation policy into its trusted runtime form. */
 export function compileToolIsolationPolicy(input: {
-  /** Grant dependency consumed by compile tool isolation policy. */
+  /** Provides grant to compile tool isolation policy. */
   readonly grant: CapabilityGrant;
   /** Stable identifier for run id. */
   readonly runId: string;
-  /** Runtime dependency consumed by compile tool isolation policy. */
+  /** Provides runtime to compile tool isolation policy. */
   readonly runtime: ResolvedRuntimeEnvironment;
 }): ToolIsolationPolicy {
   if (input.runId === "") throw new TypeError("Runtime run ID is required");
@@ -110,15 +110,15 @@ export function compileToolIsolationPolicy(input: {
 function normalizeRuntimeConfig(
   config: RuntimeEnvironmentConfig,
 ): RuntimeEnvironmentConfig {
-  /** Result of `canonicalRoot`, retained for the normalize runtime config operation. */
+  /** Stores root used by normalize runtime config. */
   const root = canonicalRoot(config.root, "runtime.root");
-  /** Result of `normalizedUnique`, retained for the normalize runtime config operation. */
+  /** Canonical, duplicate-free filesystem read roots. */
   const allowedReadRoots = normalizedUnique(
     config.allowedReadRoots.map((value) =>
       canonicalRoot(value, "runtime.allowedReadRoots"),
     ),
   );
-  /** Result of `normalizedUnique`, retained for the normalize runtime config operation. */
+  /** Canonical, duplicate-free filesystem write roots. */
   const allowedWriteRoots = normalizedUnique(
     config.allowedWriteRoots.map((value) =>
       canonicalRoot(value, "runtime.allowedWriteRoots"),
@@ -129,17 +129,17 @@ function normalizeRuntimeConfig(
       throw new Error(
         `Runtime write root must be contained by runtime.root: ${candidate}`,
       );
-  /** Secret name snapshot used consistently during the normalize runtime config operation. */
+  /** Stores secret name used by normalize runtime config. */
   const secretName = /(?:AUTH|CREDENTIAL|KEY|PASSWORD|SECRET|TOKEN)/iu;
   for (const name of config.allowedEnvironmentNames) {
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/u.test(name) || secretName.test(name))
       throw new Error(`Runtime environment name is unsafe: ${name}`);
   }
-  /** Result of `normalizedUnique`, retained for the normalize runtime config operation. */
+  /** Duplicate-free environment-variable allowlist. */
   const allowedEnvironmentNames = normalizedUnique(
     config.allowedEnvironmentNames,
   );
-  /** Result of `normalizedUnique`, retained for the normalize runtime config operation. */
+  /** Canonical, duplicate-free network-origin allowlist. */
   const allowedNetworkOrigins = normalizedUnique(
     config.allowedNetworkOrigins.map(normalizeOrigin),
   );
@@ -178,7 +178,7 @@ function contains(parent: string, child: string): boolean {
 
 /** Normalizes the value into its canonical boundary representation. */
 function normalizeOrigin(value: string): string {
-  /** Result of `URL`, retained for the normalize origin operation. */
+  /** Stores url used by normalize origin. */
   const url = new URL(value);
   if (
     (url.protocol !== "http:" && url.protocol !== "https:") ||
@@ -194,11 +194,11 @@ function normalizeOrigin(value: string): string {
 
 /** Returns unique strings in deterministic order. */
 function normalizedUnique(values: readonly string[]): readonly string[] {
-  /** Result of `normalized.map`, retained for the normalized unique operation. */
+  /** Deterministically ordered values returned to downstream adapters. */
   const normalized = [...values].sort((left, right) =>
     left < right ? -1 : left > right ? 1 : 0,
   );
-  /** Result of `normalized.map`, retained for the normalized unique operation. */
+  /** Platform-aware comparison keys used only for duplicate detection. */
   const keys = normalized.map((value) =>
     process.platform === "win32" ? value.toLocaleLowerCase("en-US") : value,
   );

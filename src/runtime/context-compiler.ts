@@ -12,25 +12,25 @@ import {
 
 /** Compiles run context into its trusted runtime form. */
 export async function compileRunContext(input: {
-  /** Activated dependency consumed by compile run context. */
+  /** Provides activated to compile run context. */
   readonly activated: ActivatedDefinition;
-  /** Additional input dependency consumed by compile run context. */
+  /** Provides additional input to compile run context. */
   readonly additionalInput: JsonObject;
   /** Provider boundary used for durable state reads and writes. */
   readonly provider: AgentTaskProvider;
   /** Stable identifier for run id. */
   readonly runId: string;
-  /** Runtime receipt dependency consumed by compile run context. */
+  /** Provides runtime receipt to compile run context. */
   readonly runtimeReceipt: RuntimeCapabilityReceipt;
   /** Stable identifier for task id. */
   readonly taskId: string;
 }): Promise<RunContext> {
   validateRuntimeCapabilityReceipt(input.runtimeReceipt);
-  /** Result of `input.provider.getTaskSnapshot`, retained for the compile run context operation. */
+  /** Stores task used by compile run context. */
   const task = await input.provider.getTaskSnapshot(input.taskId);
   if (task.archived)
     throw new Error("Cannot compile context for an archived Task");
-  /** Resolved snapshot used consistently during the compile run context operation. */
+  /** Stores resolved used by compile run context. */
   const resolved = input.activated.resolved;
   /** Collects the canonical fields used to compute the record digest. */
   const core = {

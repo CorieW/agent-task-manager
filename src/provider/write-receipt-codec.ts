@@ -8,19 +8,19 @@ import type { JsonObject, JsonValue } from "../domain/json.js";
 
 /** Parses and validates write receipt. */
 export function parseWriteReceipt(value: JsonValue): WriteReceipt {
-  /** Result of `exactObject`, retained for `parseWriteReceipt`. */
+  /** Closed receipt object validated before decoding its fields. */
   const object = exactObject(
     value,
     ["idempotencyKey", "observedVersion", "providerRecord", "writtenAt"],
     "Write receipt",
   );
-  /** Result of `exactObject`, retained for `parseWriteReceipt`. */
+  /** Closed provider-record identity nested in the receipt. */
   const providerRecord = exactObject(
     object.providerRecord ?? null,
     ["id", "table"],
     "Provider record",
   );
-  /** Result of `requiredString`, retained for `parseWriteReceipt`. */
+  /** Holds the `table` intermediate used by `parseWriteReceipt`. */
   const table = requiredString(providerRecord.table, "Provider record table");
   if (!TABLE_KINDS.includes(table as TableKind))
     throw new TypeError("Provider record table is invalid");

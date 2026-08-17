@@ -57,9 +57,9 @@ export class NotionRecordReader {
 
   /** Returns agent definitions in deterministic order. */
   public async listAgentDefinitions(): Promise<readonly AgentDefinition[]> {
-    /** Result of `this.queryDataSource`, retained for `listAgentDefinitions`. */
+    /** Holds the `pages` intermediate used by `listAgentDefinitions`. */
     const pages = await this.queryDataSource(this.tables.agents);
-    /** Result of `Promise.all`, retained for `listAgentDefinitions`. */
+    /** Holds the `definitions` intermediate used by `listAgentDefinitions`. */
     const definitions = await Promise.all(
       pages.map((page) => this.agentDefinition(page)),
     );
@@ -84,7 +84,7 @@ export class NotionRecordReader {
 
   /** Returns Agent page ID. */
   public async getAgentPageId(id: string): Promise<string> {
-    /** Result of `this.queryDataSource`, retained for `getAgentPageId`. */
+    /** Holds the `pages` intermediate used by `getAgentPageId`. */
     const pages = await this.queryDataSource(this.tables.agents);
     /** Mutable matches collection accumulated during `getAgentPageId`. */
     const matches: string[] = [];
@@ -101,7 +101,7 @@ export class NotionRecordReader {
   public async listTaskSummaries(
     query: TaskQuery,
   ): Promise<readonly TaskSummary[]> {
-    /** Result of `this.queryDataSource`, retained for `listTaskSummaries`. */
+    /** Holds the `pages` intermediate used by `listTaskSummaries`. */
     const pages = await this.queryDataSource(
       this.tables.tasks,
       taskPredicateFilter(query.predicate),
@@ -156,23 +156,23 @@ export class NotionRecordReader {
 
   /** Returns task status options in deterministic order. */
   public async listTaskStatusOptions(): Promise<readonly string[]> {
-    /** Result of `this.transport.request`, retained for `listTaskStatusOptions`. */
+    /** Holds the `source` intermediate used by `listTaskStatusOptions`. */
     const source = await this.transport.request({
       method: "GET",
       path: `/v1/data_sources/${this.tables.tasks}`,
     });
-    /** Result of `objectValue`, retained for `listTaskStatusOptions`. */
+    /** Task Status property schema obtained from the data source. */
     const status = objectValue(
       objectValue(source.properties, "Task properties").Status,
       "Task Status property",
     );
     if (status.type !== "select")
       throw new TypeError("Task Status must be select");
-    /** Result of `objectValue`, retained for `listTaskStatusOptions`. */
+    /** Raw select-option array decoded into canonical status names. */
     const options = objectValue(status.select, "Task Status select").options;
     if (!Array.isArray(options))
       throw new TypeError("Task Status options must be an array");
-    /** Result of `options.map`, retained for `listTaskStatusOptions`. */
+    /** Holds the `names` intermediate used by `listTaskStatusOptions`. */
     const names = options.map((option) =>
       requiredString(
         objectValue(option, "Task Status option").name,
@@ -205,6 +205,7 @@ export class NotionRecordReader {
       workingOn.relation,
       "Agent Working On relation",
     );
+    /** Data-source identifier targeted by the relation definition. */
     const target = relation.data_source_id ?? relation.database_id;
     if (target !== this.tables.tasks)
       throw new TypeError("Agent Working On must target Tasks");
@@ -226,13 +227,13 @@ export class NotionRecordReader {
 
   /** Returns task snapshot. */
   public async getTaskSnapshot(taskId: string): Promise<TaskSnapshot> {
-    /** Result of `this.getPageInTable`, retained for `getTaskSnapshot`. */
+    /** Holds the `page` intermediate used by `getTaskSnapshot`. */
     const page = await this.getPageInTable(taskId, this.tables.tasks, "Task");
-    /** Result of `this.taskSummary`, retained for `getTaskSnapshot`. */
+    /** Holds the `summary` intermediate used by `getTaskSnapshot`. */
     const summary = this.taskSummary(page);
-    /** Result of `objectValue`, retained for `getTaskSnapshot`. */
+    /** Holds the `properties` intermediate used by `getTaskSnapshot`. */
     const properties = objectValue(page.properties, "Task properties");
-    /** Result of `this.relationIds`, retained for `getTaskSnapshot`. */
+    /** Holds the `dependencies` intermediate used by `getTaskSnapshot`. */
     const dependencies = await this.relationIds(page, "Dependencies");
     return {
       ...summary,
@@ -244,7 +245,7 @@ export class NotionRecordReader {
 
   /** Returns task mutation marker. */
   public async getTaskMutationMarker(taskId: string): Promise<string> {
-    /** Result of `this.getPageInTable`, retained for `getTaskMutationMarker`. */
+    /** Holds the `page` intermediate used by `getTaskMutationMarker`. */
     const page = await this.getPageInTable(taskId, this.tables.tasks, "Task");
     return propertyText(page, NOTION_TASK_MUTATION_PROPERTY);
   }
@@ -263,16 +264,16 @@ export class NotionRecordReader {
   public async getResources(
     refs: readonly ResourceRef[],
   ): Promise<readonly ResourceRecord[]> {
-    /** Result of `this.queryDataSource`, retained for `getResources`. */
+    /** Holds the `pages` intermediate used by `getResources`. */
     const pages = await this.queryDataSource(this.tables.resources);
     /** Indexes entries in `indexed` for `getResources`. */
     const indexed = new Map<string, JsonObject[]>();
     for (const page of pages) {
-      /** Result of `propertyText`, retained for `getResources`. */
+      /** Holds the `key` intermediate used by `getResources`. */
       const key = propertyText(page, "Resource");
       indexed.set(key, [...(indexed.get(key) ?? []), page]);
     }
-    /** Result of `indexed.get`, retained for `getResources`. */
+    /** Holds the `records` intermediate used by `getResources`. */
     const records: ResourceRecord[] = [];
     for (const ref of refs) {
       /** Mutable state shared across `getResources`. */
@@ -280,7 +281,7 @@ export class NotionRecordReader {
       if (candidates.length !== 1) {
         throw new Error(`Resource ${ref.key} must resolve to exactly one row`);
       }
-      /** Result of `this.resourceRecord`, retained for `getResources`. */
+      /** Holds the `record` intermediate used by `getResources`. */
       const record = await this.resourceRecord(
         requiredObject(candidates[0], "Resource page"),
       );
@@ -299,14 +300,14 @@ export class NotionRecordReader {
   public async getOptionalResource(
     key: string,
   ): Promise<ResourceRecord | null> {
-    /** Result of `this.queryDataSource`, retained for `getOptionalResource`. */
+    /** Holds the `pages` intermediate used by `getOptionalResource`. */
     const pages = await this.queryDataSource(this.tables.resources, {
       property: "Resource",
       title: { equals: key },
     });
     if (pages.length > 1)
       throw new Error(`Resource ${key} must resolve to at most one row`);
-    /** Page snapshot used consistently during `getOptionalResource`. */
+    /** Holds the `page` intermediate used by `getOptionalResource`. */
     const page = pages[0];
     return page === undefined ? null : this.resourceRecord(page);
   }
@@ -315,6 +316,7 @@ export class NotionRecordReader {
   public async getOptionalOperation(
     key: string,
   ): Promise<OperationRecord | null> {
+    /** Matching operation pages, constrained below to zero or one result. */
     const pages = await this.queryDataSource(
       requiredString(this.tables.operations, "Operations data source id"),
       {
@@ -324,6 +326,7 @@ export class NotionRecordReader {
     );
     if (pages.length > 1)
       throw new Error(`Operation ${key} must resolve to at most one row`);
+    /** Unique matching page, when the operation exists. */
     const page = pages[0];
     return page === undefined ? null : this.operationRecord(page);
   }
@@ -354,13 +357,13 @@ export class NotionRecordReader {
 
   /** Reads page markdown. */
   public async readPageMarkdown(pageId: string): Promise<string> {
-    /** Result of `this.readChildBlocks`, retained for `readPageMarkdown`. */
+    /** Holds the `blocks` intermediate used by `readPageMarkdown`. */
     const blocks = await this.readChildBlocks(pageId);
-    /** Result of `activeTaskBodyGeneration`, retained for `readPageMarkdown`. */
+    /** Holds the `activeGeneration` intermediate used by `readPageMarkdown`. */
     const activeGeneration = activeTaskBodyGeneration(blocks);
     if (activeGeneration !== null) return activeGeneration.body;
     if (blocks.length === 1 && blocks[0]?.type === "code") {
-      /** Result of `objectValue`, retained for `readPageMarkdown`. */
+      /** Holds the `code` intermediate used by `readPageMarkdown`. */
       const code = objectValue(blocks[0].code, "Task body code");
       if (code.language === "markdown")
         return blockText(blocks[0]).replace(/\r\n?/gu, "\n").normalize("NFC");
@@ -378,19 +381,19 @@ export class NotionRecordReader {
     assertPageParent(page, this.tables.agents, "Agent");
     if (page.archived === true || page.in_trash === true)
       throw new Error("Agent definition is archived");
-    /** Result of `requiredString`, retained for `agentDefinition`. */
+    /** Holds the `pageId` intermediate used by `agentDefinition`. */
     const pageId = requiredString(page.id, "Agent page id");
-    /** Result of `this.managedJson`, retained for `agentDefinition`. */
+    /** Holds the `manifest` intermediate used by `agentDefinition`. */
     const manifest = await this.managedJson(pageId, "Agent definition");
-    /** Result of `parseAgentDefinitionManifest`, retained for `agentDefinition`. */
+    /** Holds the `definition` intermediate used by `agentDefinition`. */
     const definition = parseAgentDefinitionManifest(manifest);
-    /** Result of `propertyText`, retained for `agentDefinition`. */
+    /** Human-readable agent name required by the definition contract. */
     const name = propertyText(page, "Name");
-    /** Result of `propertyBoolean`, retained for `agentDefinition`. */
+    /** Holds the `enabled` intermediate used by `agentDefinition`. */
     const enabled = propertyBoolean(page, "Enabled");
-    /** Result of `propertyNumber`, retained for `agentDefinition`. */
+    /** Holds the `revision` intermediate used by `agentDefinition`. */
     const revision = propertyNumber(page, "Revision");
-    /** Result of `propertyText`, retained for `agentDefinition`. */
+    /** Model identifier validated together with its reasoning level. */
     const model = propertyText(page, "Model");
     if (
       definition.name !== name ||
@@ -407,7 +410,7 @@ export class NotionRecordReader {
 
   /** Projects a Task snapshot into its bounded summary. */
   private taskSummary(page: JsonObject): TaskSummary {
-    /** Result of `requiredString`, retained for `taskSummary`. */
+    /** Holds the `id` intermediate used by `taskSummary`. */
     const id = requiredString(page.id, "Task page id");
     return {
       archived: page.archived === true || page.in_trash === true,
@@ -424,24 +427,24 @@ export class NotionRecordReader {
 
   /** Builds record. */
   private async resourceRecord(page: JsonObject): Promise<ResourceRecord> {
-    /** Result of `requiredString`, retained for `resourceRecord`. */
+    /** Holds the `id` intermediate used by `resourceRecord`. */
     const id = requiredString(page.id, "Resource page id");
     /** Reads the expected digest before selecting legacy Markdown compatibility. */
     const digest = propertyText(page, "Digest");
     /** Record kind controlling provider representation. */
     const kind = decodeResourceKindOption(propertyOption(page, "Kind"));
-    /** Result of `isMarkdownResourceKind`, retained for `resourceRecord`. */
+    /** Holds the `body` intermediate used by `resourceRecord`. */
     const body = isMarkdownResourceKind(kind)
       ? await this.managedResourceMarkdown(id, digest)
       : await this.managedText(id, "Resource body");
-    /** Result of `propertyText`, retained for `resourceRecord`. */
+    /** Holds the `dependencyValue` intermediate used by `resourceRecord`. */
     const dependencyValue = propertyText(page, "Dependencies");
-    /** Result of `parseResourceRefs`, retained for `resourceRecord`. */
+    /** Unknown dependency payload retained for strict JSON conversion. */
     const parsed: unknown =
       dependencyValue === "" ? [] : JSON.parse(dependencyValue);
-    /** Result of `parseResourceRefs`, retained for `resourceRecord`. */
+    /** Validated resource dependencies in their stored order. */
     const dependencies = parseResourceRefs(toJsonValue(parsed));
-    /** Record snapshot used consistently during `resourceRecord`. */
+    /** Holds the `record` intermediate used by `resourceRecord`. */
     const record: ResourceRecord = {
       body,
       dependencies,
@@ -461,12 +464,18 @@ export class NotionRecordReader {
 
   /** Decodes one manager-owned operational record. */
   private async operationRecord(page: JsonObject): Promise<OperationRecord> {
+    /** Stable page identifier used to load the managed body blocks. */
     const id = requiredString(page.id, "Operation page id");
+    /** Canonical operation body stored outside the page properties. */
     const body = await this.managedText(id, "Operation body");
+    /** Persisted digest expected to bind the canonical body. */
     const digest = propertyText(page, "Digest");
+    /** Serialized dependency list recovered from the page property. */
     const dependencyValue = propertyText(page, "Dependencies");
+    /** Unknown dependency payload retained for strict JSON conversion. */
     const parsed: unknown =
       dependencyValue === "" ? [] : JSON.parse(dependencyValue);
+    /** Fully decoded operation checked below against its body digest. */
     const record: OperationRecord = {
       body,
       dependencies: parseResourceRefs(toJsonValue(parsed)),
@@ -488,14 +497,14 @@ export class NotionRecordReader {
     pageId: string,
     heading: string,
   ): Promise<JsonObject> {
-    /** Result of `this.managedText`, retained for `managedJson`. */
+    /** Holds the `raw` intermediate used by `managedJson`. */
     const raw = await this.managedText(pageId, heading);
     return objectValue(toJsonValue(JSON.parse(raw)), `${heading} JSON`);
   }
 
   /** Reads text from a named managed child-block section. */
   private async managedText(pageId: string, heading: string): Promise<string> {
-    /** Result of `this.readChildBlocks`, retained for `managedText`. */
+    /** Holds the `blocks` intermediate used by `managedText`. */
     const blocks = await this.readChildBlocks(pageId);
     /** Managed headings whose text matches the requested section. */
     const matches = blocks
@@ -512,14 +521,14 @@ export class NotionRecordReader {
     const index = matches[0]?.index;
     if (index === undefined)
       throw new Error(`Page ${pageId} managed section is missing`);
-    /** Content snapshot used consistently during `managedText`. */
+    /** Holds the `content` intermediate used by `managedText`. */
     const content = blocks[index + 1];
     if (content === undefined || content.type !== "code") {
       throw new Error(
         `## ${heading} must be followed by exactly one code block`,
       );
     }
-    /** Next snapshot used consistently during `managedText`. */
+    /** Holds the `next` intermediate used by `managedText`. */
     const next = blocks[index + 2];
     if (next?.type === "code")
       throw new Error(`## ${heading} must contain exactly one code block`);
@@ -544,19 +553,19 @@ export class NotionRecordReader {
     page: JsonObject,
     propertyName: string,
   ): Promise<readonly string[]> {
-    /** Result of `pageProperty`, retained for `relationIds`. */
+    /** Holds the `property` intermediate used by `relationIds`. */
     const property = pageProperty(page, propertyName);
-    /** Result of `relationValues`, retained for `relationIds`. */
+    /** Holds the `inline` intermediate used by `relationIds`. */
     const inline = relationValues(property);
     if (property.has_more !== true) return [...new Set(inline)].sort();
-    /** Result of `requiredString`, retained for `relationIds`. */
+    /** Related page identifier reported in diagnostics. */
     const pageId = requiredString(page.id, "Page id");
-    /** Result of `requiredString`, retained for `relationIds`. */
+    /** Relation property identifier used for paginated retrieval. */
     const propertyId = requiredString(
       property.id,
       `${propertyName} property id`,
     );
-    /** Result of `collectNotionPages`, retained for `relationIds`. */
+    /** Holds the `items` intermediate used by `relationIds`. */
     const items = await collectNotionPages((cursor) =>
       this.transport.request({
         method: "GET",
@@ -573,7 +582,7 @@ export class NotionRecordReader {
     tableId: string,
     label: string,
   ): Promise<JsonObject> {
-    /** Result of `this.transport.request`, retained for `getPageInTable`. */
+    /** Holds the `page` intermediate used by `getPageInTable`. */
     const page = await this.transport.request({
       method: "GET",
       path: `/v1/pages/${id}`,
@@ -599,11 +608,11 @@ export class NotionRecordReader {
 
   /** Decodes block markdown from Notion records. */
   private async blockMarkdown(block: JsonObject): Promise<string> {
-    /** Result of `requiredString`, retained for `blockMarkdown`. */
+    /** Holds the `type` intermediate used by `blockMarkdown`. */
     const type = requiredString(block.type, "Block type");
-    /** Result of `blockText`, retained for `blockMarkdown`. */
+    /** Holds the `text` intermediate used by `blockMarkdown`. */
     const text = blockText(block);
-    /** Rendered snapshot used consistently during `blockMarkdown`. */
+    /** Holds the `rendered` intermediate used by `blockMarkdown`. */
     let rendered: string;
     switch (type) {
       case "heading_1":
@@ -639,11 +648,11 @@ export class NotionRecordReader {
         throw new Error(`Unsupported Notion block type: ${type}`);
     }
     if (block.has_children === true) {
-      /** Result of `requiredString`, retained for `blockMarkdown`. */
+      /** Holds the `id` intermediate used by `blockMarkdown`. */
       const id = requiredString(block.id, "Block id");
-      /** Result of `this.readChildBlocks`, retained for `blockMarkdown`. */
+      /** Holds the `children` intermediate used by `blockMarkdown`. */
       const children = await this.readChildBlocks(id);
-      /** Result of `Promise.all`, retained for `blockMarkdown`. */
+      /** Holds the `childText` intermediate used by `blockMarkdown`. */
       const childText = await Promise.all(
         children.map((child) => this.blockMarkdown(child)),
       );
@@ -698,11 +707,11 @@ function decodeProperties(
     Object.entries(properties)
       .filter(([name]) => !excludedNames.has(name))
       .map(([name, raw]) => {
-        /** Result of `objectValue`, retained for `decodeProperties`. */
+        /** Holds the `property` intermediate used by `decodeProperties`. */
         const property = objectValue(raw, `Property ${name}`);
-        /** Result of `requiredString`, retained for `decodeProperties`. */
+        /** Holds the `type` intermediate used by `decodeProperties`. */
         const type = requiredString(property.type, `Property ${name} type`);
-        /** Value snapshot used consistently during `decodeProperties`. */
+        /** Holds the `value` intermediate used by `decodeProperties`. */
         const value = property[type];
         if (type === "title" || type === "rich_text")
           return [name, richText(value)];
@@ -723,9 +732,9 @@ function decodeProperties(
 
 /** Extracts text from a title or rich-text page property. */
 function propertyText(page: JsonObject, name: string): string {
-  /** Result of `pageProperty`, retained for `propertyText`. */
+  /** Holds the `property` intermediate used by `propertyText`. */
   const property = pageProperty(page, name);
-  /** Result of `requiredString`, retained for `propertyText`. */
+  /** Holds the `type` intermediate used by `propertyText`. */
   const type = requiredString(property.type, `${name} type`);
   if (type !== "title" && type !== "rich_text")
     throw new TypeError(`${name} must be title or rich_text`);
@@ -734,13 +743,13 @@ function propertyText(page: JsonObject, name: string): string {
 
 /** Extracts the selected option from a page property. */
 function propertyOption(page: JsonObject, name: string): string {
-  /** Result of `pageProperty`, retained for `propertyOption`. */
+  /** Holds the `property` intermediate used by `propertyOption`. */
   const property = pageProperty(page, name);
-  /** Result of `requiredString`, retained for `propertyOption`. */
+  /** Holds the `type` intermediate used by `propertyOption`. */
   const type = requiredString(property.type, `${name} type`);
   if (type !== "status" && type !== "select")
     throw new TypeError(`${name} must be status or select`);
-  /** Result of `propertyOption`, retained for validation and reuse. */
+  /** Captures `result` returned by `propertyOption`. */
   const result = optionName(property[type]);
   if (result === null) throw new TypeError(`${name} must have an option`);
   return result;
@@ -748,7 +757,7 @@ function propertyOption(page: JsonObject, name: string): string {
 
 /** Extracts a checkbox value from a page property. */
 function propertyBoolean(page: JsonObject, name: string): boolean {
-  /** Result of `pageProperty`, retained for `propertyBoolean`. */
+  /** Holds the `property` intermediate used by `propertyBoolean`. */
   const property = pageProperty(page, name);
   if (property.type !== "checkbox" || typeof property.checkbox !== "boolean")
     throw new TypeError(`${name} must be checkbox`);
@@ -757,7 +766,7 @@ function propertyBoolean(page: JsonObject, name: string): boolean {
 
 /** Extracts a required numeric page property. */
 function propertyNumber(page: JsonObject, name: string): number {
-  /** Result of `propertyNumber`, retained for validation and reuse. */
+  /** Captures `result` returned by `propertyNumber`. */
   const result = propertyNullableNumber(page, name);
   if (result === null) throw new TypeError(`${name} must have a number`);
   return result;
@@ -765,7 +774,7 @@ function propertyNumber(page: JsonObject, name: string): number {
 
 /** Extracts an optional numeric page property. */
 function propertyNullableNumber(page: JsonObject, name: string): number | null {
-  /** Result of `pageProperty`, retained for `propertyNullableNumber`. */
+  /** Holds the `property` intermediate used by `propertyNullableNumber`. */
   const property = pageProperty(page, name);
   if (
     property.type !== "number" ||
@@ -778,9 +787,9 @@ function propertyNullableNumber(page: JsonObject, name: string): number | null {
 
 /** Returns a named property from a Notion page. */
 function pageProperty(page: JsonObject, name: string): JsonObject {
-  /** Result of `objectValue`, retained for `pageProperty`. */
+  /** Holds the `properties` intermediate used by `pageProperty`. */
   const properties = objectValue(page.properties, "Page properties");
-  /** Property snapshot used consistently during `pageProperty`. */
+  /** Holds the `property` intermediate used by `pageProperty`. */
   const property = properties[name];
   if (property === undefined)
     throw new TypeError(`Page is missing property ${name}`);
@@ -789,7 +798,7 @@ function pageProperty(page: JsonObject, name: string): JsonObject {
 
 /** Reads values. */
 function relationValues(property: JsonObject): readonly string[] {
-  /** Derived value value for `relationValues`. */
+  /** Holds the `value` intermediate used by `relationValues`. */
   const value = property.relation;
   if (Array.isArray(value)) {
     return value.map((item) =>
@@ -809,10 +818,10 @@ function richText(value: JsonValue | undefined): string {
   if (!Array.isArray(value)) return "";
   return value
     .map((item) => {
-      /** Result of `objectValue`, retained for `richText`. */
+      /** Rich-text item decoded from the provider response. */
       const object = objectValue(item, "Rich text item");
       if (typeof object.plain_text === "string") return object.plain_text;
-      /** Result of `objectValue`, retained for `richText`. */
+      /** Nested text payload used when plain_text is absent. */
       const text = objectValue(object.text, "Rich text value");
       return typeof text.content === "string" ? text.content : "";
     })
@@ -821,9 +830,9 @@ function richText(value: JsonValue | undefined): string {
 
 /** Extracts plain text from a supported Notion block. */
 function blockText(block: JsonObject): string {
-  /** Result of `requiredString`, retained for `blockText`. */
+  /** Holds the `type` intermediate used by `blockText`. */
   const type = requiredString(block.type, "Block type");
-  /** Result of `objectValue`, retained for `blockText`. */
+  /** Holds the `value` intermediate used by `blockText`. */
   const value = objectValue(block[type], `Block ${type}`);
   return richText(value.rich_text);
 }
@@ -839,7 +848,7 @@ function parseResourceRefs(value: JsonValue): readonly ResourceRef[] {
   if (!Array.isArray(value))
     throw new TypeError("Resource Dependencies must be a JSON array");
   return value.map((item, index) => {
-    /** Result of `objectValue`, retained for `parseResourceRefs`. */
+    /** Holds the `object` intermediate used by `parseResourceRefs`. */
     const object = objectValue(item, `Dependency ${index}`);
     assertExactKeys(
       object,
@@ -868,7 +877,7 @@ function assertExactKeys(
 ): void {
   /** Expected actual used to validate `assertExactKeys`. */
   const actual = Object.keys(value).sort();
-  /** Result of `sortedExpected.join`, retained for `assertExactKeys`. */
+  /** Holds the `sortedExpected` intermediate used by `assertExactKeys`. */
   const sortedExpected = [...expected].sort();
   if (actual.join("\0") !== sortedExpected.join("\0"))
     throw new TypeError(`${label} has unexpected or missing fields`);
@@ -912,7 +921,7 @@ function assertPageParent(
   tableId: string,
   label: string,
 ): void {
-  /** Result of `objectValue`, retained for `assertPageParent`. */
+  /** Holds the `parent` intermediate used by `assertPageParent`. */
   const parent = objectValue(page.parent, `${label} parent`);
   /** Expected observed used to validate `assertPageParent`. */
   const observed = parent.data_source_id;

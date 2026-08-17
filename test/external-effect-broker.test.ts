@@ -506,7 +506,7 @@ function brokerFor(
   );
 }
 
-/** Requests for. */
+/** Builds a finalized request for the selected external effect kind. */
 function requestFor(kind: string, payload: Record<string, string>) {
   return finalizeRequest({
     kind,
@@ -564,7 +564,9 @@ function deadline(): number {
 
 /** Creates a one-shot signal for deterministic asynchronous test coordination. */
 function deferredSignal(): {
+  /** Promise that opens when the barrier is released. */
   readonly promise: Promise<void>;
+  /** Callback that releases the barrier exactly once for this test. */
   readonly resolve: () => void;
 } {
   /** Resolves the signal once the test reaches its intended transition. */

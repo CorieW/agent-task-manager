@@ -64,9 +64,9 @@ export async function inspectHumanRecovery(
   provider: AgentTaskProvider,
   taskId: string,
 ): Promise<HumanRecoveryInspection> {
-  /** Result of `provider.getTaskSnapshot`, retained for the inspect human recovery operation. */
+  /** Stores task used by inspect human recovery. */
   const task = await provider.getTaskSnapshot(taskId);
-  /** Result of `parseHumanInteractionSlots`, retained for the inspect human recovery operation. */
+  /** Stores slots used by inspect human recovery. */
   const slots = parseHumanInteractionSlots(task.body);
   /** Human requests embedded in the current Task body. */
   const inspected: HumanSlotInspection[] = [];
@@ -130,7 +130,7 @@ export async function reconcileActivity(
   provider: AgentTaskProvider,
   agentId: string,
 ): Promise<ReconciliationResult> {
-  /** Basis snapshot used consistently during the reconcile activity operation. */
+  /** Stores basis used by reconcile activity. */
   const basis = {
     activity: await provider.getAgentActivity(agentId),
     projection: await provider.getLeaseProjection(agentId),
@@ -147,18 +147,18 @@ export async function inspectAgentActivity(
   provider: AgentTaskProvider,
   agentId: string,
 ): Promise<AgentActivityInspection> {
-  /** Result of `provider.getAgentActivity`, retained for the inspect agent activity operation. */
+  /** Stores activity used by inspect agent activity. */
   const activity = await provider.getAgentActivity(agentId);
-  /** Result of `provider.getLeaseProjection`, retained for the inspect agent activity operation. */
+  /** Stores lease projection used by inspect agent activity. */
   const leaseProjection = await provider.getLeaseProjection(agentId);
-  /** Ids snapshot used consistently during the inspect agent activity operation. */
+  /** Stores ids used by inspect agent activity. */
   const ids = [
     ...new Set([
       ...leaseProjection.runLeaseIds,
       ...leaseProjection.taskLeaseIds,
     ]),
   ].sort();
-  /** Result of `Promise.all`, retained for the inspect agent activity operation. */
+  /** Stores leases used by inspect agent activity. */
   const leases = await Promise.all(
     ids.map((leaseId) => provider.getLeaseSnapshot(leaseId)),
   );

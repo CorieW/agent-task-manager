@@ -176,6 +176,7 @@ test("renews a live harness assignment before its original expiry", async () => 
     [],
     new StrictSystemResourceProvider(environment, target, undefined, () => now),
   );
+  /** Prepared assignment whose original leases will be renewed. */
   const preparation = await prepareHarnessAssignment({
     agentId: "planner",
     assignmentDepth: 0,
@@ -189,6 +190,7 @@ test("renews a live harness assignment before its original expiry", async () => 
   assert.equal(preparation.state, "prepared");
   if (preparation.state !== "prepared") return;
 
+  /** Renewal result expected to retain the assignment's live authority. */
   const renewal = await renewHarnessAssignment({
     environmentId: "demo",
     expiresAt: nextExpiry,
@@ -206,6 +208,7 @@ test("renews a live harness assignment before its original expiry", async () => 
   );
 
   now = new Date(Date.parse(originalExpiry) + 1);
+  /** Completion report produced under the renewed lease horizon. */
   const report = await completeHarnessAssignment({
     completion: successfulCompletion("Renewed plan"),
     environmentId: "demo",
@@ -244,6 +247,7 @@ test("recovers an expired unchanged assignment during completion", async () => {
   });
   assert.equal((await provider.getAgentActivity("planner")).status, "Online");
 
+  /** Completion report produced after automatic lease recovery. */
   const report = await completeHarnessAssignment({
     completion: successfulCompletion("Recovered review"),
     environmentId: "demo",
@@ -268,6 +272,7 @@ test("recovers expired assignment leases through an explicit renewal", async () 
     [],
     new StrictSystemResourceProvider(environment, target, undefined, () => now),
   );
+  /** Prepared assignment allowed to expire before explicit renewal. */
   const preparation = await prepareHarnessAssignment({
     agentId: "planner",
     assignmentDepth: 0,
@@ -282,6 +287,7 @@ test("recovers expired assignment leases through an explicit renewal", async () 
   if (preparation.state !== "prepared") return;
   now = new Date(Date.parse(originalExpiry) + 1);
 
+  /** Renewal result expected to report recovered authority. */
   const renewal = await renewHarnessAssignment({
     environmentId: "demo",
     expiresAt: nextExpiry,
@@ -687,6 +693,7 @@ test("publishes a Planner plan to the Task without an external attestation", asy
     provider,
   });
 
+  /** Task snapshot containing the plan published by the completed assignment. */
   const task = await provider.getTaskSnapshot("task-1");
   assert.equal(report.effectIds.length, 0);
   assert.equal(task.status, "Planned");
@@ -758,6 +765,7 @@ test("publishes a plan and asks all human questions in one slot", async () => {
     provider,
   });
 
+  /** Task snapshot containing both the plan and formatted human questions. */
   const task = await provider.getTaskSnapshot("task-1");
   assert.equal(task.status, "Blocked");
   assert.match(task.body, /## Plan/u);
@@ -781,8 +789,10 @@ test("records a Draft PR link while attesting only the external publication", as
     provider,
     taskId: "task-1",
   });
+  /** Canonical pull-request URL recorded by the manager-owned intent. */
   const url = "https://github.com/example/project/pull/12";
 
+  /** Completion report whose attestations cover only the external publication. */
   const report = await completeHarnessAssignment({
     completion: {
       effectAttestations: [

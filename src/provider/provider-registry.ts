@@ -23,7 +23,7 @@ export class ProviderRegistry {
 
   /** Creates the provider selected by the environment type. */
   public create(environment: ProviderEnvironment): AgentTaskProvider {
-    /** Factory snapshot used consistently during `create`. */
+    /** Holds the `factory` intermediate used by `create`. */
     const factory = this.#factories.get(environment.type);
     if (factory === undefined) {
       throw new Error(`Provider is not registered: ${environment.type}`);

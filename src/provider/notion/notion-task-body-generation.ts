@@ -1,4 +1,4 @@
-/** Provider-neutral the single parser and ordering rule for append-only Notion Task bodies contract. */
+/** Defines the single parser and ordering rule for append-only Notion Task bodies. */
 import { isSha256Digest } from "../../core/digest.js";
 import type { JsonObject, JsonValue } from "../../domain/json.js";
 import { NOTION_TASK_MUTATION_CAPTION_PREFIX } from "./notion-schema.js";
@@ -29,13 +29,13 @@ export function taskBodyGeneration(
   block: JsonObject,
 ): NotionTaskBodyGeneration | null {
   if (block.type !== "code") return null;
-  /** Result of `objectValue`, retained for `taskBodyGeneration`. */
+  /** Holds the `code` intermediate used by `taskBodyGeneration`. */
   const code = objectValue(block.code);
   if (code.language !== "markdown") return null;
-  /** Result of `richTextValue`, retained for `taskBodyGeneration`. */
+  /** Holds the `caption` intermediate used by `taskBodyGeneration`. */
   const caption = richTextValue(code.caption);
   if (!caption.startsWith(NOTION_TASK_MUTATION_CAPTION_PREFIX)) return null;
-  /** Result of `caption.slice`, retained for `taskBodyGeneration`. */
+  /** Holds the `digest` intermediate used by `taskBodyGeneration`. */
   const digest = caption.slice(NOTION_TASK_MUTATION_CAPTION_PREFIX.length);
   if (!isSha256Digest(digest)) return null;
   return {
@@ -62,10 +62,10 @@ function richTextValue(value: JsonValue | undefined): string {
   if (!Array.isArray(value)) return "";
   return value
     .map((item) => {
-      /** Result of `objectValue`, retained for `richTextValue`. */
+      /** Rich-text item decoded with the boundary's empty-object fallback. */
       const object = objectValue(item);
       if (typeof object.plain_text === "string") return object.plain_text;
-      /** Result of `objectValue`, retained for `richTextValue`. */
+      /** Nested text payload used when plain_text is absent. */
       const text = objectValue(object.text);
       return typeof text.content === "string" ? text.content : "";
     })

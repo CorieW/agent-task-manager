@@ -115,7 +115,7 @@ export class ProviderChildAgentWaveEffects implements ReconcilableEffectAdapter<
       /** Durable child-node record processed by reconcile. */
       const record = await this.readNode(effectId, node);
       if (record === null) continue;
-      /** Result of `this.context`, retained for the reconcile operation. */
+      /** Stores context used by reconcile. */
       const context = await this.context(node);
       if (record.receipt !== null) {
         receipts.set(node.nodeKey, record.receipt);
@@ -128,7 +128,7 @@ export class ProviderChildAgentWaveEffects implements ReconcilableEffectAdapter<
           (receipt): receipt is ChildAgentNodeReceipt => receipt !== undefined,
         );
       if (dependencies.length !== node.dependsOn.length) continue;
-      /** Result of `this.driver.reconcile`, retained for the reconcile operation. */
+      /** Stores observation used by reconcile. */
       const observation = await this.driver.reconcile({
         context,
         control,
@@ -137,7 +137,7 @@ export class ProviderChildAgentWaveEffects implements ReconcilableEffectAdapter<
         nodeEffectId: record.nodeEffectId,
         waveEffectId: effectId,
       });
-      /** Result of `this.updateFromObservation`, retained for the reconcile operation. */
+      /** Stores finalized used by reconcile. */
       const finalized = await this.updateFromObservation(record, observation);
       if (finalized.receipt !== null)
         receipts.set(node.nodeKey, finalized.receipt);
@@ -168,7 +168,7 @@ export class ProviderChildAgentWaveEffects implements ReconcilableEffectAdapter<
     /** Indexes receipts for deterministic lookup by apply. */
     const receipts = new Map<string, ChildAgentNodeReceipt>();
     while (receipts.size < payload.nodes.length) {
-      /** Result of `payload.nodes.filter`, retained for the apply operation. */
+      /** Stores ready used by apply. */
       const ready = payload.nodes.filter(
         (node) =>
           !receipts.has(node.nodeKey) &&
@@ -176,11 +176,11 @@ export class ProviderChildAgentWaveEffects implements ReconcilableEffectAdapter<
       );
       if (ready.length === 0)
         return failedWave(receipts, "dependency_failed_or_unresolved");
-      /** Result of `ready.slice`, retained for the apply operation. */
+      /** Stores batch used by apply. */
       const batch = ready.slice(0, payload.maxConcurrency);
       if (control.signal.aborted || control.deadlineAt <= Date.now())
         throw new Error("Child-agent wave was cancelled");
-      /** Result of `Promise.allSettled`, retained for the apply operation. */
+      /** Stores settled used by apply. */
       const settled = await Promise.allSettled(
         batch.map(async (node) =>
           this.executeNode(
@@ -216,7 +216,7 @@ export class ProviderChildAgentWaveEffects implements ReconcilableEffectAdapter<
     node: ChildAgentNode,
     dependencies: readonly ChildAgentNodeReceipt[],
   ): Promise<ChildAgentNodeReceipt> {
-    /** Result of `this.context`, retained for the execute node operation. */
+    /** Stores context used by execute node. */
     const context = await this.context(node);
     /** Durable child-node record processed by execute node. */
     let record = await this.readNode(waveEffectId, node);
@@ -242,7 +242,7 @@ export class ProviderChildAgentWaveEffects implements ReconcilableEffectAdapter<
         `Child-agent context changed after node creation: ${node.nodeKey}`,
       );
     if (record.receipt !== null) return record.receipt;
-    /** Input snapshot used consistently during the execute node operation. */
+    /** Stores input used by execute node. */
     const input = {
       context,
       control,
@@ -251,9 +251,9 @@ export class ProviderChildAgentWaveEffects implements ReconcilableEffectAdapter<
       nodeEffectId: record.nodeEffectId,
       waveEffectId,
     };
-    /** Result of `this.driver.reconcile`, retained for the execute node operation. */
+    /** Stores prior used by execute node. */
     const prior = await this.driver.reconcile(input);
-    /** Result of `this.driver.run`, retained for the execute node operation. */
+    /** Stores observation used by execute node. */
     let observation = prior;
     if (prior.state === "not_applied") {
       try {
@@ -277,7 +277,7 @@ export class ProviderChildAgentWaveEffects implements ReconcilableEffectAdapter<
         throw error;
       }
     }
-    /** Result of `this.updateFromObservation`, retained for the execute node operation. */
+    /** Stores finalized used by execute node. */
     const finalized = await this.updateFromObservation(
       record,
       observation,
@@ -295,7 +295,7 @@ export class ProviderChildAgentWaveEffects implements ReconcilableEffectAdapter<
     knownContext?: ResourceRecord,
   ): Promise<ChildAgentNodeRecord> {
     validateEffectObservation(observation);
-    /** Context snapshot used consistently during the update from observation operation. */
+    /** Stores context used by update from observation. */
     const context =
       knownContext ??
       (await this.context({
@@ -308,7 +308,7 @@ export class ProviderChildAgentWaveEffects implements ReconcilableEffectAdapter<
       }));
     if (observation.state === "not_applied") return record;
     if (observation.state === "indeterminate") {
-      /** Next snapshot used consistently during the update from observation operation. */
+      /** Stores next used by update from observation. */
       const next = {
         ...record,
         lastObservation: observation,
@@ -325,7 +325,7 @@ export class ProviderChildAgentWaveEffects implements ReconcilableEffectAdapter<
       nodeKey: record.nodeKey,
       state: observation.state,
     };
-    /** Next snapshot used consistently during the update from observation operation. */
+    /** Stores next used by update from observation. */
     const next = {
       ...record,
       lastObservation: observation,
@@ -338,7 +338,7 @@ export class ProviderChildAgentWaveEffects implements ReconcilableEffectAdapter<
 
   /** Loads and verifies the immutable context Resource for a child node. */
   private async context(node: ChildAgentNode): Promise<ResourceRecord> {
-    /** Result of `this.provider.getOptionalResource`, retained for the context operation. */
+    /** Stores resource used by context. */
     const resource = await this.provider.getOptionalResource(
       node.contextResource,
     );
@@ -378,7 +378,7 @@ export class ProviderChildAgentWaveEffects implements ReconcilableEffectAdapter<
       waveEffectId,
       node,
     );
-    /** Dependency snapshot used consistently during the read node operation. */
+    /** Stores dependency used by read node. */
     const dependency = operation.dependencies[0];
     if (
       operation.dependencies.length !== 1 ||
@@ -396,9 +396,9 @@ export class ProviderChildAgentWaveEffects implements ReconcilableEffectAdapter<
     record: ChildAgentNodeRecord,
     context: ResourceRecord,
   ): Promise<void> {
-    /** Result of `canonicalize`, retained for the write node operation. */
+    /** Stores body used by write node. */
     const body = canonicalize(toJsonValue(record));
-    /** Dependency snapshot used consistently during the write node operation. */
+    /** Stores dependency used by write node. */
     const dependency: ResourceRef = {
       digest: context.digest,
       key: context.key,
@@ -480,7 +480,7 @@ function parseNodeRecord(
     !["applied", "failed", "indeterminate", "pending"].includes(String(state))
   )
     throw new TypeError("Child-agent node record schema or state is invalid");
-  /** Parsed snapshot used consistently during the parse node record operation. */
+  /** Stores parsed used by parse node record. */
   const parsed: ChildAgentNodeRecord = {
     contextDigest: digest(record.contextDigest, "contextDigest"),
     contextKey: string(record.contextKey, "contextKey"),
@@ -559,7 +559,7 @@ function observation(value: unknown): ExternalEffectObservation {
   /** Parsed candidate awaiting observation validation. */
   const found = object(value, "Child-agent observation");
   exact(found, ["evidence", "externalIdentity", "state"]);
-  /** Parsed snapshot used consistently during the observation operation. */
+  /** Stores parsed used by observation. */
   const parsed = {
     evidence: json(found.evidence, "observation evidence"),
     externalIdentity: json(found.externalIdentity, "observation identity"),
@@ -578,7 +578,7 @@ function object(value: unknown, label: string): JsonObject {
 
 /** Validates and returns the required object representation. */
 function json(value: unknown, label: string): JsonObject {
-  /** Result of `toJsonValue`, retained for the json operation. */
+  /** Stores converted used by json. */
   const converted = toJsonValue(value);
   if (
     converted === null ||

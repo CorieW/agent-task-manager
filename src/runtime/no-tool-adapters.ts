@@ -25,15 +25,15 @@ const ISOLATION_HANDLE = Symbol("no-tool-isolation-handle");
 export interface NoToolModelClient {
   /** Streams model output for one bounded run. */
   stream(input: {
-    /** Context dependency consumed by no tool model client. */
+    /** Provides context to no tool model client. */
     readonly context: RunContext;
-    /** Model dependency consumed by no tool model client. */
+    /** Provides model to no tool model client. */
     readonly model: string;
     /** Output limit in bytes. */
     readonly outputLimitBytes: number;
     /** Version tag for the no tool model client representation. */
     readonly outputSchema: JsonObject;
-    /** Reasoning dependency consumed by no tool model client. */
+    /** Provides reasoning to no tool model client. */
     readonly reasoning: string;
     /** Cancellation signal for the operation. */
     readonly signal: AbortSignal;
@@ -46,11 +46,11 @@ interface NoToolModelHandle {
   readonly [MODEL_HANDLE]: true;
   /** Service client used to cross the external boundary. */
   readonly client: NoToolModelClient;
-  /** Controller dependency consumed by no tool model handle. */
+  /** Provides controller to no tool model handle. */
   readonly controller: AbortController;
-  /** Model dependency consumed by no tool model handle. */
+  /** Provides model to no tool model handle. */
   readonly model: string;
-  /** Reasoning dependency consumed by no tool model handle. */
+  /** Provides reasoning to no tool model handle. */
   readonly reasoning: string;
   /** Stable identifier for run id. */
   readonly runId: string;
@@ -77,9 +77,9 @@ export class NoToolModelTransportAdapter implements ModelTransportAdapter {
   }
   /** Prepares an isolated no-tool model session. */
   public async prepare(input: {
-    /** Model dependency consumed by prepare. */
+    /** Provides model to prepare. */
     readonly model: string;
-    /** Reasoning dependency consumed by prepare. */
+    /** Provides reasoning to prepare. */
     readonly reasoning: string;
     /** Stable identifier for run id. */
     readonly runId: string;
@@ -87,12 +87,12 @@ export class NoToolModelTransportAdapter implements ModelTransportAdapter {
     readonly signal: AbortSignal;
   }): Promise<ModelTransportSession> {
     input.signal.throwIfAborted();
-    /** Result of `AbortController`, retained for the prepare operation. */
+    /** Stores controller used by prepare. */
     const controller = new AbortController();
     /** Local callback implementing abort for the prepare operation. */
     const abort = (): void => controller.abort(input.signal.reason);
     input.signal.addEventListener("abort", abort, { once: true });
-    /** Handle snapshot used consistently during the prepare operation. */
+    /** Stores handle used by prepare. */
     const handle: NoToolModelHandle = {
       [MODEL_HANDLE]: true,
       client: this.client,
@@ -160,7 +160,7 @@ export class NoToolIsolationAdapter implements ToolIsolationAdapter {
     }
     /** Binds prepare to canonical policy content. */
     const policyDigest = digestJson(toJsonValue(policy));
-    /** Handle snapshot used consistently during the prepare operation. */
+    /** Stores handle used by prepare. */
     const handle: NoToolIsolationHandle = {
       [ISOLATION_HANDLE]: true,
       runId: policy.runId,
@@ -217,9 +217,9 @@ export class NoToolAgentRunnerAdapter implements AgentRunnerAdapter {
   }
   /** Starts a bounded no-tool agent process over the prepared handles. */
   public async start(input: {
-    /** Context dependency consumed by start. */
+    /** Provides context to start. */
     readonly context: RunContext;
-    /** Control plane handle dependency consumed by start. */
+    /** Provides control plane handle to start. */
     readonly controlPlaneHandle: unknown;
     /** Version tag for the start representation. */
     readonly outputSchema: JsonObject;
@@ -227,11 +227,11 @@ export class NoToolAgentRunnerAdapter implements AgentRunnerAdapter {
     readonly outputLimitBytes: number;
     /** Cancellation signal for the operation. */
     readonly signal: AbortSignal;
-    /** Tool isolation handle dependency consumed by start. */
+    /** Provides tool isolation handle to start. */
     readonly toolIsolationHandle: unknown;
   }): Promise<SupervisedAgentProcess> {
     input.signal.throwIfAborted();
-    /** Result of `modelHandle`, retained for the start operation. */
+    /** Stores model used by start. */
     const model = modelHandle(input.controlPlaneHandle);
     /** Validated no-tool isolation session. */
     const isolation = isolationHandle(input.toolIsolationHandle);
@@ -264,9 +264,9 @@ class NoToolAgentProcess implements SupervisedAgentProcess {
   readonly #upstreamSignal: AbortSignal;
   /** Abort callback used by no tool agent process. */
   readonly #abort: () => void;
-  /** Outputstarted dependency consumed by no tool agent process. */
+  /** Provides output started to no tool agent process. */
   #outputStarted = false;
-  /** Settled dependency consumed by no tool agent process. */
+  /** Provides settled to no tool agent process. */
   #settled = false;
   /** Creates no tool agent process with its required collaborators. */
   public constructor(
@@ -276,7 +276,7 @@ class NoToolAgentProcess implements SupervisedAgentProcess {
     outputLimitBytes: number,
     signal: AbortSignal,
   ) {
-    /** Result of `Promise`, retained for the no tool agent process operation. */
+    /** Stores resolve completion used by no tool agent process. */
     let resolveCompletion!: (value: AgentProcessCompletion) => void;
     this.#completion = new Promise((resolve) => {
       resolveCompletion = resolve;

@@ -404,7 +404,7 @@ function parseRetry(value: JsonObject): RetryPolicy {
   };
 }
 
-/** Issue. */
+/** Constructs one definition-validation issue at its source path. */
 function issue(
   code: string,
   message: string,
@@ -515,7 +515,7 @@ function integer(value: JsonValue | undefined, label: string): number {
 
 /** Requires a positive safe integer field value. */
 function positiveInteger(value: JsonValue | undefined, label: string): number {
-  /** Result produced by positive integer. */
+  /** Parsed integer retained for the positive-range check. */
   const result = integer(value, label);
   if (result < 1) throw new TypeError(`${label} must be positive`);
   return result;
@@ -526,7 +526,7 @@ function nonNegativeInteger(
   value: JsonValue | undefined,
   label: string,
 ): number {
-  /** Result produced by non negative integer. */
+  /** Parsed integer retained for the non-negative range check. */
   const result = integer(value, label);
   if (result < 0) throw new TypeError(`${label} must be non-negative`);
   return result;

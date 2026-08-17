@@ -49,9 +49,9 @@ export interface LocalGitIdentity {
 
 /** Validated configuration for git executable. */
 export interface GitExecutableConfig {
-  /** Path dependency consumed by git executable config. */
+  /** Provides path to git executable config. */
   readonly path: string;
-  /** SHA-256 digest of SHA-256. */
+  /** SHA-256 digest pinning the configured executable bytes. */
   readonly sha256: string;
   /** Opaque version token used for compatibility checks. */
   readonly version: string;
@@ -151,11 +151,11 @@ export class NodeGitCommandExecutor implements GitCommandExecutor {
 
 /** Implements local git effects and its boundary checks. */
 export class LocalGitEffects {
-  /** Effectcontrol dependency consumed by local git effects. */
+  /** Provides effect control to local git effects. */
   readonly #effectControl = new AsyncLocalStorage<ExternalEffectControl>();
   /** Configured repositories addressable by identifier. */
   readonly #repositories: ReadonlyMap<string, LocalRepositoryConfig>;
-  /** Runtimeroot dependency consumed by local git effects. */
+  /** Provides runtime root to local git effects. */
   readonly #runtimeRoot: string;
   /** Validated configuration owned by the effect implementation. */
   readonly #workspacesRoot: string;
@@ -193,10 +193,10 @@ export class LocalGitEffects {
     },
   ): Promise<LocalGitEffects> {
     validateConfig(config);
-    /** Result of `LocalGitEffects`, retained for the create operation. */
+    /** Git command boundary, overridden by tests when supplied. */
     const executor =
       options.executor ?? new NodeGitCommandExecutor(config.executable.path);
-    /** Result of `LocalGitEffects`, retained for the create operation. */
+    /** Fully configured effect handler registered below. */
     const instance = new LocalGitEffects(
       config,
       executor,
@@ -275,7 +275,7 @@ export class LocalGitEffects {
   private adapter<T>(
     id: string,
     apply: (input: {
-      /** Provider-neutral the broker-owned cancellation and deadline boundary contract. */
+      /** Defines the broker-owned cancellation and deadline boundary. */
       readonly control: ExternalEffectControl;
       /** Stable identifier for effect id. */
       readonly effectId: string;
@@ -283,7 +283,7 @@ export class LocalGitEffects {
       readonly payload: T;
     }) => Promise<ExternalEffectObservation>,
     reconcile: (input: {
-      /** Provider-neutral the broker-owned cancellation and deadline boundary contract. */
+      /** Defines the broker-owned cancellation and deadline boundary. */
       readonly control: ExternalEffectControl;
       /** Stable identifier for effect id. */
       readonly effectId: string;
@@ -303,7 +303,7 @@ export class LocalGitEffects {
 
   /** Verifies boundary against authoritative state. */
   private async verifyBoundary(): Promise<void> {
-    /** Result of `ordinaryRealPath`, retained for the verify boundary operation. */
+    /** Stores executable path used by verify boundary. */
     const executablePath = await ordinaryRealPath(
       this.config.executable.path,
       "Git executable",
@@ -320,7 +320,7 @@ export class LocalGitEffects {
     await ordinaryRealPath(this.#workspacesRoot, "Git workspaces root");
     for (const repository of this.#repositories.values())
       await ordinaryRealPath(repository.root, `Repository ${repository.id}`);
-    /** Result of `this.git`, retained for the verify boundary operation. */
+    /** Stores version used by verify boundary. */
     const version = await this.git(this.#runtimeRoot, ["--version"]);
     if (version.stdout.trim() !== this.config.executable.version)
       throw new Error("Git executable version does not match configuration");
@@ -331,9 +331,9 @@ export class LocalGitEffects {
     effectId: string,
     payload: WorkspaceProvisionPayload,
   ): Promise<ExternalEffectObservation> {
-    /** Result of `this.workspacePath`, retained for the reconcile workspace operation. */
+    /** Stores destination used by reconcile workspace. */
     const destination = this.workspacePath(payload.workspaceKey);
-    /** Result of `this.verifyOwner`, retained for the reconcile workspace operation. */
+    /** Stores owned used by reconcile workspace. */
     const owned = await this.verifyOwner(
       payload.repositoryId,
       payload.workspaceKey,
@@ -348,9 +348,9 @@ export class LocalGitEffects {
         ))
         ? notApplied({ destinationKey: payload.workspaceKey, partial: true })
         : notApplied({ destinationKey: payload.workspaceKey });
-    /** Result of `this.repository`, retained for the reconcile workspace operation. */
+    /** Stores repository used by reconcile workspace. */
     const repository = this.repository(payload.repositoryId);
-    /** Result of `this.gitOutput`, retained for the reconcile workspace operation. */
+    /** Stores head used by reconcile workspace. */
     const head = await this.gitOutput(destination, ["rev-parse", "HEAD"], true);
     if (head === null)
       return owned
@@ -359,7 +359,7 @@ export class LocalGitEffects {
             destinationKey: payload.workspaceKey,
             reason: "not_git_workspace",
           });
-    /** Result of `this.workspaceRepository`, retained for the reconcile workspace operation. */
+    /** Stores owner used by reconcile workspace. */
     const owner = await this.workspaceRepository(destination);
     if (owner?.id !== repository.id || owner.mode !== payload.mode)
       return indeterminate({
@@ -390,12 +390,12 @@ export class LocalGitEffects {
     effectId: string,
     payload: WorkspaceProvisionPayload,
   ): Promise<ExternalEffectObservation> {
-    /** Result of `this.reconcileWorkspace`, retained for the apply workspace operation. */
+    /** Stores prior used by apply workspace. */
     const prior = await this.reconcileWorkspace(effectId, payload);
     if (prior.state !== "not_applied") return prior;
-    /** Result of `this.repository`, retained for the apply workspace operation. */
+    /** Stores repository used by apply workspace. */
     const repository = this.repository(payload.repositoryId);
-    /** Result of `this.workspacePath`, retained for the apply workspace operation. */
+    /** Stores destination used by apply workspace. */
     const destination = this.workspacePath(payload.workspaceKey);
     await mkdir(this.#workspacesRoot, { recursive: true });
     await this.ownership.claim({
@@ -420,7 +420,7 @@ export class LocalGitEffects {
     }
     if (await exists(destination))
       await rm(destination, { force: true, recursive: true });
-    /** Args snapshot used consistently during the apply workspace operation. */
+    /** Stores args used by apply workspace. */
     const args =
       payload.mode === "worktree"
         ? ["worktree", "add", "--detach", destination, payload.sourceRevision]
@@ -445,14 +445,14 @@ export class LocalGitEffects {
   private async reconcileRelease(
     payload: WorkspaceReleasePayload,
   ): Promise<ExternalEffectObservation> {
-    /** Result of `this.workspacePath`, retained for the reconcile release operation. */
+    /** Stores destination used by reconcile release. */
     const destination = this.workspacePath(payload.workspaceKey);
-    /** Result of `this.registeredWorktree`, retained for the reconcile release operation. */
+    /** Stores registered used by reconcile release. */
     const registered = await this.registeredWorktree(
       this.repository(payload.repositoryId),
       destination,
     );
-    /** Result of `this.verifyOwner`, retained for the reconcile release operation. */
+    /** Stores owned used by reconcile release. */
     const owned = await this.verifyOwner(
       payload.repositoryId,
       payload.workspaceKey,
@@ -483,16 +483,16 @@ export class LocalGitEffects {
     effectId: string,
     payload: WorkspaceReleasePayload,
   ): Promise<ExternalEffectObservation> {
-    /** Result of `this.workspacePath`, retained for the apply release operation. */
+    /** Stores destination used by apply release. */
     const destination = this.workspacePath(payload.workspaceKey);
     if (!(await this.verifyOwner(payload.repositoryId, payload.workspaceKey)))
       return indeterminate({
         destinationKey: payload.workspaceKey,
         reason: "ownership_unverified",
       });
-    /** Result of `this.repository`, retained for the apply release operation. */
+    /** Stores repository used by apply release. */
     const repository = this.repository(payload.repositoryId);
-    /** Owner snapshot used consistently during the apply release operation. */
+    /** Stores owner used by apply release. */
     const owner = (await exists(destination))
       ? await this.workspaceRepository(destination)
       : null;
@@ -578,7 +578,7 @@ export class LocalGitEffects {
     /** Reconciliation result that prevents duplicate branch creation. */
     const prior = await this.reconcileBranch(payload);
     if (prior.state !== "not_applied") return prior;
-    /** Result of `this.workspacePath`, retained for the apply branch operation. */
+    /** Stores workspace used by apply branch. */
     const workspace = this.workspacePath(payload.workspaceKey);
     await this.assertWorkspaceRepository(workspace, payload.repositoryId);
     await this.gitRequired(workspace, [
@@ -595,23 +595,23 @@ export class LocalGitEffects {
     payload: GitCommitPayload,
   ): Promise<ExternalEffectObservation> {
     this.repository(payload.repositoryId);
-    /** Result of `this.workspacePath`, retained for the reconcile commit operation. */
+    /** Stores workspace used by reconcile commit. */
     const workspace = this.workspacePath(payload.workspaceKey);
     await this.assertWorkspaceRepository(workspace, payload.repositoryId);
-    /** Head snapshot used consistently during the reconcile commit operation. */
+    /** Stores head used by reconcile commit. */
     const head = (
       await this.gitRequired(workspace, ["rev-parse", "HEAD"])
     ).stdout.trim();
     if (head === payload.expectedHead) return notApplied({ head });
-    /** Parent snapshot used consistently during the reconcile commit operation. */
+    /** Stores parent used by reconcile commit. */
     const parent = (
       await this.gitRequired(workspace, ["rev-parse", `${head}^`])
     ).stdout.trim();
-    /** Result of `lines`, retained for the reconcile commit operation. */
+    /** Existing commit message used to verify the requested commit. */
     const message = (
       await this.gitRequired(workspace, ["show", "-s", "--format=%B", head])
     ).stdout.trimEnd();
-    /** Result of `lines`, retained for the reconcile commit operation. */
+    /** Paths recorded by the existing commit. */
     const paths = lines(
       (
         await this.gitRequired(workspace, [
@@ -637,13 +637,13 @@ export class LocalGitEffects {
   private async applyCommit(
     payload: GitCommitPayload,
   ): Promise<ExternalEffectObservation> {
-    /** Result of `this.reconcileCommit`, retained for the apply commit operation. */
+    /** Stores prior used by apply commit. */
     const prior = await this.reconcileCommit(payload);
     if (prior.state !== "not_applied") return prior;
-    /** Result of `this.workspacePath`, retained for the apply commit operation. */
+    /** Stores workspace used by apply commit. */
     const workspace = this.workspacePath(payload.workspaceKey);
     await this.assertWorkspaceRepository(workspace, payload.repositoryId);
-    /** Result of `this.changedPaths`, retained for the apply commit operation. */
+    /** Stores changed used by apply commit. */
     const changed = await this.changedPaths(workspace);
     if (!sameStrings(changed, payload.paths))
       return indeterminate({
@@ -671,11 +671,11 @@ export class LocalGitEffects {
   private async reconcilePush(
     payload: GitPushPayload,
   ): Promise<ExternalEffectObservation> {
-    /** Result of `this.repository`, retained for the reconcile push operation. */
+    /** Stores repository used by reconcile push. */
     const repository = this.repository(payload.repositoryId);
     if (!repository.remotes.includes(payload.remote))
       throw new Error(`Git remote is not authorized: ${payload.remote}`);
-    /** Result of `this.workspacePath`, retained for the reconcile push operation. */
+    /** Stores workspace used by reconcile push. */
     const workspace = this.workspacePath(payload.workspaceKey);
     await this.assertWorkspaceRepository(workspace, payload.repositoryId);
     /** Immutable local revision compared with the remote branch head. */
@@ -687,7 +687,7 @@ export class LocalGitEffects {
         actualLocalHead: local,
         expectedLocalHead: payload.expectedLocalHead,
       });
-    /** Result of `this.remoteHead`, retained for the reconcile push operation. */
+    /** Stores remote used by reconcile push. */
     const remote = await this.remoteHead(workspace, payload);
     if (remote === payload.expectedLocalHead)
       return applied(
@@ -705,18 +705,18 @@ export class LocalGitEffects {
   private async applyPush(
     payload: GitPushPayload,
   ): Promise<ExternalEffectObservation> {
-    /** Result of `this.reconcilePush`, retained for the apply push operation. */
+    /** Stores prior used by apply push. */
     const prior = await this.reconcilePush(payload);
     if (prior.state !== "not_applied") return prior;
-    /** Result of `this.workspacePath`, retained for the apply push operation. */
+    /** Stores workspace used by apply push. */
     const workspace = this.workspacePath(payload.workspaceKey);
-    /** Result of `this.credentials.environment`, retained for the apply push operation. */
+    /** Stores credential environment used by apply push. */
     const credentialEnvironment = await this.credentials.environment(
       payload.repositoryId,
       payload.remote,
     );
     validateCredentialEnvironment(credentialEnvironment);
-    /** Lease snapshot used consistently during the apply push operation. */
+    /** Stores lease used by apply push. */
     const lease = payload.expectedRemoteHead ?? "";
     await this.gitRequired(
       workspace,
@@ -736,7 +736,7 @@ export class LocalGitEffects {
     workspace: string,
     payload: GitPushPayload,
   ): Promise<string | null> {
-    /** Result of `this.credentials.environment`, retained for the remote head operation. */
+    /** Stores credentials used by remote head. */
     const credentials = await this.credentials.environment(
       payload.repositoryId,
       payload.remote,
@@ -749,19 +749,19 @@ export class LocalGitEffects {
       credentials,
     );
     if (result.exitCode !== 0) throw new Error("Git remote observation failed");
-    /** Result of `result.stdout.trim`, retained for the remote head operation. */
+    /** Stores first used by remote head. */
     const first = result.stdout.trim().split(/\s+/u)[0];
     return first === undefined || first === "" ? null : first;
   }
 
   /** Returns tracked and untracked paths changed in the workspace. */
   private async changedPaths(workspace: string): Promise<readonly string[]> {
-    /** Result of `lines`, retained for the changed paths operation. */
+    /** Tracked paths changed from HEAD. */
     const tracked = lines(
       (await this.gitRequired(workspace, ["diff", "--name-only", "HEAD"]))
         .stdout,
     );
-    /** Result of `lines`, retained for the changed paths operation. */
+    /** Untracked paths reported by Git. */
     const untracked = lines(
       (
         await this.gitRequired(workspace, [
@@ -782,14 +782,14 @@ export class LocalGitEffects {
     /** Verified repository configuration for this workspace. */
     readonly repository: LocalRepositoryConfig;
   } | null> {
-    /** Result of `this.gitOutput`, retained for the workspace repository operation. */
+    /** Repository common directory, used to identify linked worktrees. */
     const common = await this.gitOutput(
       destination,
       ["rev-parse", "--git-common-dir"],
       true,
     );
     if (common === null) return null;
-    /** Result of `resolve`, retained for the workspace repository operation. */
+    /** Stores common path used by workspace repository. */
     const commonPath = resolve(destination, common.trim());
     /** Worktree metadata entry matching the requested workspace. */
     const worktree = [...this.#repositories.values()].find((candidate) =>
@@ -798,7 +798,7 @@ export class LocalGitEffects {
     if (worktree !== undefined)
       return { id: worktree.id, mode: "worktree", repository: worktree };
     if (!samePath(commonPath, join(destination, ".git"))) return null;
-    /** Result of `this.gitOutput`, retained for the workspace repository operation. */
+    /** Canonical origin URL used as the repository identity. */
     const origin = await this.gitOutput(
       destination,
       ["remote", "get-url", "origin"],
@@ -818,7 +818,7 @@ export class LocalGitEffects {
     destination: string,
     repositoryId: string,
   ): Promise<void> {
-    /** Result of `this.workspaceRepository`, retained for the assert workspace repository operation. */
+    /** Stores owner used by assert workspace repository. */
     const owner = await this.workspaceRepository(destination);
     if (owner?.id !== repositoryId)
       throw new Error(
@@ -832,7 +832,7 @@ export class LocalGitEffects {
     mode?: WorkspaceProvisionPayload["mode"],
     provisionEffectId?: string,
   ): Promise<boolean> {
-    /** Result of `this.ownership.get`, retained for the verify owner operation. */
+    /** Stores owner used by verify owner. */
     const owner = await this.ownership.get(workspaceKey);
     return (
       owner?.state === "active" &&
@@ -847,7 +847,7 @@ export class LocalGitEffects {
     repository: LocalRepositoryConfig,
     destination: string,
   ): Promise<boolean> {
-    /** Result of `this.gitOutput`, retained for the registered worktree operation. */
+    /** Stores output used by registered worktree. */
     const output = await this.gitOutput(
       repository.root,
       ["worktree", "list", "--porcelain"],
@@ -874,7 +874,7 @@ export class LocalGitEffects {
   }
   /** Resolves and validates the owned workspace path. */
   private workspacePath(key: string): string {
-    /** Result of `join`, retained for the workspace path operation. */
+    /** Stores destination used by workspace path. */
     const destination = join(this.#workspacesRoot, sha256(key));
     if (!contains(this.#workspacesRoot, destination))
       throw new Error("Workspace escaped its configured root");
@@ -912,7 +912,7 @@ export class LocalGitEffects {
     args: readonly string[],
     extraEnvironment: Readonly<Record<string, string>> = {},
   ): Promise<GitCommandResult> {
-    /** Environment snapshot used consistently during the git operation. */
+    /** Stores environment used by git. */
     const environment: Record<string, string> = {
       GIT_CONFIG_GLOBAL: process.platform === "win32" ? "NUL" : "/dev/null",
       GIT_CONFIG_NOSYSTEM: "1",
@@ -934,7 +934,7 @@ export class LocalGitEffects {
       "credential.helper=",
       ...args,
     ];
-    /** Result of `Date.now`, retained for the git operation. */
+    /** Stores control used by git. */
     const control = this.#effectControl.getStore() ?? {
       deadlineAt: Date.now() + 120_000,
       signal: new AbortController().signal,
@@ -988,7 +988,7 @@ function validateConfig(config: LocalGitEffectConfig): void {
 function validateCredentialEnvironment(
   value: Readonly<Record<string, string>>,
 ): void {
-  /** Reserved snapshot used consistently during the validate credential environment operation. */
+  /** Stores reserved used by validate credential environment. */
   const reserved =
     /^(?:GIT_CONFIG.*|GIT_DIR|GIT_EXEC_PATH|GIT_INDEX_FILE|GIT_OBJECT_DIRECTORY|GIT_OPTIONAL_LOCKS|GIT_SSH|GIT_SSH_COMMAND|GIT_TERMINAL_PROMPT|GIT_WORK_TREE|HOME|LANG|LC_ALL|PATH)$/iu;
   for (const [name, secret] of Object.entries(value))
@@ -1013,7 +1013,7 @@ function canonicalRoot(value: string, label: string): string {
 
 /** Resolves a path and rejects symbolic links and non-directories. */
 async function ordinaryRealPath(value: string, label: string): Promise<string> {
-  /** Result of `lstat`, retained for the ordinary real path operation. */
+  /** Stores info used by ordinary real path. */
   const info = await lstat(value);
   if (info.isSymbolicLink())
     throw new Error(`${label} cannot be a symbolic link`);
@@ -1025,7 +1025,7 @@ async function emptyOrdinaryDirectory(
   value: string,
   label: string,
 ): Promise<void> {
-  /** Result of `stat`, retained for the empty ordinary directory operation. */
+  /** Stores info used by empty ordinary directory. */
   const info = await stat(value);
   if (!info.isDirectory()) throw new Error(`${label} must be a directory`);
   await ordinaryRealPath(value, label);

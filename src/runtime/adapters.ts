@@ -6,19 +6,19 @@ import type { RunContext } from "./contracts.js";
 export interface ModelTransportSession {
   /** Releases resources owned by model transport session. */
   close(): Promise<void>;
-  /** Opaque handle dependency consumed by model transport session. */
+  /** Provides opaque handle to model transport session. */
   readonly opaqueHandle: unknown;
   /** Applied-effect receipt, or null until mutation succeeds. */
   readonly receipt: {
     /** Stable identifier for adapter id. */
     readonly adapterId: string;
-    /** Credential exposed to tools dependency consumed by model transport session. */
+    /** Provides credential exposed to tools to model transport session. */
     readonly credentialExposedToTools: false;
     /** SHA-256 digest binding the canonical content. */
     readonly digest: string;
-    /** Model dependency consumed by model transport session. */
+    /** Provides model to model transport session. */
     readonly model: string;
-    /** Reasoning dependency consumed by model transport session. */
+    /** Provides reasoning to model transport session. */
     readonly reasoning: string;
     /** Stable identifier for run id. */
     readonly runId: string;
@@ -33,9 +33,9 @@ export interface ModelTransportAdapter {
   readonly id: string;
   /** Prepares a model control-plane session. */
   prepare(input: {
-    /** Model dependency consumed by model transport adapter. */
+    /** Provides model to model transport adapter. */
     readonly model: string;
-    /** Reasoning dependency consumed by model transport adapter. */
+    /** Provides reasoning to model transport adapter. */
     readonly reasoning: string;
     /** Stable identifier for run id. */
     readonly runId: string;
@@ -67,7 +67,7 @@ export interface ToolIsolationPolicy {
 export interface ToolIsolationSession {
   /** Releases resources owned by tool isolation session. */
   close(): Promise<void>;
-  /** Opaque handle dependency consumed by tool isolation session. */
+  /** Provides opaque handle to tool isolation session. */
   readonly opaqueHandle: unknown;
   /** Applied-effect receipt, or null until mutation succeeds. */
   readonly receipt: {
@@ -115,15 +115,15 @@ export interface AgentRunnerIdentity {
 export interface AgentProcessCompletion {
   /** Process exit code returned by the child. */
   readonly exitCode: number | null;
-  /** Tool violation dependency consumed by agent process completion. */
+  /** Provides tool violation to agent process completion. */
   readonly toolViolation: string | null;
 }
 
 /** Provider-neutral agent process output contract. */
 export interface AgentProcessOutput {
-  /** Channel dependency consumed by agent process output. */
+  /** Provides channel to agent process output. */
   readonly channel: "stderr" | "stdout";
-  /** Data dependency consumed by agent process output. */
+  /** Provides data to agent process output. */
   readonly data: string | Uint8Array;
 }
 
@@ -149,15 +149,15 @@ export interface AgentRunnerAdapter {
   identity(): Promise<AgentRunnerIdentity>;
   /** Starts a supervised agent process with prepared control and isolation handles. */
   start(input: {
-    /** Context dependency consumed by agent runner adapter. */
+    /** Provides context to agent runner adapter. */
     readonly context: RunContext;
-    /** Control plane handle dependency consumed by agent runner adapter. */
+    /** Provides control plane handle to agent runner adapter. */
     readonly controlPlaneHandle: unknown;
     /** Version tag for the agent runner adapter representation. */
     readonly outputSchema: JsonObject;
     /** Output limit in bytes. */
     readonly outputLimitBytes: number;
-    /** Tool isolation handle dependency consumed by agent runner adapter. */
+    /** Provides tool isolation handle to agent runner adapter. */
     readonly toolIsolationHandle: unknown;
     /** Cancellation signal for the operation. */
     readonly signal: AbortSignal;
@@ -170,7 +170,7 @@ export class RuntimeAdapterRegistry<
     /** Stable identifier for runtime adapter registry. */ readonly id: string;
   },
 > {
-  /** Values dependency consumed by runtime adapter registry. */
+  /** Provides values to runtime adapter registry. */
   readonly #values = new Map<string, T>();
   /** Registers one uniquely identified adapter. */
   public register(value: T): void {

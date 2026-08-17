@@ -76,7 +76,7 @@ export class NotionWorkspaceReader {
         ),
       );
     }
-    /** Auth environment variable snapshot used consistently during `validateEnvironment`. */
+    /** Holds the `authEnvironmentVariable` intermediate used by `validateEnvironment`. */
     const authEnvironmentVariable =
       this.environment.connection.authEnvironmentVariable;
     if (
@@ -96,38 +96,38 @@ export class NotionWorkspaceReader {
 
   /** Inspects workspace schema without mutation. */
   public async inspectWorkspaceSchema(): Promise<WorkspaceSchemaSnapshot> {
-    /** Result of `this.transport.request`, retained for `inspectWorkspaceSchema`. */
+    /** Holds the `identity` intermediate used by `inspectWorkspaceSchema`. */
     const identity = await this.transport.request({
       method: "GET",
       path: "/v1/users/me",
     });
-    /** Result of `identityString`, retained for `inspectWorkspaceSchema`. */
+    /** Holds the `providerIdentity` intermediate used by `inspectWorkspaceSchema`. */
     const providerIdentity = identityString(identity);
     /** Indexes entries in `resolved` for `inspectWorkspaceSchema`. */
     const resolved = new Map<TableKind, string>();
     for (const kind of TABLE_KINDS) {
-      /** Configured snapshot used consistently during `inspectWorkspaceSchema`. */
+      /** Holds the `configured` intermediate used by `inspectWorkspaceSchema`. */
       const configured = this.environment.tables[kind];
       if (configured !== null && configured !== undefined)
         resolved.set(kind, await this.resolveDataSourceId(configured));
     }
-    /** Result of `ids.filter`, retained for `inspectWorkspaceSchema`. */
+    /** Holds the `ids` intermediate used by `inspectWorkspaceSchema`. */
     const ids = [...resolved.values()];
     if (new Set(ids).size !== ids.length) {
-      /** Result of `ids.filter`, retained for `inspectWorkspaceSchema`. */
+      /** Holds the `duplicates` intermediate used by `inspectWorkspaceSchema`. */
       const duplicates = ids.filter((id, index) => ids.indexOf(id) !== index);
       throw new Error(
         `Logical Notion tables must use distinct data sources; duplicated: ${[...new Set(duplicates)].join(", ")}`,
       );
     }
 
-    /** Result of `resolved.get`, retained for `inspectWorkspaceSchema`. */
+    /** Holds the `tables` intermediate used by `inspectWorkspaceSchema`. */
     const tables: ObservedTable[] = [];
     for (const kind of TABLE_KINDS) {
-      /** Result of `resolved.get`, retained for `inspectWorkspaceSchema`. */
+      /** Holds the `id` intermediate used by `inspectWorkspaceSchema`. */
       const id = resolved.get(kind);
       if (id === undefined) continue;
-      /** Result of `this.transport.request`, retained for `inspectWorkspaceSchema`. */
+      /** Holds the `source` intermediate used by `inspectWorkspaceSchema`. */
       const source = await this.transport.request({
         method: "GET",
         path: `/v1/data_sources/${id}`,
@@ -162,10 +162,10 @@ export class NotionWorkspaceReader {
 
   /** Resolves data source ID. */
   public async resolveDataSourceId(identifier: string): Promise<string> {
-    /** Result of `normalizeNotionIdentifier`, retained for `resolveDataSourceId`. */
+    /** Holds the `id` intermediate used by `resolveDataSourceId`. */
     const id = normalizeNotionIdentifier(identifier);
     try {
-      /** Result of `this.transport.request`, retained for `resolveDataSourceId`. */
+      /** Holds the `source` intermediate used by `resolveDataSourceId`. */
       const source = await this.transport.request({
         method: "GET",
         path: `/v1/data_sources/${id}`,
@@ -176,19 +176,19 @@ export class NotionWorkspaceReader {
       if (!(error instanceof NotionApiError) || error.status !== 404)
         throw error;
     }
-    /** Result of `this.transport.request`, retained for `resolveDataSourceId`. */
+    /** Holds the `database` intermediate used by `resolveDataSourceId`. */
     const database = await this.transport.request({
       method: "GET",
       path: `/v1/databases/${id}`,
     });
-    /** Sources snapshot used consistently during `resolveDataSourceId`. */
+    /** Holds the `sources` intermediate used by `resolveDataSourceId`. */
     const sources = database.data_sources;
     if (!Array.isArray(sources) || sources.length !== 1) {
       throw new Error(
         `Notion database ${id} must contain exactly one data source`,
       );
     }
-    /** Result of `objectAt`, retained for `resolveDataSourceId`. */
+    /** Holds the `source` intermediate used by `resolveDataSourceId`. */
     const source = objectAt(sources, 0, "database data source");
     return requiredString(source.id, "database data source id");
   }
@@ -197,9 +197,9 @@ export class NotionWorkspaceReader {
   private observedTable(kind: TableKind, source: JsonObject): ObservedTable {
     if (source.object !== "data_source")
       throw new TypeError(`Configured ${kind} table is not a data source`);
-    /** Result of `requiredString`, retained for `observedTable`. */
+    /** Holds the `id` intermediate used by `observedTable`. */
     const id = requiredString(source.id, `${kind} data source id`);
-    /** Result of `objectValue`, retained for `observedTable`. */
+    /** Holds the `properties` intermediate used by `observedTable`. */
     const properties = objectValue(source.properties, `${kind} properties`);
     return {
       id,
@@ -221,16 +221,16 @@ export class NotionWorkspaceReader {
     name: string,
     property: JsonObject,
   ): ObservedProperty {
-    /** Result of `requiredString`, retained for `observedProperty`. */
+    /** Holds the `type` intermediate used by `observedProperty`. */
     const type = requiredString(property.type, `property ${name} type`);
-    /** Details snapshot used consistently during `observedProperty`. */
+    /** Holds the `details` intermediate used by `observedProperty`. */
     const details = property[type];
-    /** Relation details snapshot used consistently during `observedProperty`. */
+    /** Holds the `relationDetails` intermediate used by `observedProperty`. */
     const relationDetails =
       type === "relation" && details !== undefined
         ? objectValue(details, `property ${name} relation`)
         : null;
-    /** Target snapshot used consistently during `observedProperty`. */
+    /** Holds the `target` intermediate used by `observedProperty`. */
     const target =
       relationDetails?.data_source_id ?? relationDetails?.database_id;
     return {
@@ -272,9 +272,9 @@ export function notionSchemaDigest(tables: readonly ObservedTable[]): string {
 
 /** Normalizes Notion identifier. */
 export function normalizeNotionIdentifier(value: string): string {
-  /** Result of `decodeURIComponent`, retained for `normalizeNotionIdentifier`. */
+  /** Holds the `decoded` intermediate used by `normalizeNotionIdentifier`. */
   const decoded = decodeURIComponent(value.trim());
-  /** Match snapshot used consistently during `normalizeNotionIdentifier`. */
+  /** Holds the `match` intermediate used by `normalizeNotionIdentifier`. */
   const match =
     /([0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?![0-9a-f])/iu.exec(
       decoded,
@@ -283,19 +283,19 @@ export function normalizeNotionIdentifier(value: string): string {
     throw new TypeError(
       "Notion identifier must contain a page, database, or data-source UUID",
     );
-  /** Compact snapshot used consistently during `normalizeNotionIdentifier`. */
+  /** Holds the `compact` intermediate used by `normalizeNotionIdentifier`. */
   const compact = match[1].replaceAll("-", "").toLowerCase();
   return `${compact.slice(0, 8)}-${compact.slice(8, 12)}-${compact.slice(12, 16)}-${compact.slice(16, 20)}-${compact.slice(20)}`;
 }
 
 /** Decodes identity string from Notion workspace metadata. */
 function identityString(value: JsonObject): string {
-  /** Result of `requiredString`, retained for `identityString`. */
+  /** Holds the `id` intermediate used by `identityString`. */
   const id = requiredString(value.id, "Notion bot id");
-  /** Result of `objectValue`, retained for `identityString`. */
+  /** Optional bot identity payload returned by Notion. */
   const bot = value.bot;
   if (bot === null || bot === undefined) return id;
-  /** Result of `objectValue`, retained for `identityString`. */
+  /** Workspace name used when the bot response supplies one. */
   const workspace = objectValue(bot, "Notion bot").workspace_name;
   return typeof workspace === "string" && workspace !== ""
     ? `${id}:${workspace}`
@@ -307,7 +307,7 @@ function richText(value: JsonValue | undefined): string {
   if (!Array.isArray(value)) return "";
   return value
     .map((item) => {
-      /** Result of `objectValue`, retained for `richText`. */
+      /** Holds the `object` intermediate used by `richText`. */
       const object = objectValue(item, "rich text item");
       return typeof object.plain_text === "string" ? object.plain_text : "";
     })
@@ -320,7 +320,7 @@ function objectAt(
   index: number,
   label: string,
 ): JsonObject {
-  /** Item snapshot used consistently during `objectAt`. */
+  /** Holds the `item` intermediate used by `objectAt`. */
   const item = value[index];
   if (item === undefined) throw new TypeError(`${label} is missing`);
   return objectValue(item, label);

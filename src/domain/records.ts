@@ -1,4 +1,4 @@
-/** Provider-neutral provider-neutral Task, Agent, Resource, Error, activity, and lease records contract. */
+/** Defines provider-neutral Task, Agent, Resource, Error, activity, and lease records. */
 import type { JsonObject } from "./json.js";
 
 /** Compact projection used while selecting task. */

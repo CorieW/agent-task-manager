@@ -355,7 +355,7 @@ function managed(heading: string, body: string): JsonObject[] {
   ];
 }
 
-/** Converts rich. */
+/** Wraps plain text in the minimal Notion rich-text property shape. */
 function rich(value: string): JsonObject {
   return { rich_text: [{ plain_text: value }] };
 }

@@ -33,7 +33,7 @@ export class ProviderEffectJournal {
   /** Persists and verifies the durable provider effect journal record. */
   public async write(record: ExternalEffectIntentRecord): Promise<void> {
     validateIntent(record);
-    /** Result of `canonicalize`, retained for the write operation. */
+    /** Stores body used by write. */
     const body = canonicalize(toJsonValue(record));
     await this.provider.putOperation({
       body,
@@ -175,7 +175,7 @@ function hasRetainedClaim(error: unknown): boolean {
     "retainClaimUntilExpiry" in error &&
     (
       error as {
-        /** Retain claim until expiry dependency consumed by has retained claim. */ readonly retainClaimUntilExpiry?: unknown;
+        /** Marker requesting that ambiguous ownership remain claimed until expiry. */ readonly retainClaimUntilExpiry?: unknown;
       }
     ).retainClaimUntilExpiry === true
   );

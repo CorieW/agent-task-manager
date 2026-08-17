@@ -1,4 +1,4 @@
-/** Provider-neutral the JSON-only value boundary and rejects values that cannot cross provider or runtime serialization contract. */
+/** Defines the JSON-only value boundary and rejects values that cannot cross provider or runtime serialization. */
 /** Represents scalar values accepted by the strict JSON boundary. */
 export type JsonPrimitive = boolean | null | number | string;
 

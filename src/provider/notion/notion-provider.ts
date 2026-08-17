@@ -266,7 +266,7 @@ export class NotionProvider implements AgentTaskProvider {
           "Agent activity must equal the provider's active lease projection",
         );
       }
-      /** Result of `updateAgentActivity`, retained for validation and reuse. */
+      /** Captures `receipt` returned by `updateAgentActivity`. */
       const receipt = await runtime.pages.updateAgentActivity({
         ...change,
         agentId: await runtime.reader.getAgentPageId(change.agentId),
@@ -344,6 +344,7 @@ export class NotionProvider implements AgentTaskProvider {
 
   /** Persists manager-owned operational state in the Operations table. */
   public async putOperation(record: OperationMutation): Promise<WriteReceipt> {
+    /** Canonical, digest-verified mutation shared by initial and recovery writes. */
     const prepared = prepareNotionOperation(record);
     return this.executeRepairableReceiptIntent(
       prepared.idempotencyKey,
@@ -351,11 +352,13 @@ export class NotionProvider implements AgentTaskProvider {
       prepared,
       (runtime) => runtime.pages.createOperation(prepared),
       async (runtime) => {
+        /** Authoritative state checked before replaying an indeterminate write. */
         const current = await runtime.reader.getOptionalOperation(prepared.key);
         if (current !== null && !sameResource(current, prepared))
           throw new IndeterminateProviderIntentError(
             `Pending Operation intent conflicts with newer state: ${prepared.key}`,
           );
+        /** Replayed write receipt used to close the pending intent. */
         const receipt = await runtime.pages.createOperation(prepared);
         await runtime.state.completeIntent(
           prepared.idempotencyKey,
@@ -496,7 +499,7 @@ export class NotionProvider implements AgentTaskProvider {
   ): Promise<ReconciliationResult> {
     /** Initialized adapter state whose mutex serializes reconciliation. */
     const runtime = await this.runtime();
-    /** Result of `reconcileAgentActivity`, retained for validation and reuse. */
+    /** Captures `result` returned by `reconcileAgentActivity`. */
     const result = await runtime.state.runExclusive(async () => {
       /** Active leases that define the expected agent projection. */
       const projection = await runtime.state.activeProjection(agentId);
@@ -524,7 +527,7 @@ export class NotionProvider implements AgentTaskProvider {
         sameStringSet(observed.taskIds, activeTaskIds)
       )
         return { basis, receipt: null };
-      /** Result of `reconcileAgentActivity`, retained for validation and reuse. */
+      /** Captures `receipt` returned by `reconcileAgentActivity`. */
       const receipt = await runtime.pages.setAgentActivity(
         agentPageId,
         observed.status,
@@ -610,7 +613,7 @@ export class NotionProvider implements AgentTaskProvider {
         return repair(runtime);
       }
       if (prior !== undefined) return parseWriteReceipt(prior);
-      /** Result of `executeRepairableReceiptIntent`, retained for validation and reuse. */
+      /** Captures `receipt` returned by `executeRepairableReceiptIntent`. */
       const receipt = await effect(runtime);
       await runtime.state.completeIntent(
         idempotencyKey,
@@ -645,7 +648,7 @@ export class NotionProvider implements AgentTaskProvider {
       throw new IndeterminateProviderIntentError(
         `Pending Resource intent conflicts with newer state: ${record.key}`,
       );
-    /** Result of `repairPendingResourceIntent`, retained for validation and reuse. */
+    /** Captures `receipt` returned by `repairPendingResourceIntent`. */
     const receipt = await runtime.pages.createResource(record);
     await runtime.state.completeIntent(
       record.idempotencyKey,
@@ -668,7 +671,7 @@ export class NotionProvider implements AgentTaskProvider {
         digestJson(toJsonValue(mutation)) &&
       taskMatchesTarget(current, mutation)
     ) {
-      /** Result of `repairPendingTaskIntent`, retained for validation and reuse. */
+      /** Captures `receipt` returned by `repairPendingTaskIntent`. */
       const receipt = await runtime.pages.taskReceipt(
         mutation.taskId,
         mutation.idempotencyKey,
@@ -687,7 +690,7 @@ export class NotionProvider implements AgentTaskProvider {
         digestJson(toJsonValue(mutation)) &&
       normalizeText(current.body) === normalizeText(mutation.nextBody)
     ) {
-      /** Result of `repairPendingTaskIntent`, retained for validation and reuse. */
+      /** Captures `receipt` returned by `repairPendingTaskIntent`. */
       const receipt =
         await runtime.pages.completeMarkedTaskProperties(mutation);
       await runtime.state.completeIntent(
@@ -703,7 +706,7 @@ export class NotionProvider implements AgentTaskProvider {
         `Pending Task intent conflicts with newer state: ${mutation.taskId}`,
       );
     }
-    /** Result of `repairPendingTaskIntent`, retained for validation and reuse. */
+    /** Captures `receipt` returned by `repairPendingTaskIntent`. */
     const receipt = await runtime.pages.applyTaskMutation(mutation);
     await runtime.state.completeIntent(
       mutation.idempotencyKey,
@@ -732,7 +735,7 @@ export class NotionProvider implements AgentTaskProvider {
           : "Pending Error intent conflicts with newer state",
       );
     }
-    /** Result of `repairPendingErrorIntent`, retained for validation and reuse. */
+    /** Captures `receipt` returned by `repairPendingErrorIntent`. */
     const receipt =
       exact ?? (await runtime.pages.createOrUpdateError(physical));
     await runtime.state.completeIntent(
@@ -801,6 +804,7 @@ function prepareNotionResource(record: ResourceMutation): ResourceMutation {
 
 /** Canonicalizes and digest-binds operational state before any provider write. */
 function prepareNotionOperation(record: OperationMutation): OperationMutation {
+  /** NFC-normalized operation body checked against the supplied digest. */
   const body = normalizeText(record.body);
   if (record.digest !== sha256(body))
     throw new TypeError(

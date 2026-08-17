@@ -642,6 +642,7 @@ export async function renewHarnessAssignment(input: {
     input.provider,
     payload.assignment.promotion,
   );
+  /** Live assignment authority, reacquired only when the prepared lease expired. */
   const promotion =
     existing ??
     (await recoverAssignmentPromotion(
@@ -883,7 +884,9 @@ export async function completeHarnessAssignment(input: {
 
 /** Builds the runtime declaration used only to validate provider-defined authority. */
 async function activateForHarness(provider: AgentTaskProvider): Promise<{
+  /** Definitions that passed provider-authority validation. */
   readonly activated: readonly ActivatedDefinition[];
+  /** Synthetic runtime metadata used during validation. */
   readonly runtime: ActivationRuntime;
 }> {
   /** Complete provider definition set evaluated for internal consistency. */
@@ -1085,7 +1088,9 @@ interface ManagerTaskUpdate {
   /** Optional body/property patch applied with the outcome route. */
   readonly update:
     | {
+        /** Replacement task body when the result published a plan. */
         readonly nextBody?: string;
+        /** Replacement task properties when the result recorded a GitHub link. */
         readonly nextProperties?: JsonObject;
       }
     | undefined;
@@ -1096,14 +1101,19 @@ function managerTaskUpdate(
   result: AgentResult,
   task: TaskSnapshot,
 ): ManagerTaskUpdate {
+  /** Manager-owned body replacement accumulated from proposed intents. */
   let nextBody: string | undefined;
+  /** Manager-owned property replacement accumulated from proposed intents. */
   let nextProperties: JsonObject | undefined;
+  /** Whether a plan intent has already claimed the single-plan slot. */
   let planPublished = false;
+  /** Human questions attached to the published plan. */
   let questions: readonly string[] = [];
   for (const intent of result.proposedIntents) {
     if (intent.kind === "task.plan.publish") {
       if (planPublished)
         throw new Error("An Agent result can publish only one Task plan");
+      /** Validated plan content and its human-question batch. */
       const plan = parsePlanIntent(intent.payload);
       planPublished = true;
       questions = plan.questions;
@@ -1111,6 +1121,7 @@ function managerTaskUpdate(
     } else if (intent.kind === "task.github_link.record") {
       if (nextProperties !== undefined)
         throw new Error("An Agent result can record only one GitHub link");
+      /** Canonical GitHub pull-request URL accepted for the task property. */
       const url = parseGitHubLinkIntent(intent.payload);
       nextProperties = {
         ...task.properties,
@@ -1138,10 +1149,13 @@ function managerTaskUpdate(
 
 /** Parses the bounded plan and complete human-question batch. */
 function parsePlanIntent(payload: JsonObject): {
+  /** Bounded Markdown stored inside the manager-owned plan section. */
   readonly planMarkdown: string;
+  /** Unique bounded questions surfaced to the human operator. */
   readonly questions: readonly string[];
 } {
   exactKeys(payload, ["planMarkdown", "questions"], "Task plan intent");
+  /** Trimmed plan content before marker and size validation. */
   const planMarkdown = requiredString(
     payload.planMarkdown,
     "Task plan intent planMarkdown",
@@ -1154,7 +1168,9 @@ function parsePlanIntent(payload: JsonObject): {
     throw new TypeError("Task plan intent planMarkdown is invalid");
   if (!Array.isArray(payload.questions) || payload.questions.length > 20)
     throw new TypeError("Task plan intent questions are invalid");
+  /** Validated questions in their author-supplied order. */
   const questions = payload.questions.map((question, index) => {
+    /** Trimmed question retained for the per-entry size check. */
     const parsed = requiredString(
       question,
       `Task plan intent question ${index}`,
@@ -1171,7 +1187,9 @@ function parsePlanIntent(payload: JsonObject): {
 /** Parses one canonical GitHub pull-request URL. */
 function parseGitHubLinkIntent(payload: JsonObject): string {
   exactKeys(payload, ["url"], "Task GitHub link intent");
+  /** Raw URL text retained for structural parsing. */
   const value = requiredString(payload.url, "Task GitHub link intent url");
+  /** Parsed URL validated against the canonical GitHub pull-request shape. */
   let url: URL;
   try {
     url = new URL(value);
@@ -1193,18 +1211,23 @@ function parseGitHubLinkIntent(payload: JsonObject): string {
 
 /** Replaces or appends the single manager-owned plan section. */
 function upsertPlanSection(body: string, planMarkdown: string): string {
+  /** Complete managed section inserted without modifying surrounding task prose. */
   const section = `${PLAN_SECTION.start}\n## Plan\n\n${planMarkdown}\n${PLAN_SECTION.end}`;
+  /** Opening marker offset, or -1 when no managed section exists. */
   const start = body.indexOf(PLAN_SECTION.start);
+  /** Closing marker offset, or -1 when no managed section exists. */
   const end = body.indexOf(PLAN_SECTION.end);
   if ((start === -1) !== (end === -1) || (start !== -1 && end < start))
     throw new Error("Task body contains an invalid managed plan section");
   if (start === -1) return `${body.trimEnd()}\n\n${section}\n`;
+  /** Offset immediately after the existing closing marker. */
   const after = end + PLAN_SECTION.end.length;
   return `${body.slice(0, start)}${section}${body.slice(after)}`;
 }
 
 /** Appends one newline-delimited value without duplicating an existing entry. */
 function appendLine(existing: string, value: string): string {
+  /** Existing non-empty entries in their persisted order. */
   const values = existing
     .split(/\r?\n/u)
     .map((entry) => entry.trim())
@@ -1453,8 +1476,11 @@ async function releaseLease(
 
 /** Parses the immutable payload stored for a prepared assignment. */
 function parseOperationPayload(value: JsonValue): {
+  /** Prepared assignment whose authority will be revalidated before execution. */
   readonly assignment: HarnessAssignment;
+  /** Runtime environment selected when the assignment was prepared. */
   readonly environmentId: string;
+  /** Digest binding the operation to its original caller request. */
   readonly requestDigest: string;
 } {
   /** Closed provider payload that binds caller input to one assignment. */

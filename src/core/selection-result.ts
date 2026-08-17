@@ -133,7 +133,7 @@ export function parseTaskSelectionResult(
       "targetAgentRevision does not match the selection outcome",
     );
   }
-  /** Result produced by parse task selection result. */
+  /** Structurally validated selection retained for semantic checks. */
   const result = record as unknown as TaskSelectionResult;
   /** Digest and core used during parse task selection result. */
   const { digest: _digest, ...core } = result;

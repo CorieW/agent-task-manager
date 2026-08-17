@@ -478,7 +478,7 @@ function requiredSlot(
   task: TaskSnapshot,
   slotId: string,
 ): HumanInteractionSlot {
-  /** Result of `parseHumanInteractionSlots`, retained for the required slot operation. */
+  /** Stores matches used by required slot. */
   const matches = parseHumanInteractionSlots(task.body).filter(
     (slot) => slot.slotId === slotId,
   );
@@ -510,20 +510,20 @@ function verifyTaskBasis(
 ): void {
   if (task.archived !== baseline.taskArchived)
     throw new Error("Human response changed Task archive state");
-  /** Result of `renderHumanInteractionSlot`, retained for the verify task basis operation. */
+  /** Stores rendered used by verify task basis. */
   const rendered = renderHumanInteractionSlot(edited);
-  /** Result of `normalizeText`, retained for the verify task basis operation. */
+  /** Number of exact managed-slot occurrences in the canonical task body. */
   const occurrences = normalizeText(task.body).split(rendered).length - 1;
   if (occurrences !== 1)
     throw new Error("Human response changed the canonical slot representation");
-  /** Result of `normalizeText`, retained for the verify task basis operation. */
+  /** Canonical task body with the managed slot removed for basis hashing. */
   const maskedBody = normalizeText(task.body).replace(
     rendered,
     renderHumanInteractionSlot(baseline.slot),
   );
   if (sha256(maskedBody) !== baseline.taskBodyDigest)
     throw new Error("Human response changed unrelated Task body content");
-  /** Result of `taskPropertiesWithStatus`, retained for the verify task basis operation. */
+  /** Stores masked properties used by verify task basis. */
   const maskedProperties = normalizePropertyCollections(
     taskPropertiesWithStatus(
       withoutDerivedProperties(task.properties, derivedPropertyNames),

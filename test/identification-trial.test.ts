@@ -402,7 +402,7 @@ function resources(): readonly ResourceMutation[] {
   ];
 }
 
-/** Builds resource. */
+/** Builds a digest-bound Resource mutation for a trial fixture. */
 function resource(key: string, kind: string, body: string): ResourceMutation {
   return {
     body,

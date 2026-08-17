@@ -98,7 +98,7 @@ export type OutcomeTransitionInput =
 /** Enumerates the supported outcome transition receipt variants. */
 export type OutcomeTransitionReceipt =
   | {
-      /** Stable identifier for human slot id. */
+      /** Identifies human slot. */
       readonly humanSlotId: string;
       /** Discriminates the kind variant. */
       readonly kind: "human_resolution";
@@ -108,7 +108,7 @@ export type OutcomeTransitionReceipt =
       readonly taskVersion: string;
     }
   | {
-      /** Ordinary transitions never create a human-recovery slot. */
+      /** Identifies human slot. */
       readonly humanSlotId: null;
       /** Discriminates the kind variant. */
       readonly kind: "task_transition";

@@ -19,7 +19,7 @@ export class ExternalEffectHandlerRegistry {
 
   /** Returns the handler registered for an exact effect kind. */
   public get(kind: string): ExternalEffectHandler {
-    /** Handler snapshot used consistently during the get operation. */
+    /** Stores handler used by get. */
     const handler = this.#handlers.get(kind);
     if (handler === undefined)
       throw new Error(`External-effect handler is unavailable: ${kind}`);

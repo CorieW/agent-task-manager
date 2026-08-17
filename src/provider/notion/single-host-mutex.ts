@@ -17,15 +17,15 @@ export class SingleHostMutex {
 
   /** Runs one callback under in-process ordering and the same-host lock file. */
   public async run<T>(operation: () => Promise<T>): Promise<T> {
-    /** Result of `Promise`, retained for `run`. */
+    /** Prior queue tail awaited before attempting the filesystem lock. */
     const previous = this.#tail;
-    /** Result of `Promise`, retained for `run`. */
+    /** Callback that releases this caller's queue position. */
     let releaseQueue!: () => void;
     this.#tail = new Promise<void>((resolve) => {
       releaseQueue = resolve;
     });
     await previous;
-    /** Result of `this.acquire`, retained for `run`. */
+    /** Holds the `handle` intermediate used by `run`. */
     let handle: Awaited<ReturnType<typeof open>> | undefined;
     try {
       handle = await this.acquire();
@@ -45,7 +45,7 @@ export class SingleHostMutex {
     }
   }
 
-  /** Acquires acquire. */
+  /** Acquires the lock, clearing one stale owner before a single retry. */
   private async acquire() {
     try {
       return await this.createLock();
@@ -86,10 +86,10 @@ export class SingleHostMutex {
 
   /** Clears stale owner. */
   private async clearStaleOwner(): Promise<boolean> {
-    /** Result of `JSON.parse`, retained for `clearStaleOwner`. */
+    /** Holds the `pid` intermediate used by `clearStaleOwner`. */
     let pid: number;
     try {
-      /** Result of `JSON.parse`, retained for `clearStaleOwner`. */
+      /** Holds the `parsed` intermediate used by `clearStaleOwner`. */
       const parsed: unknown = JSON.parse(await readFile(this.#path, "utf8"));
       if (
         parsed === null ||

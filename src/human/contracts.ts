@@ -1,4 +1,4 @@
-/** Provider-neutral provider-neutral human interaction slots and consumed authority contract. */
+/** Defines provider-neutral human interaction slots and consumed authority. */
 import type { JsonObject } from "../domain/json.js";
 
 /** Enumerates the supported human slot kind variants. */
@@ -32,7 +32,7 @@ export interface HumanInteractionSlot {
   readonly schema: "human-interaction-slot-v1";
   /** Stable identifier for slot id. */
   readonly slotId: string;
-  /** Source error key dependency consumed by source error. */
+  /** Identifies source error. */
   readonly sourceErrorKey: string | null;
   /** Stable identifier for task id. */
   readonly taskId: string;

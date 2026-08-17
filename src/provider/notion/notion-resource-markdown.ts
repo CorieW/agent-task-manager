@@ -1,4 +1,4 @@
-/** Provider-neutral the safe canonical enhanced-Markdown boundary for readable Notion Resources contract. */
+/** Defines the safe canonical enhanced-Markdown boundary for readable Notion Resources. */
 import { sha256 } from "../../core/digest.js";
 import type { JsonObject } from "../../domain/json.js";
 import { requiredString } from "./notion-json-boundary.js";

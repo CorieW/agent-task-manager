@@ -136,7 +136,7 @@ export class ConfiguredCommandEffects implements ReconcilableEffectAdapter<Comma
     /** Validated effect payload. */
     readonly payload: CommandRunPayload;
   }): Promise<ExternalEffectObservation> {
-    /** Command snapshot used consistently during the apply operation. */
+    /** Stores command used by apply. */
     const command = this.#commands.get(payload.commandKey);
     if (command === undefined)
       throw new Error(`Command is not configured: ${payload.commandKey}`);
@@ -145,7 +145,7 @@ export class ConfiguredCommandEffects implements ReconcilableEffectAdapter<Comma
       command.executableDigest
     )
       throw new Error(`Command executable drifted: ${command.key}`);
-    /** Result of `this.workspaces.locate`, retained for the apply operation. */
+    /** Stores cwd used by apply. */
     const cwd = await this.workspaces.locate(
       payload.workspaceKey,
       payload.repositoryId,
@@ -162,7 +162,7 @@ export class ConfiguredCommandEffects implements ReconcilableEffectAdapter<Comma
         Math.max(1, control.deadlineAt - Date.now()),
       ),
     });
-    /** Evidence snapshot used consistently during the apply operation. */
+    /** Stores evidence used by apply. */
     const evidence = {
       exitCode: result.exitCode,
       stderrDigest: sha256(result.stderr),
@@ -258,7 +258,7 @@ export class DraftPublicationEffects implements ReconcilableEffectAdapter<DraftP
   }
   /** Returns the publication target authorized for the repository. */
   private target(payload: DraftPrPayload): DraftPublicationTarget {
-    /** Target snapshot used consistently during the target operation. */
+    /** Stores target used by target. */
     const target = this.#targets.get(payload.publicationTarget);
     if (
       target === undefined ||
@@ -401,7 +401,7 @@ function validateBrowserEnvironment(
   )
     throw new TypeError("Disposable browser environment is invalid");
   for (const origin of environment.allowedOrigins) {
-    /** Result of `URL`, retained for the validate browser environment operation. */
+    /** Stores url used by validate browser environment. */
     const url = new URL(origin);
     if (
       !(["http:", "https:"] as string[]).includes(url.protocol) ||

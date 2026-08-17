@@ -41,7 +41,7 @@ export async function runBoundedChildProcess(
   if (input.signal.aborted || input.deadlineAt <= Date.now())
     throw new Error("Broker process was cancelled before launch");
   return new Promise((resolvePromise, reject) => {
-    /** Result of `spawn`, retained for the run bounded child process operation. */
+    /** Stores child used by run bounded child process. */
     const child = spawn(input.executablePath, [...input.arguments], {
       cwd: input.cwd,
       detached: process.platform !== "win32",
@@ -56,9 +56,9 @@ export async function runBoundedChildProcess(
     const stderr: Buffer[] = [];
     /** Combined output size accumulated in bytes. */
     let bytes = 0;
-    /** Result of `async`, retained for the run bounded child process operation. */
+    /** Prevents competing process events from settling the result twice. */
     let settled = false;
-    /** Result of `async`, retained for the run bounded child process operation. */
+    /** Settles the process failure path once and removes all listeners. */
     const settleError = async (
       error: Error,
       cancellation = false,
@@ -93,7 +93,7 @@ export async function runBoundedChildProcess(
         void settleError(new Error("Broker process output exceeded its limit"));
       else target.push(chunk);
     };
-    /** Result of `setTimeout`, retained for the run bounded child process operation. */
+    /** Stores on abort used by run bounded child process. */
     const onAbort = (): void => {
       void settleError(new Error("Broker process was cancelled"), true);
     };
@@ -139,7 +139,7 @@ async function killProcessTree(pid: number | undefined): Promise<void> {
     }
     return;
   }
-  /** System root snapshot used consistently during the kill process tree operation. */
+  /** Stores system root used by kill process tree. */
   const systemRoot = process.env.SystemRoot;
   if (systemRoot === undefined || systemRoot === "") {
     try {
@@ -150,7 +150,7 @@ async function killProcessTree(pid: number | undefined): Promise<void> {
     return;
   }
   await new Promise<void>((resolvePromise) => {
-    /** Result of `spawn`, retained for the kill process tree operation. */
+    /** Stores killer used by kill process tree. */
     const killer = spawn(
       join(systemRoot, "System32", "taskkill.exe"),
       ["/PID", String(pid), "/T", "/F"],

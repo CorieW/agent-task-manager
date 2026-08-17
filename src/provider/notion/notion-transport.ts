@@ -56,7 +56,7 @@ export class NotionApiError extends Error {
 
 /** Implements Notion HTTP transport. */
 export class NotionHttpTransport implements NotionTransport {
-  /** Apiversion dependency consumed by Notion HTTP transport. */
+  /** Contains API version for Notion HTTP transport. */
   readonly #apiVersion: string;
   /** Base URL of the Notion API. */
   readonly #baseUrl: string;
@@ -89,13 +89,13 @@ export class NotionHttpTransport implements NotionTransport {
 
   /** Executes one provider request. */
   public async request(request: NotionRequest): Promise<JsonObject> {
-    /** Result of `URL`, retained for `request`. */
+    /** Holds the `url` intermediate used by `request`. */
     const url = new URL(`${this.#baseUrl}${request.path}`);
     for (const [key, value] of Object.entries(request.query ?? {})) {
       if (value !== null) url.searchParams.set(key, String(value));
     }
 
-    /** Init snapshot used consistently during `request`. */
+    /** Holds the `init` intermediate used by `request`. */
     const init: RequestInit = {
       headers: {
         Accept: "application/json",
@@ -113,7 +113,7 @@ export class NotionHttpTransport implements NotionTransport {
             ]),
     };
     if (request.body !== undefined) init.body = JSON.stringify(request.body);
-    /** Result of `request`, retained for validation and reuse. */
+    /** Captures `response` returned by `request`. */
     let response: Response;
     try {
       response = await this.#fetch(url, init);
@@ -132,13 +132,13 @@ export class NotionHttpTransport implements NotionTransport {
       }
       throw error;
     }
-    /** Result of `toJsonValue`, retained for `request`. */
+    /** Untrusted response payload before strict JSON conversion. */
     const raw: unknown = await response
       .json()
       .catch(() => ({ message: "Non-JSON Notion response" }));
-    /** Result of `toJsonValue`, retained for `request`. */
+    /** Strict JSON response shared by success and error handling. */
     const value = toJsonValue(raw);
-    /** Result of `asObject`, retained for `request`. */
+    /** Holds the `object` intermediate used by `request`. */
     const object = asObject(value, "Notion response");
     if (!response.ok) {
       throw new NotionApiError(
@@ -169,17 +169,17 @@ export async function collectNotionPages<T extends JsonObject>(
   fetchPage: (cursor: string | null) => Promise<JsonObject>,
   maxResults = Number.POSITIVE_INFINITY,
 ): Promise<readonly T[]> {
-  /** Result of `Set`, retained for `collectNotionPages`. */
+  /** Holds the `results` intermediate used by `collectNotionPages`. */
   const results: T[] = [];
-  /** Seen seen used to reject duplicates in `collectNotionPages`. */
+  /** Tracks unique entries in `seen` for `collectNotionPages`. */
   const seen = new Set<string>();
-  /** Cursor snapshot used consistently during `collectNotionPages`. */
+  /** Holds the `cursor` intermediate used by `collectNotionPages`. */
   let cursor: string | null = null;
   do {
     if (cursor !== null && seen.has(cursor))
       throw new Error("Notion pagination cursor repeated");
     if (cursor !== null) seen.add(cursor);
-    /** Result of `parseNotionPage`, retained for `collectNotionPages`. */
+    /** Holds the `page` intermediate used by `collectNotionPages`. */
     const page: NotionPage<T> = parseNotionPage<T>(await fetchPage(cursor));
     results.push(...page.results);
     if (results.length > maxResults)
@@ -212,7 +212,7 @@ function parseNotionPage<T extends JsonObject>(
     throw new TypeError("Notion list response omitted results");
   if (typeof value.has_more !== "boolean")
     throw new TypeError("Notion list response omitted has_more");
-  /** Next cursor snapshot used consistently during `parseNotionPage`. */
+  /** Holds the `nextCursor` intermediate used by `parseNotionPage`. */
   const nextCursor = value.next_cursor;
   if (nextCursor !== null && typeof nextCursor !== "string") {
     throw new TypeError("Notion list response has invalid next_cursor");
@@ -229,7 +229,7 @@ function parseNotionPage<T extends JsonObject>(
 /** Parses and validates retry after. */
 function parseRetryAfter(value: string | null): number | null {
   if (value === null) return null;
-  /** Result of `Number`, retained for `parseRetryAfter`. */
+  /** Holds the `seconds` intermediate used by `parseRetryAfter`. */
   const seconds = Number(value);
   return Number.isFinite(seconds) && seconds >= 0 ? seconds : null;
 }

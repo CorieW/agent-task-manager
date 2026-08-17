@@ -445,7 +445,7 @@ async function seedResources(
   for (const record of records.values()) await provider.putResource(record);
 }
 
-/** Builds resource. */
+/** Builds a digest-bound Resource mutation for a selection fixture. */
 function resource(key: string, kind: string, body: string): ResourceMutation {
   return {
     body,

@@ -18,7 +18,7 @@ export type ProcessSupervisionCode =
 export class ProcessSupervisionError extends Error {
   /** Creates process supervision error with its required collaborators. */
   public constructor(
-    /** Code dependency consumed by process supervision error. */ public readonly code: ProcessSupervisionCode,
+    /** Stable machine-readable supervision failure code. */ public readonly code: ProcessSupervisionCode,
     message: string,
     options?: ErrorOptions,
   ) {
@@ -48,19 +48,19 @@ export interface ProcessTelemetry {
   readonly terminated: boolean;
   /** Indicates whether timed out. */
   readonly timedOut: boolean;
-  /** Tool violation dependency consumed by process telemetry. */
+  /** Provides tool violation to process telemetry. */
   readonly toolViolation: string | null;
 }
 
 /** Canonical supervised completion representation. */
 export interface SupervisedCompletion {
-  /** Completion dependency consumed by supervised completion. */
+  /** Provides completion to supervised completion. */
   readonly completion: AgentProcessCompletion;
   /** Captured standard-error bytes. */
   readonly stderr: string;
   /** Captured standard-output bytes. */
   readonly stdout: string;
-  /** Telemetry dependency consumed by supervised completion. */
+  /** Provides telemetry to supervised completion. */
   readonly telemetry: ProcessTelemetry;
 }
 
@@ -76,7 +76,7 @@ export async function superviseProcess(input: {
   readonly outputLimitBytes: number;
   /** Post kill reap in milliseconds. */
   readonly postKillReapMilliseconds: number;
-  /** Process dependency consumed by supervise process. */
+  /** Provides process to supervise process. */
   readonly process: SupervisedAgentProcess;
 }): Promise<SupervisedCompletion> {
   if (!Number.isFinite(input.deadlineAt) || input.deadlineAt <= Date.now())
@@ -84,15 +84,15 @@ export async function superviseProcess(input: {
   assertNonNegative(input.graceMilliseconds, "Process grace period");
   assertPositive(input.outputLimitBytes, "Process output limit");
   assertPositive(input.postKillReapMilliseconds, "Process reap deadline");
-  /** Result of `now`, retained for the supervise process operation. */
+  /** Clock shared by telemetry and deadline calculations. */
   const now = input.now ?? Date.now;
-  /** Result of `now`, retained for the supervise process operation. */
+  /** Process supervision start time in epoch milliseconds. */
   const started = now();
-  /** Result of `collectOutput`, retained for the supervise process operation. */
+  /** Stores output used by supervise process. */
   const output = collectOutput(input.process.output(), input.outputLimitBytes);
-  /** Result of `settle`, retained for the supervise process operation. */
+  /** Non-throwing process-completion observation. */
   const wait = settle(input.process.wait());
-  /** Result of `settle`, retained for the supervise process operation. */
+  /** Non-throwing output-consumer completion observation. */
   const outputSettled = settle(output.done);
   /** Mutable flag tracking completion during the supervise process operation. */
   let completion: AgentProcessCompletion;
@@ -100,12 +100,12 @@ export async function superviseProcess(input: {
   let terminated = false;
   /** Mutable flag tracking hard killed during the supervise process operation. */
   let hardKilled = false;
-  /** Result of `firstEvent`, retained for the supervise process operation. */
+  /** Stores timed out used by supervise process. */
   let timedOut = false;
   /** Retains the primary failure so cleanup errors can be combined. */
   let primaryError: unknown;
   try {
-    /** Result of `firstEvent`, retained for the supervise process operation. */
+    /** Stores first used by supervise process. */
     const first = await firstEvent(
       wait,
       outputSettled,
@@ -147,7 +147,7 @@ export async function superviseProcess(input: {
       }
       throw first.value.error;
     } else {
-      /** Result of `settleBefore`, retained for the supervise process operation. */
+      /** Completion observed within the remaining process deadline. */
       const waited = await settleBefore(wait, remaining(input.deadlineAt));
       if (waited === null) {
         timedOut = true;
@@ -172,7 +172,7 @@ export async function superviseProcess(input: {
         );
       } else completion = waited.value;
     }
-    /** Result of `settleBefore`, retained for the supervise process operation. */
+    /** Stores drained used by supervise process. */
     const drained = await settleBefore(
       outputSettled,
       input.postKillReapMilliseconds,
@@ -212,7 +212,7 @@ export async function superviseProcess(input: {
     throw error;
   } finally {
     try {
-      /** Result of `settleBefore`, retained for the supervise process operation. */
+      /** Cleanup outcome observed within the remaining grace period. */
       const cleaned = await settleBefore(
         settle(input.process.cleanup()),
         input.postKillReapMilliseconds,
@@ -301,19 +301,19 @@ async function stopAndReap(
     readonly graceMilliseconds: number;
     /** Post kill reap in milliseconds. */
     readonly postKillReapMilliseconds: number;
-    /** Process dependency consumed by stop and reap. */
+    /** Provides process to stop and reap. */
     readonly process: SupervisedAgentProcess;
   },
   wait: Promise<Settled<AgentProcessCompletion>>,
 ): Promise<{
-  /** Completion dependency consumed by stop and reap. */
+  /** Provides completion to stop and reap. */
   completion: AgentProcessCompletion;
   /** Indicates whether hard killed. */
   hardKilled: boolean;
   /** Indicates whether terminated. */
   terminated: boolean;
 }> {
-  /** Terminated snapshot used consistently during the stop and reap operation. */
+  /** Stores terminated used by stop and reap. */
   const terminated =
     (
       await settleBefore(
@@ -321,12 +321,12 @@ async function stopAndReap(
         Math.max(1, input.graceMilliseconds),
       )
     )?.ok === true;
-  /** Result of `settleBefore`, retained for the stop and reap operation. */
+  /** Stores hard killed used by stop and reap. */
   let hardKilled = false;
   /** Validated result returned by stop and reap. */
   let result = await settleBefore(wait, input.graceMilliseconds);
   if (result === null || !result.ok) {
-    /** Kill result produced by stop and reap. */
+    /** Captures the kill result produced by stop and reap. */
     const killResult = await settleBefore(
       settle(input.process.killTree()),
       input.postKillReapMilliseconds,
@@ -354,14 +354,14 @@ async function forceStop(input: {
   readonly graceMilliseconds: number;
   /** Post kill reap in milliseconds. */
   readonly postKillReapMilliseconds: number;
-  /** Process dependency consumed by force stop. */
+  /** Provides process to force stop. */
   readonly process: SupervisedAgentProcess;
 }): Promise<void> {
   await settleBefore(
     settle(input.process.terminateTree()),
     Math.max(1, input.graceMilliseconds),
   );
-  /** Result of `settleBefore`, retained for the force stop operation. */
+  /** Stores killed used by force stop. */
   const killed = await settleBefore(
     settle(input.process.killTree()),
     input.postKillReapMilliseconds,
@@ -382,7 +382,7 @@ type Settled<T> =
     }
   | {
       /** Failure captured by the current operation. */ readonly error: unknown;
-      /** Ok dependency consumed by the current operation. */ readonly ok: false;
+      /** Discriminates the rejected settlement variant. */ readonly ok: false;
     };
 
 /** Promise fulfillment or rejection as data. */

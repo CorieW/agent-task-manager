@@ -15,9 +15,9 @@ import type {
 export class AssignmentEffectAuthority implements ExternalEffectAuthorityVerifier {
   /** Creates assignment effect authority with its required collaborators. */
   public constructor(
-    /** Activated dependency consumed by assignment effect authority. */ private readonly activated: ActivatedDefinition,
-    /** Activation runtime dependency consumed by assignment effect authority. */ private readonly activationRuntime: ActivationRuntime,
-    /** Promotion dependency consumed by assignment effect authority. */ private readonly promotion: AssignmentPromotion,
+    /** Activated definition whose digest and grant authorize the effect. */ private readonly activated: ActivatedDefinition,
+    /** Runtime authority used to revalidate definition activation. */ private readonly activationRuntime: ActivationRuntime,
+    /** Live assignment lease and task basis authorizing the effect. */ private readonly promotion: AssignmentPromotion,
     /** Provider boundary used for durable state reads and writes. */ private readonly provider: AgentTaskProvider,
   ) {}
   /** Verifies live assignment authority for an external-effect request. */

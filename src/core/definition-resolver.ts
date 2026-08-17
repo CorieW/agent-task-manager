@@ -95,7 +95,7 @@ export async function resolveLoadedDefinition(
   );
   if (contextBytes > definition.contextBudgetBytes)
     throw new Error("Resolved Resources exceed the definition context budget");
-  /** Canonical digest of digest. */
+  /** Digest binding the definition to the ordered, versioned resource pins. */
   const digest = digestJson(
     toJsonValue({
       definition,

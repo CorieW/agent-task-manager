@@ -349,7 +349,7 @@ function resources(): ResourceMutation[] {
   ];
 }
 
-/** Builds resource. */
+/** Builds a digest-bound Resource mutation for a dynamic-definition fixture. */
 function resource(
   key: string,
   kind: string,

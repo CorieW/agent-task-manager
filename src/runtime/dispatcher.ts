@@ -37,9 +37,9 @@ import {
 export interface DispatchResult {
   /** SHA-256 digest of canonical context. */
   readonly contextDigest: string;
-  /** Result dependency consumed by dispatch result. */
+  /** Provides result to dispatch result. */
   readonly result: AgentResult;
-  /** Telemetry dependency consumed by dispatch result. */
+  /** Provides telemetry to dispatch result. */
   readonly telemetry: ProcessTelemetry;
 }
 
@@ -47,7 +47,7 @@ export interface DispatchResult {
 export class RuntimeDispatchError extends Error {
   /** Creates runtime dispatch error with its required collaborators. */
   public constructor(
-    /** Code dependency consumed by runtime dispatch error. */ public readonly code: string,
+    /** Stable machine-readable runtime dispatch failure code. */ public readonly code: string,
     message: string,
     options?: ErrorOptions,
   ) {
@@ -60,21 +60,21 @@ class RetryableNoVerdictError extends RuntimeDispatchError {}
 
 /** Verifies live authority and dispatches one activated assignment. */
 export async function dispatchActivatedAgent(input: {
-  /** Activated dependency consumed by dispatch activated agent. */
+  /** Provides activated to dispatch activated agent. */
   readonly activated: ActivatedDefinition;
-  /** Activation runtime dependency consumed by dispatch activated agent. */
+  /** Provides activation runtime to dispatch activated agent. */
   readonly activationRuntime: ActivationRuntime;
-  /** Additional input dependency consumed by dispatch activated agent. */
+  /** Provides additional input to dispatch activated agent. */
   readonly additionalInput: JsonObject;
-  /** Promotion dependency consumed by dispatch activated agent. */
+  /** Provides promotion to dispatch activated agent. */
   readonly promotion: AssignmentPromotion;
   /** Provider boundary used for durable state reads and writes. */
   readonly provider: AgentTaskProvider;
-  /** Runtime dependency consumed by dispatch activated agent. */
+  /** Provides runtime to dispatch activated agent. */
   readonly runtime: ResolvedRuntimeEnvironment;
 }): Promise<DispatchResult> {
   try {
-    /** Result of `verifyLiveAssignment`, retained for the dispatch activated agent operation. */
+    /** Stores activated used by dispatch activated agent. */
     const activated = await verifyLiveAssignment(input);
     return await dispatchVerified({ ...input, activated });
   } catch (error) {
@@ -93,26 +93,26 @@ export async function dispatchActivatedAgent(input: {
 
 /** Prepares trusted runtime sessions and supervises one verified agent run. */
 async function dispatchVerified(input: {
-  /** Activated dependency consumed by dispatch verified. */
+  /** Provides activated to dispatch verified. */
   readonly activated: ActivatedDefinition;
-  /** Activation runtime dependency consumed by dispatch verified. */
+  /** Provides activation runtime to dispatch verified. */
   readonly activationRuntime: ActivationRuntime;
-  /** Additional input dependency consumed by dispatch verified. */
+  /** Provides additional input to dispatch verified. */
   readonly additionalInput: JsonObject;
-  /** Promotion dependency consumed by dispatch verified. */
+  /** Provides promotion to dispatch verified. */
   readonly promotion: AssignmentPromotion;
   /** Provider boundary used for durable state reads and writes. */
   readonly provider: AgentTaskProvider;
-  /** Runtime dependency consumed by dispatch verified. */
+  /** Provides runtime to dispatch verified. */
   readonly runtime: ResolvedRuntimeEnvironment;
 }): Promise<DispatchResult> {
-  /** Result of `Date.now`, retained for the dispatch verified operation. */
+  /** Activated definition that governs the verified run. */
   const definition = input.activated.resolved.definition;
-  /** Result of `Date.now`, retained for the dispatch verified operation. */
+  /** Run identifier bound to the assignment owner. */
   const runId = input.promotion.ownerId;
   /** Absolute dispatch deadline verified before each boundary call. */
   const deadlineAt = Date.now() + definition.deadlineSeconds * 1000;
-  /** Result of `compileToolIsolationPolicy`, retained for the dispatch verified operation. */
+  /** Stores policy used by dispatch verified. */
   const policy = compileToolIsolationPolicy({
     grant: input.activated.grant,
     runId,
@@ -120,7 +120,7 @@ async function dispatchVerified(input: {
   });
   /** Binds dispatch verified to canonical policy content. */
   const policyDigest = digestJson(toJsonValue(policy));
-  /** Result of `withinDeadline`, retained for the dispatch verified operation. */
+  /** Stores runner identity used by dispatch verified. */
   const runnerIdentity = await withinDeadline(
     input.runtime.runner.identity(),
     deadlineAt,
@@ -189,7 +189,7 @@ async function dispatchVerified(input: {
       toolProcessTreeEnforced: isolation.receipt.processTreeEnforced,
     };
     validateRuntimeCapabilityReceipt(runtimeReceipt);
-    /** Result of `compileRunContext`, retained for the dispatch verified operation. */
+    /** Stores context used by dispatch verified. */
     const context = await compileRunContext({
       activated: input.activated,
       additionalInput: input.additionalInput,
@@ -198,11 +198,11 @@ async function dispatchVerified(input: {
       runtimeReceipt,
       taskId: input.promotion.taskId,
     });
-    /** Result of `input.activated.resolved.resources.find`, retained for the dispatch verified operation. */
+    /** Opaque model-session handle exposed only to the trusted runner. */
     const controlPlaneHandle = controlPlane.opaqueHandle;
-    /** Result of `input.activated.resolved.resources.find`, retained for the dispatch verified operation. */
+    /** Opaque tool-isolation handle exposed only to the trusted runner. */
     const toolIsolationHandle = isolation.opaqueHandle;
-    /** Result of `input.activated.resolved.resources.find`, retained for the dispatch verified operation. */
+    /** Resource containing the output schema named by the definition. */
     const outputResource = input.activated.resolved.resources.find(
       (resource) => resource.key === definition.outputSchema,
     );
@@ -211,20 +211,20 @@ async function dispatchVerified(input: {
         "output_schema_missing",
         "Output schema Resource is absent from the resolved definition",
       );
-    /** Result of `jsonObject`, retained for the dispatch verified operation. */
+    /** Stores output schema used by dispatch verified. */
     const outputSchema = jsonObject(
       JSON.parse(outputResource.body),
       "Output schema",
     );
     assertSupportedJsonSchema(outputSchema, "Output schema");
-    /** Last no verdict snapshot used consistently during the dispatch verified operation. */
+    /** Stores last no verdict used by dispatch verified. */
     let lastNoVerdict: RetryableNoVerdictError | null = null;
     for (
       let attempt = 1;
       attempt <= definition.retry.maxAttempts;
       attempt += 1
     ) {
-      /** Remaining snapshot used consistently during the dispatch verified operation. */
+      /** Stores remaining used by dispatch verified. */
       const remaining = deadlineAt - Date.now();
       if (remaining < 1)
         throw new RuntimeDispatchError(
@@ -232,7 +232,7 @@ async function dispatchVerified(input: {
           "Agent dispatch exceeded its total deadline",
         );
       try {
-        /** Result of `cancellableWithinDeadline`, retained for the dispatch verified operation. */
+        /** Stores process used by dispatch verified. */
         const process = await cancellableWithinDeadline(
           (signal) =>
             input.runtime.runner.start({
@@ -248,7 +248,7 @@ async function dispatchVerified(input: {
           "runner_start_timeout",
           disposeLateProcess,
         );
-        /** Result of `superviseProcess`, retained for the dispatch verified operation. */
+        /** Stores supervised used by dispatch verified. */
         const supervised = await superviseProcess({
           deadlineAt,
           graceMilliseconds: input.runtime.config.terminationGraceMilliseconds,
@@ -322,28 +322,28 @@ async function dispatchVerified(input: {
 
 /** Verifies live assignment against authoritative state. */
 export async function verifyLiveAssignment(input: {
-  /** Activated dependency consumed by verify live assignment. */
+  /** Provides activated to verify live assignment. */
   readonly activated: ActivatedDefinition;
-  /** Activation runtime dependency consumed by verify live assignment. */
+  /** Provides activation runtime to verify live assignment. */
   readonly activationRuntime: ActivationRuntime;
-  /** Promotion dependency consumed by verify live assignment. */
+  /** Provides promotion to verify live assignment. */
   readonly promotion: AssignmentPromotion;
   /** Provider boundary used for durable state reads and writes. */
   readonly provider: AgentTaskProvider;
 }): Promise<ActivatedDefinition> {
-  /** Definition id snapshot used consistently during the verify live assignment operation. */
+  /** Stores definition id used by verify live assignment. */
   const definitionId = input.activated.resolved.definition.id;
   if (input.promotion.targetAgentId !== definitionId)
     throw new RuntimeDispatchError(
       "assignment_mismatch",
       "Assignment targets a different Agent",
     );
-  /** Result of `activateDefinitions`, retained for the verify live assignment operation. */
+  /** Stores fresh used by verify live assignment. */
   const fresh = await activateDefinitions({
     ...input.activationRuntime,
     provider: input.provider,
   });
-  /** Result of `fresh.filter`, retained for the verify live assignment operation. */
+  /** Stores matches used by verify live assignment. */
   const matches = fresh.filter(
     ({ resolved }) => resolved.definition.id === definitionId,
   );
@@ -365,7 +365,7 @@ export async function verifyLiveAssignment(input: {
       { cause: error },
     );
   }
-  /** Result of `input.provider.getLeaseProjection`, retained for the verify live assignment operation. */
+  /** Stores projection used by verify live assignment. */
   const projection = await input.provider.getLeaseProjection(definitionId);
   if (
     !projection.runLeaseIds.includes(input.promotion.runLeaseId) ||
@@ -376,7 +376,7 @@ export async function verifyLiveAssignment(input: {
       "assignment_inactive",
       "Assignment leases are not active",
     );
-  /** Result of `input.provider.getAgentActivity`, retained for the verify live assignment operation. */
+  /** Stores activity used by verify live assignment. */
   const activity = await input.provider.getAgentActivity(definitionId);
   if (
     activity.status !== "Online" ||
@@ -386,7 +386,7 @@ export async function verifyLiveAssignment(input: {
       "activity_mismatch",
       "Agent Status or Working On does not match active leases",
     );
-  /** Result of `input.provider.getTaskSnapshot`, retained for the verify live assignment operation. */
+  /** Stores task used by verify live assignment. */
   const task = await input.provider.getTaskSnapshot(input.promotion.taskId);
   if (task.archived)
     throw new RuntimeDispatchError(
@@ -402,7 +402,7 @@ export async function verifyLiveAssignment(input: {
       "Assigned Task changed after selection",
     );
   for (const dependencyId of task.dependencies) {
-    /** Result of `input.provider.getTaskSnapshot`, retained for the verify live assignment operation. */
+    /** Stores dependency used by verify live assignment. */
     const dependency = await input.provider.getTaskSnapshot(dependencyId);
     if (
       dependency.archived ||
@@ -529,23 +529,23 @@ async function closeSessions(
 /** Persists a bounded runtime failure linked to the Task and Agent. */
 async function recordRuntimeError(
   input: {
-    /** Activated dependency consumed by record runtime error. */
+    /** Provides activated to record runtime error. */
     readonly activated: ActivatedDefinition;
-    /** Promotion dependency consumed by record runtime error. */
+    /** Provides promotion to record runtime error. */
     readonly promotion: AssignmentPromotion;
     /** Provider boundary used for durable state reads and writes. */
     readonly provider: AgentTaskProvider;
   },
   error: unknown,
 ): Promise<void> {
-  /** Code snapshot used consistently during the record runtime error operation. */
+  /** Stores code used by record runtime error. */
   const code =
     error instanceof RuntimeDispatchError
       ? error.code
       : "unexpected_runtime_failure";
-  /** Definition snapshot used consistently during the record runtime error operation. */
+  /** Stores definition used by record runtime error. */
   const definition = input.activated.resolved.definition;
-  /** Basis snapshot used consistently during the record runtime error operation. */
+  /** Stores basis used by record runtime error. */
   const basis = {
     code,
     definitionDigest: input.activated.resolved.digest,
@@ -571,7 +571,7 @@ async function recordRuntimeError(
 
 /** Validates and returns a non-array JSON object. */
 function jsonObject(value: unknown, label: string): JsonObject {
-  /** Result of `toJsonValue`, retained for the json object operation. */
+  /** Stores json used by json object. */
   const json = toJsonValue(value);
   if (json === null || typeof json !== "object" || Array.isArray(json))
     throw new TypeError(`${label} must be an object`);
@@ -593,7 +593,7 @@ async function withinDeadline<T>(
   deadlineAt: number,
   code: string,
 ): Promise<T> {
-  /** Remaining snapshot used consistently during the within deadline operation. */
+  /** Stores remaining used by within deadline. */
   const remaining = deadlineAt - Date.now();
   if (remaining < 1)
     throw new RuntimeDispatchError(
@@ -631,9 +631,9 @@ async function cancellableWithinDeadline<T>(
   code: string,
   dispose: (value: T) => Promise<void>,
 ): Promise<T> {
-  /** Result of `AbortController`, retained for the cancellable within deadline operation. */
+  /** Stores controller used by cancellable within deadline. */
   const controller = new AbortController();
-  /** Result of `start`, retained for the cancellable within deadline operation. */
+  /** Stores operation used by cancellable within deadline. */
   const operation = start(controller.signal);
   try {
     return await withinDeadline(operation, deadlineAt, code);
@@ -641,9 +641,9 @@ async function cancellableWithinDeadline<T>(
     if (!(error instanceof RuntimeDispatchError) || error.code !== code)
       throw error;
     controller.abort(error);
-    /** Result of `operation.then`, retained for the cancellable within deadline operation. */
+    /** Stores late cleanup used by cancellable within deadline. */
     const lateCleanup = operation.then(dispose, () => undefined);
-    /** Result of `settleBefore`, retained for the cancellable within deadline operation. */
+    /** Stores acknowledged used by cancellable within deadline. */
     const acknowledged = await settleBefore(
       operation.then(
         () => true,

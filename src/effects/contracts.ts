@@ -11,7 +11,7 @@ export interface ExternalEffectSource {
   readonly contextDigest: string;
   /** SHA-256 digest of canonical definition. */
   readonly definitionDigest: string;
-  /** Intent index dependency consumed by external effect source. */
+  /** Provides intent index to external effect source. */
   readonly intentIndex: number;
   /** SHA-256 digest of canonical result. */
   readonly resultDigest: string;
@@ -113,17 +113,17 @@ export interface ExternalEffectAuthorityVerifier {
 export interface ExternalEffectExecution {
   /** Applied-effect receipt, or null until mutation succeeds. */
   readonly receipt: ExternalEffectReceipt | null;
-  /** Request dependency consumed by external effect execution. */
+  /** Provides request to external effect execution. */
   readonly request: ExternalEffectRequest;
   /** Lifecycle state used for workflow decisions. */
   readonly state: Exclude<ExternalEffectState, "pending">;
 }
 
-/** Represents a effect cancellation acknowledged failure. */
+/** Signals that cancellation reached the external effect executor. */
 export class EffectCancellationAcknowledgedError extends Error {}
 
-/** Represents a effect termination unconfirmed failure. */
+/** Signals that cancellation could not prove the external effect stopped. */
 export class EffectTerminationUnconfirmedError extends AggregateError {
-  /** Effect execution may continue dependency consumed by effect termination unconfirmed error. */
+  /** Provides effect execution may continue to effect termination unconfirmed error. */
   public readonly effectExecutionMayContinue = true;
 }

@@ -190,6 +190,7 @@ export async function rebindAssignmentPromotion(
     throw new Error("Assignment promotion receipt is malformed");
   /** Existing closed receipt whose authority fields must remain identical. */
   const current = parsed as Record<string, unknown>;
+  /** Exact receipt field set required before lease identifiers may be replaced. */
   const expectedKeys = [
     "operationDigest",
     "ownerId",
@@ -396,7 +397,7 @@ export async function promoteSelection(input: {
 }): Promise<AssignmentPromotion | null> {
   if (!Number.isSafeInteger(input.assignmentDepth) || input.assignmentDepth < 0)
     throw new Error("Selection assignment depth is invalid");
-  /** Result produced by promote selection. */
+  /** Closed selection result checked against the live candidate basis. */
   const result = parseTaskSelectionResult(toJsonValue(input.result));
   /** Activated loaded during promote selection. */
   const activated = await activateDefinitions({

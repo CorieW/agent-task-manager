@@ -265,7 +265,7 @@ export async function main(
     const provider = notionProvider(config);
     /** Recovery operation selected by the second argument. */
     const operation = args[1];
-    /** Result produced by main. */
+    /** Inspection result selected by the requested provider operation. */
     let result;
     if (operation === "activity") {
       result = await reconcileActivity(provider, option(args, "--agent"));

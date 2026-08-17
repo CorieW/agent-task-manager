@@ -446,7 +446,7 @@ function stringArray(
     issues.push(`${path} must contain non-empty strings`);
     return [];
   }
-  /** Result produced by string array. */
+  /** Validated strings checked below for duplicate entries. */
   const result = value as string[];
   if (new Set(result).size !== result.length)
     issues.push(`${path} must not contain duplicates`);

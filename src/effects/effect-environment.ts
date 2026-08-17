@@ -28,12 +28,12 @@ export function resolveExternalEffectEnvironment(
     throw new Error(
       "Installed external-effect handlers must have unique kind and adapter identities",
     );
-  /** Result of `ExternalEffectHandlerRegistry`, retained for the resolve external effect environment operation. */
+  /** Stores handlers used by resolve external effect environment. */
   const handlers = new ExternalEffectHandlerRegistry();
   for (const [kind, adapterId] of Object.entries(config.effects.handlers).sort(
     ([left], [right]) => left.localeCompare(right),
   )) {
-    /** Result of `byIdentity.get`, retained for the resolve external effect environment operation. */
+    /** Stores handler used by resolve external effect environment. */
     const handler = byIdentity.get(`${kind}\0${adapterId}`);
     if (handler === undefined)
       throw new Error(
@@ -41,13 +41,13 @@ export function resolveExternalEffectEnvironment(
       );
     handlers.register(handler);
   }
-  /** Result of `handlers.kinds`, retained for the resolve external effect environment operation. */
+  /** Stores identities used by resolve external effect environment. */
   const identities = handlers.kinds().map((kind) => {
-    /** Result of `handlers.get`, retained for the resolve external effect environment operation. */
+    /** Stores handler used by resolve external effect environment. */
     const handler = handlers.get(kind);
     return { id: handler.id, kind, version: handler.version };
   });
-  /** Result of `structuredClone`, retained for the resolve external effect environment operation. */
+  /** Stores settings used by resolve external effect environment. */
   const settings = structuredClone(config.effects.settings);
   return {
     digest: digestJson(

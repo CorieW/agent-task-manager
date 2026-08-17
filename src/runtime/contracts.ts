@@ -13,7 +13,7 @@ import { validateJsonSchemaValue } from "../core/json-schema.js";
 export interface RuntimeCapabilityReceipt {
   /** Indicates whether control plane separated. */
   readonly controlPlaneSeparated: true;
-  /** Credential exposed to tools dependency consumed by runtime capability receipt. */
+  /** Provides credential exposed to tools to runtime capability receipt. */
   readonly credentialExposedToTools: false;
   /** SHA-256 digest of canonical executable. */
   readonly executableDigest: string;
@@ -23,7 +23,7 @@ export interface RuntimeCapabilityReceipt {
   readonly filesystemPolicyDigest: string;
   /** Stable identifier for isolation adapter id. */
   readonly isolationAdapterId: string;
-  /** Model dependency consumed by runtime capability receipt. */
+  /** Provides model to runtime capability receipt. */
   readonly model: string;
   /** SHA-256 digest of canonical model transport. */
   readonly modelTransportDigest: string;
@@ -31,11 +31,11 @@ export interface RuntimeCapabilityReceipt {
   readonly modelTransportAdapterId: string;
   /** SHA-256 digest of canonical network policy. */
   readonly networkPolicyDigest: string;
-  /** Reasoning dependency consumed by runtime capability receipt. */
+  /** Provides reasoning to runtime capability receipt. */
   readonly reasoning: string;
   /** Stable identifier for run id. */
   readonly runId: string;
-  /** Runner profile dependency consumed by runtime capability receipt. */
+  /** Provides runner profile to runtime capability receipt. */
   readonly runnerProfile: string;
   /** Stable identifier for runner adapter id. */
   readonly runnerAdapterId: string;
@@ -55,13 +55,13 @@ export interface RuntimeCapabilityReceipt {
 export interface RunContextCore {
   /** SHA-256 digest of canonical activation. */
   readonly activationDigest: string;
-  /** Capability grant dependency consumed by run context core. */
+  /** Provides capability grant to run context core. */
   readonly capabilityGrant: CapabilityGrant;
   /** SHA-256 digest of canonical definition. */
   readonly definitionDigest: string;
-  /** Input dependency consumed by run context core. */
+  /** Provides input to run context core. */
   readonly input: JsonObject;
-  /** Resource pins dependency consumed by run context core. */
+  /** Provides resource pins to run context core. */
   readonly resourcePins: readonly {
     /** SHA-256 digest binding the canonical content. */
     readonly digest: string;
@@ -81,11 +81,11 @@ export interface RunContextCore {
   }[];
   /** Stable identifier for run id. */
   readonly runId: string;
-  /** Runtime receipt dependency consumed by run context core. */
+  /** Provides runtime receipt to run context core. */
   readonly runtimeReceipt: RuntimeCapabilityReceipt;
   /** Version tag for the run context core representation. */
   readonly schema: "run-context-v1";
-  /** Task dependency consumed by run context core. */
+  /** Provides task to run context core. */
   readonly task: TaskSnapshot;
 }
 
@@ -189,7 +189,7 @@ export function parseAgentResult(input: {
   value.proposedIntents.forEach((intent, index) =>
     assertIntentShape(intent, index),
   );
-  /** Parsed snapshot used consistently during the parse agent result operation. */
+  /** Stores parsed used by parse agent result. */
   const parsed = value as unknown as AgentResult;
   /** Groups the digest and core values used by parse agent result. */
   const { digest: _digest, ...core } = parsed;
@@ -218,7 +218,7 @@ export function parseAgentResult(input: {
     if (!allowed.has(intent.kind))
       throw new Error(`Agent result intent ${index} is not authorized`);
   }
-  /** Reads the ordered intent subsequence dependency consumed by the selected outcome. */
+  /** Reads the ordered intent subsequence required by the selected outcome. */
   const requiredSequence =
     input.requiredIntentSequenceByOutcome?.[parsed.outcome] ?? [];
   /** Mutable state recording the next required intent kind while scanning proposed intents. */
@@ -275,7 +275,7 @@ export function validateRuntimeCapabilityReceipt(
 
 /** Rejects input that does not satisfy the intent shape contract. */
 function assertIntentShape(value: JsonValue, index: number): void {
-  /** Result of `objectValue`, retained for the assert intent shape operation. */
+  /** Stores intent used by assert intent shape. */
   const intent = objectValue(value, `Agent result intent ${index}`);
   assertExactKeys(intent, ["kind", "payload"], `Agent result intent ${index}`);
   requireString(intent.kind, `Agent result intent ${index} kind`);

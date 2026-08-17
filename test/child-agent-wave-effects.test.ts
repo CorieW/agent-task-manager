@@ -45,7 +45,7 @@ test("runs dependency-ordered nodes and persists each receipt in Operations", as
     async reconcile() {
       return notApplied;
     },
-    /** Records and completes one child-agent node execution. */
+    /** Creates the run test fixture. */
     async run(input) {
       order.push(input.node.nodeKey);
       if (input.node.nodeKey === "b")
@@ -156,7 +156,7 @@ test("rejects malformed node receipts and changed context pins", async () => {
     async reconcile() {
       return notApplied;
     },
-    /** Returns a neutral observation when malformed state reaches execution. */
+    /** Creates the run test fixture. */
     async run() {
       return notApplied;
     },

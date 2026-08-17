@@ -97,7 +97,7 @@ export class NotionWorkspaceManager {
   /** Inspects workspace schema without mutation. */
   public async inspectWorkspaceSchema(): Promise<WorkspaceSchemaSnapshot> {
     await this.resolveTables();
-    /** Result of `NotionWorkspaceReader`, retained for `inspectWorkspaceSchema`. */
+    /** Holds the `reader` intermediate used by `inspectWorkspaceSchema`. */
     const reader = new NotionWorkspaceReader(
       this.resolvedEnvironment(),
       this.target,
@@ -117,16 +117,16 @@ export class NotionWorkspaceManager {
       throw new Error(
         "Workspace request target does not match configured target",
       );
-    /** Result of `compareWorkspaceSchema`, retained for `planWorkspaceChanges`. */
+    /** Holds the `report` intermediate used by `planWorkspaceChanges`. */
     const report = compareWorkspaceSchema(request.observed, request.target);
     if (report.state === "blocked_incompatible")
       throw new Error("Cannot plan over an incompatible Notion workspace");
-    /** Result of `tableDescriptor`, retained for `planWorkspaceChanges`. */
+    /** Holds the `drafts` intermediate used by `planWorkspaceChanges`. */
     const drafts: Array<
       Pick<WorkspaceMigrationStep, "id" | "kind" | "payload">
     > = [];
     for (const kind of TABLE_ORDER) {
-      /** Target table descriptor used to plan scalar properties. */
+      /** Defines `expected` for comparison in `planWorkspaceChanges`. */
       const expected = tableDescriptor(this.target, kind);
       /** Expected observed used to validate `planWorkspaceChanges`. */
       const observed = request.observed.tables.find(
@@ -157,7 +157,7 @@ export class NotionWorkspaceManager {
       }
     }
     for (const kind of TABLE_ORDER) {
-      /** Target table descriptor used to plan relational properties. */
+      /** Defines `expected` for comparison in `planWorkspaceChanges`. */
       const expected = tableDescriptor(this.target, kind);
       /** Expected observed used to validate `planWorkspaceChanges`. */
       const observed = request.observed.tables.find(
@@ -192,12 +192,12 @@ export class NotionWorkspaceManager {
       });
     }
 
-    /** Result of `simulateWorkspaceStep`, retained for `planWorkspaceChanges`. */
+    /** Simulated schema advanced after each planned migration step. */
     let simulated = request.observed;
-    /** Result of `simulateWorkspaceStep`, retained for `planWorkspaceChanges`. */
+    /** Ordered migration steps accumulated against the simulated schema. */
     const steps: WorkspaceMigrationStep[] = [];
     for (const [index, draft] of drafts.entries()) {
-      /** Result of `simulateWorkspaceStep`, retained for `planWorkspaceChanges`. */
+      /** Holds the `next` intermediate used by `planWorkspaceChanges`. */
       const next = simulateWorkspaceStep(simulated, draft, this.target);
       steps.push({
         dependsOn: index === 0 ? [] : [requiredDraft(drafts[index - 1]).id],
@@ -228,7 +228,7 @@ export class NotionWorkspaceManager {
   ): Promise<WriteReceipt> {
     await this.resolveTables();
     if (this.#resolved.has("operations")) await this.ensureBootstrapRoot();
-    /** Result of `this.readStepRecord`, retained for `applyWorkspaceStep`. */
+    /** Holds the `prior` intermediate used by `applyWorkspaceStep`. */
     const prior = await this.readStepRecord(step.id);
     if (prior !== null) {
       if (prior.stepDigest !== stepDigest(step))
@@ -237,7 +237,7 @@ export class NotionWorkspaceManager {
         );
       if (prior.state === "applied" && prior.receipt !== null)
         return prior.receipt;
-      /** Result of `this.reconcileEffect`, retained for `applyWorkspaceStep`. */
+      /** Holds the `recovered` intermediate used by `applyWorkspaceStep`. */
       const recovered = await this.reconcileEffect(prior.step);
       if (recovered.state === "applied")
         return this.finalizeRecoveredStep(prior.step);
@@ -247,20 +247,20 @@ export class NotionWorkspaceManager {
       step.id === `notion:${this.target.version}:create:operations` &&
       this.#resolved.has("operations")
     ) {
-      /** Result of `this.reconcileEffect`, retained for `applyWorkspaceStep`. */
+      /** Holds the `recovered` intermediate used by `applyWorkspaceStep`. */
       const recovered = await this.reconcileEffect(step);
       if (recovered.state === "applied")
         return this.finalizeRecoveredStep(step);
     }
     for (const dependency of step.dependsOn) {
-      /** Result of `this.readStepRecord`, retained for `applyWorkspaceStep`. */
+      /** Holds the `record` intermediate used by `applyWorkspaceStep`. */
       const record = await this.readStepRecord(dependency);
       if (record?.state !== "applied")
         throw new Error(
           `Workspace step dependency is incomplete: ${dependency}`,
         );
     }
-    /** Result of `this.inspectWorkspaceSchema`, retained for `applyWorkspaceStep`. */
+    /** Authoritative pre-step schema checked against the plan basis. */
     const current = await this.inspectWorkspaceSchema();
     if (current.digest !== step.expectedPreSchemaDigest)
       throw new Error(`Workspace precondition changed: ${step.id}`);
@@ -280,17 +280,17 @@ export class NotionWorkspaceManager {
       await this.recordSchemaState();
     else throw new Error(`Unsupported Notion workspace step: ${step.kind}`);
 
-    /** Result of `this.reconcileEffect`, retained for `applyWorkspaceStep`. */
+    /** Holds the `reconciliation` intermediate used by `applyWorkspaceStep`. */
     const reconciliation = await this.reconcileEffect(step);
     if (reconciliation.state !== "applied")
       throw new Error(`Workspace step post-verification failed: ${step.id}`);
-    /** Result of `this.inspectWorkspaceSchema`, retained for `applyWorkspaceStep`. */
+    /** Authoritative post-step schema checked against the expected digest. */
     const verifiedSnapshot = await this.inspectWorkspaceSchema();
     if (verifiedSnapshot.digest !== step.expectedPostSchemaDigest)
       throw new Error(`Workspace postcondition changed: ${step.id}`);
-    /** Result of `tableKind`, retained for `applyWorkspaceStep`. */
+    /** Holds the `table` intermediate used by `applyWorkspaceStep`. */
     const table = tableKind(step);
-    /** Result of `requiredResolved`, retained for `applyWorkspaceStep`. */
+    /** Holds the `tableId` intermediate used by `applyWorkspaceStep`. */
     const tableId = requiredResolved(this.#resolved, table);
     /** Expected observed used to validate `applyWorkspaceStep`. */
     const observed = verifiedSnapshot.tables.find(
@@ -298,7 +298,7 @@ export class NotionWorkspaceManager {
     );
     if (observed === undefined)
       throw new Error(`Workspace step did not produce ${table}`);
-    /** Result of `applyWorkspaceStep`, retained for validation and reuse. */
+    /** Captures `receipt` returned by `applyWorkspaceStep`. */
     const receipt: WriteReceipt = {
       idempotencyKey: step.id,
       observedVersion: observed.version,
@@ -321,7 +321,7 @@ export class NotionWorkspaceManager {
     supplied?: WorkspaceMigrationStep,
   ): Promise<ReconciliationResult> {
     await this.resolveTables();
-    /** Result of `this.readStepRecord`, retained for `reconcileWorkspaceStep`. */
+    /** Holds the `stored` intermediate used by `reconcileWorkspaceStep`. */
     const stored = await this.readStepRecord(stepId);
     if (stored?.state === "applied" && stored.receipt !== null) {
       return {
@@ -332,14 +332,14 @@ export class NotionWorkspaceManager {
         state: "applied",
       };
     }
-    /** Result of `this.reconcileEffect`, retained for `reconcileWorkspaceStep`. */
+    /** Holds the `effective` intermediate used by `reconcileWorkspaceStep`. */
     const effective =
       supplied ?? stored?.step ?? this.knownUnjournaledStep(stepId);
     if (effective === null) return { evidence: {}, state: "not_applied" };
-    /** Result of `reconcileWorkspaceStep`, retained for validation and reuse. */
+    /** Captures `result` returned by `reconcileWorkspaceStep`. */
     const result = await this.reconcileEffect(effective);
     if (stored?.state === "pending" && result.state === "applied") {
-      /** Result of `reconcileWorkspaceStep`, retained for validation and reuse. */
+      /** Captures `receipt` returned by `reconcileWorkspaceStep`. */
       const receipt = await this.finalizeRecoveredStep(effective);
       return {
         evidence: {
@@ -357,7 +357,7 @@ export class NotionWorkspaceManager {
     supplied: WorkspaceMigrationStep,
   ): Promise<ReconciliationResult> {
     await this.resolveTables();
-    /** Result of `tableKind`, retained for `reconcileEffect`. */
+    /** Holds the `kind` intermediate used by `reconcileEffect`. */
     const kind = tableKind(supplied);
     if (supplied.kind === "create_table") {
       return this.#resolved.has(kind)
@@ -368,12 +368,12 @@ export class NotionWorkspaceManager {
         : { evidence: {}, state: "not_applied" };
     }
     if (supplied.kind === "add_property" || supplied.kind === "add_relation") {
-      /** Result of `requiredString`, retained for `reconcileEffect`. */
+      /** Holds the `physicalName` intermediate used by `reconcileEffect`. */
       const physicalName = requiredString(
         supplied.payload.physicalName,
         "Workspace property name",
       );
-      /** Result of `tableDescriptor`, retained for `reconcileEffect`. */
+      /** Holds the `table` intermediate used by `reconcileEffect`. */
       const table = (await this.inspectWorkspaceSchema()).tables.find(
         (candidate) => candidate.kind === kind,
       );
@@ -385,7 +385,7 @@ export class NotionWorkspaceManager {
       const observed = table?.properties.find(
         (item) => item.name === physicalName,
       );
-      /** Applied snapshot used consistently during `reconcileEffect`. */
+      /** Holds the `applied` intermediate used by `reconcileEffect`. */
       const applied =
         expected !== undefined &&
         observed !== undefined &&
@@ -396,7 +396,7 @@ export class NotionWorkspaceManager {
         : { evidence: {}, state: "not_applied" };
     }
     if (supplied.kind === "record_schema_state") {
-      /** Result of `this.readSchemaState`, retained for `reconcileEffect`. */
+      /** Holds the `state` intermediate used by `reconcileEffect`. */
       const state = await this.readSchemaState();
       return state?.targetDigest === this.target.digest &&
         state.targetVersion === this.target.version
@@ -410,13 +410,13 @@ export class NotionWorkspaceManager {
   private async finalizeRecoveredStep(
     step: WorkspaceMigrationStep,
   ): Promise<WriteReceipt> {
-    /** Result of `this.inspectWorkspaceSchema`, retained for `finalizeRecoveredStep`. */
+    /** Holds the `snapshot` intermediate used by `finalizeRecoveredStep`. */
     const snapshot = await this.inspectWorkspaceSchema();
     if (snapshot.digest !== step.expectedPostSchemaDigest)
       throw new Error(
         `Recovered workspace postcondition does not match: ${step.id}`,
       );
-    /** Result of `tableKind`, retained for `finalizeRecoveredStep`. */
+    /** Holds the `table` intermediate used by `finalizeRecoveredStep`. */
     const table = tableKind(step);
     /** Expected observed used to validate `finalizeRecoveredStep`. */
     const observed = snapshot.tables.find(
@@ -478,11 +478,11 @@ export class NotionWorkspaceManager {
     state: "applied" | "pending_human",
   ): Promise<void> {
     await this.resolveTables();
-    /** Result of `this.configuredTablePatch`, retained for `recordEnvironmentPatch`. */
+    /** Holds the `tables` intermediate used by `recordEnvironmentPatch`. */
     const tables = this.configuredTablePatch();
-    /** Result of `canonicalize`, retained for `recordEnvironmentPatch`. */
+    /** Stable Resource key for this environment's bootstrap patch. */
     const key = `workspace/environment-patch/${sha256(this.environmentId)}`;
-    /** Result of `canonicalize`, retained for `recordEnvironmentPatch`. */
+    /** Canonical patch body persisted for restart-safe bootstrap replay. */
     const body = canonicalize(
       toJsonValue({
         environmentId: this.environmentId,
@@ -806,7 +806,7 @@ export class NotionWorkspaceManager {
     stepId: string,
   ): Promise<WorkspaceStepRecord | null> {
     if (!this.#resolved.has("operations")) return null;
-    /** Result of `this.pageStore`, retained for `readStepRecord`. */
+    /** Holds the `located` intermediate used by `readStepRecord`. */
     const located = await this.pageStore().findUniqueByTitle(
       "operations",
       "Operation",
@@ -824,9 +824,9 @@ export class NotionWorkspaceManager {
 
   /** Persists step record. */
   private async writeStepRecord(record: WorkspaceStepRecord): Promise<void> {
-    /** Result of `stepReceiptKey`, retained for `writeStepRecord`. */
+    /** Holds the `key` intermediate used by `writeStepRecord`. */
     const key = stepReceiptKey(record.step.id);
-    /** Result of `canonicalize`, retained for `writeStepRecord`. */
+    /** Holds the `body` intermediate used by `writeStepRecord`. */
     const body = canonicalize(toJsonValue(record));
     await this.pageStore().createOperation({
       body,
@@ -842,7 +842,7 @@ export class NotionWorkspaceManager {
 
   /** Builds a page store from the resolved workspace table IDs. */
   private pageStore(): NotionPageStore {
-    /** Fallback snapshot used consistently during `pageStore`. */
+    /** Holds the `fallback` intermediate used by `pageStore`. */
     const fallback = "unresolved";
     return new NotionPageStore(
       {
@@ -925,7 +925,7 @@ function simulateWorkspaceStep(
   step: Pick<WorkspaceMigrationStep, "kind" | "payload">,
   target: WorkspaceSchemaDescriptor,
 ): WorkspaceSchemaSnapshot {
-  /** Result of `tableKind`, retained for `simulateWorkspaceStep`. */
+  /** Holds the `kind` intermediate used by `simulateWorkspaceStep`. */
   const kind = tableKind({
     ...step,
     dependsOn: [],
@@ -934,11 +934,11 @@ function simulateWorkspaceStep(
     id: "simulation",
     reversibility: "additive",
   });
-  /** Result of `tableDescriptor`, retained for `simulateWorkspaceStep`. */
+  /** Holds the `tables` intermediate used by `simulateWorkspaceStep`. */
   let tables = [...structuredClone(snapshot.tables)];
   if (step.kind === "create_table") {
     if (!tables.some((table) => table.kind === kind)) {
-      /** Result of `tableDescriptor`, retained for `simulateWorkspaceStep`. */
+      /** Holds the `descriptor` intermediate used by `simulateWorkspaceStep`. */
       const descriptor = tableDescriptor(target, kind);
       tables.push({
         id: `planned:${kind}`,
@@ -958,12 +958,12 @@ function simulateWorkspaceStep(
       });
     }
   } else if (step.kind === "add_property" || step.kind === "add_relation") {
-    /** Result of `requiredString`, retained for `simulateWorkspaceStep`. */
+    /** Holds the `name` intermediate used by `simulateWorkspaceStep`. */
     const name = requiredString(
       step.payload.physicalName,
       "Workspace property name",
     );
-    /** Result of `tableDescriptor`, retained for `simulateWorkspaceStep`. */
+    /** Holds the `descriptor` intermediate used by `simulateWorkspaceStep`. */
     const descriptor = tableDescriptor(target, kind).properties.find(
       (property) => property.physicalName === name,
     );
@@ -1015,7 +1015,7 @@ function selectOptions(table: TableKind, property: string): readonly string[] {
 
 /** Resolves descriptor. */
 function tableDescriptor(target: WorkspaceSchemaDescriptor, kind: TableKind) {
-  /** Result of `target.tables.find`, retained for `tableDescriptor`. */
+  /** Holds the `table` intermediate used by `tableDescriptor`. */
   const table = target.tables.find((candidate) => candidate.kind === kind);
   if (table === undefined) throw new Error(`Target schema omits ${kind}`);
   return table;
@@ -1023,7 +1023,7 @@ function tableDescriptor(target: WorkspaceSchemaDescriptor, kind: TableKind) {
 
 /** Resolves kind. */
 function tableKind(step: WorkspaceMigrationStep): TableKind {
-  /** Result of `requiredString`, retained for `tableKind`. */
+  /** Holds the `kind` intermediate used by `tableKind`. */
   const kind = requiredString(step.payload.kind, "Workspace step table kind");
   if (!TABLE_KINDS.includes(kind as TableKind))
     throw new TypeError(`Invalid workspace table kind: ${kind}`);
@@ -1042,7 +1042,7 @@ function stepReceiptKey(stepId: string): string {
 
 /** Parses and validates workspace step record. */
 function parseWorkspaceStepRecord(value: JsonValue): WorkspaceStepRecord {
-  /** Result of `objectValue`, retained for `parseWorkspaceStepRecord`. */
+  /** Holds the `object` intermediate used by `parseWorkspaceStepRecord`. */
   const object = objectValue(value, "Workspace step record");
   /** Exact field set required by the workspace-step record schema. */
   const expectedKeys = ["receipt", "schema", "state", "step", "stepDigest"];
@@ -1060,9 +1060,9 @@ function parseWorkspaceStepRecord(value: JsonValue): WorkspaceStepRecord {
     object.receipt === null ? null : parseWriteReceipt(object.receipt ?? null);
   if ((object.state === "applied") !== (receipt !== null))
     throw new TypeError("Workspace step record state and receipt disagree");
-  /** Result of `parseWorkspaceStep`, retained for `parseWorkspaceStepRecord`. */
+  /** Holds the `step` intermediate used by `parseWorkspaceStepRecord`. */
   const step = parseWorkspaceStep(objectValue(object.step, "Workspace step"));
-  /** Result of `requiredString`, retained for `parseWorkspaceStepRecord`. */
+  /** Holds the `digest` intermediate used by `parseWorkspaceStepRecord`. */
   const digest = requiredString(object.stepDigest, "Workspace step digest");
   if (digest !== stepDigest(step))
     throw new TypeError("Workspace step record digest is invalid");
@@ -1089,9 +1089,9 @@ function parseWorkspaceStep(value: JsonObject): WorkspaceMigrationStep {
   ];
   if (Object.keys(value).sort().join("\0") !== expectedKeys.sort().join("\0"))
     throw new TypeError("Workspace step has unexpected or missing fields");
-  /** Result of `requiredString`, retained for `parseWorkspaceStep`. */
+  /** Holds the `kind` intermediate used by `parseWorkspaceStep`. */
   const kind = requiredString(value.kind, "Workspace step kind");
-  /** Allowed kinds snapshot used consistently during `parseWorkspaceStep`. */
+  /** Holds the `allowedKinds` intermediate used by `parseWorkspaceStep`. */
   const allowedKinds: WorkspaceMigrationStep["kind"][] = [
     "add_managed_range",
     "add_option",
@@ -1132,7 +1132,7 @@ function parseWorkspaceStep(value: JsonObject): WorkspaceMigrationStep {
 
 /** Parses and validates bootstrap session. */
 function parseBootstrapSession(value: JsonValue): BootstrapSessionRecord {
-  /** Result of `objectValue`, retained for `parseBootstrapSession`. */
+  /** Holds the `object` intermediate used by `parseBootstrapSession`. */
   const object = objectValue(value, "Bootstrap session");
   /** Exact field set required by the bootstrap-session schema. */
   const expectedKeys = [
@@ -1150,12 +1150,12 @@ function parseBootstrapSession(value: JsonValue): BootstrapSessionRecord {
   ) {
     throw new TypeError("Bootstrap session schema or state is invalid");
   }
-  /** Result of `stringArray`, retained for `parseBootstrapSession`. */
+  /** Holds the `completed` intermediate used by `parseBootstrapSession`. */
   const completed = stringArray(
     object.completedStepIds,
     "Bootstrap completed steps",
   );
-  /** Result of `parseWorkspacePlan`, retained for `parseBootstrapSession`. */
+  /** Holds the `plan` intermediate used by `parseBootstrapSession`. */
   const plan = parseWorkspacePlan(objectValue(object.plan, "Bootstrap plan"));
   /** Planned step IDs used to reject unknown completion claims. */
   const known = new Set(plan.steps.map((step) => step.id));
@@ -1165,9 +1165,9 @@ function parseBootstrapSession(value: JsonValue): BootstrapSessionRecord {
   ) {
     throw new TypeError("Bootstrap completed steps are invalid");
   }
-  /** Result of `plan.steps.find`, retained for `parseBootstrapSession`. */
+  /** Holds the `nextStep` intermediate used by `parseBootstrapSession`. */
   const nextStep = plan.steps.find((step) => !completed.includes(step.id));
-  /** Next step id snapshot used consistently during `parseBootstrapSession`. */
+  /** Holds the `nextStepId` intermediate used by `parseBootstrapSession`. */
   const nextStepId =
     object.nextStepId === null
       ? null
@@ -1209,7 +1209,7 @@ function parseWorkspacePlan(value: JsonObject): WorkspaceMigrationPlan {
     throw new TypeError("Workspace plan parent identity is invalid");
   if (!Array.isArray(value.steps))
     throw new TypeError("Workspace plan steps must be an array");
-  /** Result of `finalizeMigrationPlan`, retained for `parseWorkspacePlan`. */
+  /** Holds the `plan` intermediate used by `parseWorkspacePlan`. */
   const plan = finalizeMigrationPlan({
     environmentId: requiredString(
       value.environmentId,
@@ -1262,7 +1262,7 @@ function richText(value: JsonValue | undefined): string {
   if (!Array.isArray(value)) return "";
   return value
     .map((item) => {
-      /** Result of `objectValue`, retained for `richText`. */
+      /** Holds the `object` intermediate used by `richText`. */
       const object = objectValue(item, "Rich text item");
       return typeof object.plain_text === "string" ? object.plain_text : "";
     })
@@ -1272,9 +1272,9 @@ function richText(value: JsonValue | undefined): string {
 /** Resolves identity. */
 function parentIdentity(value: JsonValue | undefined): string | null {
   if (value === undefined || value === null) return null;
-  /** Result of `objectValue`, retained for `parentIdentity`. */
+  /** Holds the `parent` intermediate used by `parentIdentity`. */
   const parent = objectValue(value, "Database parent");
-  /** Id snapshot used consistently during `parentIdentity`. */
+  /** Holds the `id` intermediate used by `parentIdentity`. */
   const id = parent.page_id ?? parent.database_id;
   return typeof id === "string" ? normalizeNotionIdentifier(id) : null;
 }
@@ -1284,7 +1284,7 @@ function requiredResolved(
   values: ReadonlyMap<TableKind, string>,
   kind: TableKind,
 ): string {
-  /** Result of `values.get`, retained for `requiredResolved`. */
+  /** Holds the `value` intermediate used by `requiredResolved`. */
   const value = values.get(kind);
   if (value === undefined)
     throw new Error(`Notion ${kind} table is unresolved`);

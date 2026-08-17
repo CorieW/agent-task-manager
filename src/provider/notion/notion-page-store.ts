@@ -169,7 +169,7 @@ export class NotionPageStore {
       record.key,
     );
     if (existing !== null) return this.updateResource(existing, record);
-    /** Provider page created in the representation dependency consumed by the Resource kind. */
+    /** Holds the `created` intermediate used by `createResource`. */
     const created = isMarkdownResourceKind(record.kind)
       ? await this.createMarkdownResourcePage(record)
       : await this.createManagedPage(
@@ -186,6 +186,7 @@ export class NotionPageStore {
     record: OperationMutation,
   ): Promise<WriteReceipt> {
     assertOperationBodyDigest(record);
+    /** Existing page updated in place to preserve its stable Notion identity. */
     const existing = await this.findUniqueByTitle(
       "operations",
       "Operation",
@@ -198,11 +199,13 @@ export class NotionPageStore {
         path: `/v1/pages/${existing.id}`,
       });
       await this.replaceManagedText(existing.id, "Operation body", record.body);
+      /** Re-read page used to verify the persisted identity and digest. */
       const verified = await this.getPage(existing.id);
       verifyPropertyText(verified.page, "Operation", record.key);
       verifyPropertyText(verified.page, "Digest", record.digest);
       return this.receipt("operations", verified, record.idempotencyKey);
     }
+    /** Newly created operation page used to construct the write receipt. */
     const created = await this.createManagedPage(
       "operations",
       operationProperties(record),
@@ -902,6 +905,7 @@ function operationProperties(record: OperationMutation): JsonObject {
 
 /** Rejects operational state whose digest does not bind its canonical body. */
 function assertOperationBodyDigest(record: OperationMutation): void {
+  /** Canonical body whose bytes must already match the caller's payload. */
   const canonicalBody = normalizeText(record.body);
   if (
     canonicalBody !== record.body ||

@@ -834,7 +834,7 @@ function resources(): ResourceMutation[] {
   ];
 }
 
-/** Builds resource. */
+/** Builds a digest-bound Resource mutation for a runtime fixture. */
 function resource(key: string, kind: string, body: string): ResourceMutation {
   return {
     body,

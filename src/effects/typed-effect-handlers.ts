@@ -8,7 +8,7 @@ import type {
   ExternalEffectRequest,
 } from "./contracts.js";
 
-/** External effect kinds snapshot used consistently during the the current operation operation. */
+/** Stores external effect kinds used by the current operation. */
 export const EXTERNAL_EFFECT_KINDS = [
   "browser.run",
   "child_agent.wave",
@@ -23,7 +23,7 @@ export const EXTERNAL_EFFECT_KINDS = [
   "workspace.release",
 ] as const;
 
-/** Provider-neutral the external effect kind data shape contract. */
+/** Enumerates the closed set of provider-neutral external effect kinds. */
 export type ExternalEffectKind = (typeof EXTERNAL_EFFECT_KINDS)[number];
 
 /** Canonical workspace provision payload representation. */
@@ -316,7 +316,7 @@ function handler<T>(
 /** Parses and validates workspace provision. */
 function parseWorkspaceProvision(value: JsonObject): WorkspaceProvisionPayload {
   exact(value, ["mode", "repositoryId", "sourceRevision", "workspaceKey"]);
-  /** Mode snapshot used consistently during the parse workspace provision operation. */
+  /** Stores mode used by parse workspace provision. */
   const mode = value.mode;
   if (mode !== "mirror" && mode !== "worktree")
     throw new TypeError("workspace.provision mode is invalid");
@@ -367,7 +367,7 @@ function parseGitCommit(value: JsonObject): GitCommitPayload {
     "repositoryId",
     "workspaceKey",
   ]);
-  /** Result of `stringList`, retained for the parse git commit operation. */
+  /** Stores paths used by parse git commit. */
   const paths = stringList(value.paths, "paths");
   if (paths.length === 0)
     throw new TypeError("git.commit paths cannot be empty");
@@ -415,11 +415,11 @@ function parseDraftPr(value: JsonObject): DraftPrPayload {
     "repositoryId",
     "title",
   ]);
-  /** Result of `text`, retained for the parse draft pr operation. */
+  /** Stores title used by parse draft pr. */
   const title = text(value.title, "title");
   if (title.length > 200)
     throw new TypeError("publication.draft_pr title is too long");
-  /** Body snapshot used consistently during the parse draft pr operation. */
+  /** Stores body used by parse draft pr. */
   const body = typeof value.body === "string" ? value.body : invalid("body");
   if (body.length > 100_000)
     throw new TypeError("publication.draft_pr body is too long");
@@ -442,9 +442,11 @@ function parsePullRequestComment(value: JsonObject): PullRequestCommentPayload {
     "pullRequestNumber",
     "repositoryId",
   ]);
+  /** Comment body after enforcing the publication payload's text contract. */
   const body = text(value.body, "body");
   if (body.length > 65_536)
     throw new TypeError("publication.pr_comment body is too long");
+  /** Pull-request number retained for integer and range validation. */
   const pullRequestNumber = value.pullRequestNumber;
   if (
     typeof pullRequestNumber !== "number" ||
@@ -463,7 +465,7 @@ function parsePullRequestComment(value: JsonObject): PullRequestCommentPayload {
 /** Parses and validates command run. */
 function parseCommandRun(value: JsonObject): CommandRunPayload {
   exact(value, ["arguments", "commandKey", "repositoryId", "workspaceKey"]);
-  /** Result of `stringList`, retained for the parse command run operation. */
+  /** Stores args used by parse command run. */
   const args = stringList(value.arguments, "arguments");
   if (args.length > 100 || args.some((entry) => entry.length > 10_000))
     throw new TypeError("command.run arguments exceed their bounds");
@@ -494,7 +496,7 @@ function parseBrowserRun(value: JsonObject): BrowserRunPayload {
 /** Parses and validates child agent wave. */
 function parseChildAgentWave(value: JsonObject): ChildAgentWavePayload {
   exact(value, ["maxConcurrency", "nodes"]);
-  /** Max concurrency snapshot used consistently during the parse child agent wave operation. */
+  /** Stores max concurrency used by parse child agent wave. */
   const maxConcurrency = value.maxConcurrency;
   if (
     typeof maxConcurrency !== "number" ||
@@ -509,9 +511,9 @@ function parseChildAgentWave(value: JsonObject): ChildAgentWavePayload {
     value.nodes.length > 1_000
   )
     throw new TypeError("child_agent.wave nodes are invalid");
-  /** Result of `value.nodes.map`, retained for the parse child agent wave operation. */
+  /** Stores nodes used by parse child agent wave. */
   const nodes = value.nodes.map((entry, index) => {
-    /** Result of `object`, retained for the parse child agent wave operation. */
+    /** Stores node used by parse child agent wave. */
     const node = object(entry, `nodes[${index}]`);
     exact(node, [
       "contextDigest",

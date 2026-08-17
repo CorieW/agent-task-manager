@@ -1,4 +1,4 @@
-/** Provider-neutral the provider-owned minimum schema for a Notion workspace contract. */
+/** Defines the provider-owned minimum schema for a Notion workspace. */
 import { digestJson } from "../../core/digest.js";
 import { toJsonValue } from "../../domain/json.js";
 import type {
@@ -85,7 +85,7 @@ const TABLES: readonly TableDescriptor[] = [
 
 /** Creates Notion workspace schema. */
 export function createNotionWorkspaceSchema(): WorkspaceSchemaDescriptor {
-  /** Core snapshot used consistently during `createNotionWorkspaceSchema`. */
+  /** Holds the `core` intermediate used by `createNotionWorkspaceSchema`. */
   const core = {
     providerType: "notion",
     tables: TABLES,

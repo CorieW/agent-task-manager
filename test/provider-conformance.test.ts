@@ -572,6 +572,7 @@ for (const providerCase of providerCases) {
         state: "active" as const,
         version: "v1",
       };
+      /** Receipt proving the operation was stored in its dedicated table. */
       const receipt = await provider.putOperation(mutation);
       assert.equal(receipt.providerRecord.table, "operations");
       assert.equal(

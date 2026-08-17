@@ -134,7 +134,7 @@ export function advanceCycle(
     throw new CycleLimitError("identical_set_repeated", prior, policy.label);
   }
 
-  /** Provider-neutral the advanced state persisted with the status transition contract. */
+  /** Defines the advanced state persisted with the status transition. */
   const state: CycleState = {
     digest,
     keys,
