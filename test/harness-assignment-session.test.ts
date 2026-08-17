@@ -8,6 +8,7 @@ import {
   parseHarnessAssignmentCompletion,
   prepareHarnessAssignment,
   prepareHarnessSelection,
+  renewHarnessAssignment,
   type AgentDefinition,
   type ConditionalTaskMutation,
   type HarnessAssignmentCompletion,
@@ -161,6 +162,242 @@ test("prepares context for a harness and completes without model dispatch", asyn
     taskId: "task-1",
   });
   assert.deepEqual(preparedReplay, { report, state: "complete" });
+});
+
+test("renews a live harness assignment before its original expiry", async () => {
+  /** Mutable provider clock used to cross the original lease horizon. */
+  let now = new Date(Date.now());
+  /** Original short lease horizon for the prepared assignment. */
+  const originalExpiry = new Date(now.getTime() + 60_000).toISOString();
+  /** Extended horizon requested by the external harness heartbeat. */
+  const nextExpiry = new Date(now.getTime() + 60 * 60_000).toISOString();
+  /** Clocked provider whose lease state advances independently of wall time. */
+  const provider = await preparedProvider(
+    [],
+    new StrictSystemResourceProvider(environment, target, undefined, () => now),
+  );
+  const preparation = await prepareHarnessAssignment({
+    agentId: "planner",
+    assignmentDepth: 0,
+    environmentId: "demo",
+    expiresAt: originalExpiry,
+    input: {},
+    operationKey: "issue-001-renew-live",
+    provider,
+    taskId: "task-1",
+  });
+  assert.equal(preparation.state, "prepared");
+  if (preparation.state !== "prepared") return;
+
+  const renewal = await renewHarnessAssignment({
+    environmentId: "demo",
+    expiresAt: nextExpiry,
+    operationKey: "issue-001-renew-live",
+    provider,
+  });
+  assert.equal(renewal.state, "renewed");
+  assert.equal(
+    (await provider.getLeaseSnapshot(renewal.promotion.runLeaseId))?.expiresAt,
+    nextExpiry,
+  );
+  assert.equal(
+    (await provider.getLeaseSnapshot(renewal.promotion.taskLeaseId))?.expiresAt,
+    nextExpiry,
+  );
+
+  now = new Date(Date.parse(originalExpiry) + 1);
+  const report = await completeHarnessAssignment({
+    completion: successfulCompletion("Renewed plan"),
+    environmentId: "demo",
+    operationKey: "issue-001-renew-live",
+    provider,
+  });
+  assert.equal(report.outcome, "succeeded");
+  assert.equal((await provider.getAgentActivity("planner")).status, "Offline");
+});
+
+test("recovers an expired unchanged assignment during completion", async () => {
+  /** Mutable provider clock used to expire both prepared leases. */
+  let now = new Date(Date.now());
+  /** Short initial horizon that expires before the result is submitted. */
+  const originalExpiry = new Date(now.getTime() + 60_000).toISOString();
+  /** Clocked provider exposing stale Online activity after lease expiry. */
+  const provider = await preparedProvider(
+    [],
+    new StrictSystemResourceProvider(environment, target, undefined, () => now),
+  );
+  await prepareHarnessAssignment({
+    agentId: "planner",
+    assignmentDepth: 0,
+    environmentId: "demo",
+    expiresAt: originalExpiry,
+    input: {},
+    operationKey: "issue-001-expired-complete",
+    provider,
+    taskId: "task-1",
+  });
+  now = new Date(Date.parse(originalExpiry) + 1);
+  assert.deepEqual(await provider.getLeaseProjection("planner"), {
+    runLeaseIds: [],
+    taskIds: [],
+    taskLeaseIds: [],
+  });
+  assert.equal((await provider.getAgentActivity("planner")).status, "Online");
+
+  const report = await completeHarnessAssignment({
+    completion: successfulCompletion("Recovered review"),
+    environmentId: "demo",
+    operationKey: "issue-001-expired-complete",
+    provider,
+  });
+  assert.equal(report.outcome, "succeeded");
+  assert.equal((await provider.getTaskSnapshot("task-1")).status, "Planned");
+  assert.equal((await provider.getAgentActivity("planner")).status, "Offline");
+  assert.deepEqual((await provider.getAgentActivity("planner")).taskIds, []);
+});
+
+test("recovers expired assignment leases through an explicit renewal", async () => {
+  /** Mutable provider clock used to force the recovery branch. */
+  let now = new Date(Date.now());
+  /** Original lease horizon crossed before the renewal call. */
+  const originalExpiry = new Date(now.getTime() + 60_000).toISOString();
+  /** New explicit horizon for the recovered lease pair. */
+  const nextExpiry = new Date(now.getTime() + 60 * 60_000).toISOString();
+  /** Clocked provider used for the expired-assignment recovery. */
+  const provider = await preparedProvider(
+    [],
+    new StrictSystemResourceProvider(environment, target, undefined, () => now),
+  );
+  const preparation = await prepareHarnessAssignment({
+    agentId: "planner",
+    assignmentDepth: 0,
+    environmentId: "demo",
+    expiresAt: originalExpiry,
+    input: {},
+    operationKey: "issue-001-renew-expired",
+    provider,
+    taskId: "task-1",
+  });
+  assert.equal(preparation.state, "prepared");
+  if (preparation.state !== "prepared") return;
+  now = new Date(Date.parse(originalExpiry) + 1);
+
+  const renewal = await renewHarnessAssignment({
+    environmentId: "demo",
+    expiresAt: nextExpiry,
+    operationKey: "issue-001-renew-expired",
+    provider,
+  });
+  assert.equal(renewal.state, "recovered");
+  assert.notEqual(
+    renewal.promotion.runLeaseId,
+    preparation.assignment.promotion.runLeaseId,
+  );
+  assert.notEqual(
+    renewal.promotion.taskLeaseId,
+    preparation.assignment.promotion.taskLeaseId,
+  );
+  assert.equal((await provider.getAgentActivity("planner")).status, "Online");
+  assert.deepEqual((await provider.getAgentActivity("planner")).taskIds, [
+    "task-1",
+  ]);
+});
+
+test("rejects expired recovery when another assignment owns the Task slot", async () => {
+  /** Mutable provider clock used to expire the original assignment. */
+  let now = new Date(Date.now());
+  /** Initial lease horizon crossed before the competing acquisition. */
+  const originalExpiry = new Date(now.getTime() + 60_000).toISOString();
+  /** Clocked provider containing the original and competing roles. */
+  const provider = await preparedProvider(
+    [],
+    new StrictSystemResourceProvider(environment, target, undefined, () => now),
+  );
+  provider.seedDefinition({
+    ...agentDefinition([]),
+    id: "other",
+    name: "Other",
+  });
+  await prepareHarnessAssignment({
+    agentId: "planner",
+    assignmentDepth: 0,
+    environmentId: "demo",
+    expiresAt: originalExpiry,
+    input: {},
+    operationKey: "issue-001-expired-conflict",
+    provider,
+    taskId: "task-1",
+  });
+  now = new Date(Date.parse(originalExpiry) + 1);
+  /** Competing Task lease acquired after the original authority expired. */
+  const conflict = await provider.acquireLease({
+    expiresAt: new Date(now.getTime() + 60 * 60_000).toISOString(),
+    idempotencyKey: "other-task-assignment",
+    ownerId: "other-run",
+    scope: "task_assignment",
+    agentId: "other",
+    taskId: "task-1",
+  });
+  assert.equal(conflict.acquired, true);
+
+  await assert.rejects(
+    completeHarnessAssignment({
+      completion: successfulCompletion("Must not route"),
+      environmentId: "demo",
+      operationKey: "issue-001-expired-conflict",
+      provider,
+    }),
+    /Task lease recovery conflicts/u,
+  );
+  assert.equal((await provider.getTaskSnapshot("task-1")).status, "Ready");
+  assert.equal((await provider.getAgentActivity("planner")).status, "Offline");
+});
+
+test("rejects expired recovery after Task drift and reconciles activity", async () => {
+  /** Mutable provider clock used to expire the original assignment. */
+  let now = new Date(Date.now());
+  /** Initial lease horizon crossed before the Task edit. */
+  const originalExpiry = new Date(now.getTime() + 60_000).toISOString();
+  /** Clocked provider retaining stale activity until recovery inspection. */
+  const provider = await preparedProvider(
+    [],
+    new StrictSystemResourceProvider(environment, target, undefined, () => now),
+  );
+  await prepareHarnessAssignment({
+    agentId: "planner",
+    assignmentDepth: 0,
+    environmentId: "demo",
+    expiresAt: originalExpiry,
+    input: {},
+    operationKey: "issue-001-expired-stale",
+    provider,
+    taskId: "task-1",
+  });
+  now = new Date(Date.parse(originalExpiry) + 1);
+  await provider.applyTaskMutation({
+    expectedVersion: "v1",
+    idempotencyKey: "edit-after-expiry",
+    nextBody: "Human changed the Task",
+    nextProperties: { Status: "Ready" },
+    nextStatus: "Ready",
+    taskId: "task-1",
+  });
+
+  await assert.rejects(
+    completeHarnessAssignment({
+      completion: successfulCompletion("Stale result"),
+      environmentId: "demo",
+      operationKey: "issue-001-expired-stale",
+      provider,
+    }),
+    /Task changed after selection/u,
+  );
+  assert.equal(
+    (await provider.getTaskSnapshot("task-1")).body,
+    "Human changed the Task",
+  );
+  assert.equal((await provider.getAgentActivity("planner")).status, "Offline");
+  assert.deepEqual((await provider.getAgentActivity("planner")).taskIds, []);
 });
 
 test("persists a blocked harness completion through Operations", async () => {
@@ -644,6 +881,34 @@ test("rejects operation-key reuse with changed assignment input", async () => {
   );
 });
 
+test("replays one logical preparation independently of lease expiry input", async () => {
+  /** Provider retaining the original assignment and lease horizon. */
+  const provider = await preparedProvider();
+  /** First immutable preparation under the stable logical key. */
+  const first = await prepareHarnessAssignment({
+    agentId: "planner",
+    assignmentDepth: 0,
+    environmentId: "demo",
+    expiresAt: "2099-01-01T00:00:00.000Z",
+    input: {},
+    operationKey: "issue-001-expiry-independent-replay",
+    provider,
+    taskId: "task-1",
+  });
+  /** Retry with a newly computed default-like expiry. */
+  const replay = await prepareHarnessAssignment({
+    agentId: "planner",
+    assignmentDepth: 0,
+    environmentId: "demo",
+    expiresAt: "2099-01-02T00:00:00.000Z",
+    input: {},
+    operationKey: "issue-001-expiry-independent-replay",
+    provider,
+    taskId: "task-1",
+  });
+  assert.deepEqual(replay, first);
+});
+
 test("rejects stale harness results after the Task changes", async () => {
   /** Provider whose Task changes after assignment preparation. */
   const provider = await preparedProvider();
@@ -744,6 +1009,23 @@ test("resumes lease cleanup after a terminal completion interruption", async () 
   assert.equal((await provider.getAgentActivity("planner")).status, "Offline");
   assert.deepEqual((await provider.getAgentActivity("planner")).taskIds, []);
 });
+
+/** Returns one schema-valid successful completion without external effects. */
+function successfulCompletion(summary: string): HarnessAssignmentCompletion {
+  return {
+    effectAttestations: [],
+    humanResolution: null,
+    result: {
+      outcome: "succeeded",
+      payload: { summary },
+      proposedIntents: [],
+      schema: "harness-agent-result-v1",
+    },
+    reviewFindingKeys: null,
+    schema: "harness-assignment-completion-v1",
+    testFailureKeys: null,
+  };
+}
 
 /** Creates a provider populated with one role, its Resources, and one Ready Task. */
 async function preparedProvider(

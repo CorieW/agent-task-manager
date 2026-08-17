@@ -166,6 +166,106 @@ export async function verifyAssignmentPromotion(
       );
 }
 
+/** Rebinds a durable promotion receipt to actively recovered lease identities. */
+export async function rebindAssignmentPromotion(
+  provider: AgentTaskProvider,
+  promotion: AssignmentPromotion,
+): Promise<void> {
+  /** Durable assignment operation whose non-lease identity cannot change. */
+  const key = `assignment/intent/${promotion.operationDigest}`;
+  /** Current assignment receipt, possibly naming a prior expired lease pair. */
+  const operation = await provider.getOptionalOperation(key);
+  if (
+    operation === null ||
+    operation.kind !== "assignment/intent" ||
+    operation.state !== "active" ||
+    operation.version !== "v1" ||
+    operation.digest !== sha256(operation.body)
+  )
+    throw new Error("Assignment promotion Operation is missing or invalid");
+  /** Parsed receipt checked before replacing only its lease identifiers. */
+  const parsed: unknown = JSON.parse(operation.body);
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed))
+    throw new Error("Assignment promotion receipt is malformed");
+  /** Existing closed receipt whose authority fields must remain identical. */
+  const current = parsed as Record<string, unknown>;
+  const expectedKeys = [
+    "operationDigest",
+    "ownerId",
+    "runLeaseId",
+    "schema",
+    "selectionBasisDigest",
+    "state",
+    "targetAgentId",
+    "taskId",
+    "taskLeaseId",
+    "taskStatus",
+    "taskVersion",
+  ].sort();
+  if (Object.keys(current).sort().join("\0") !== expectedKeys.join("\0"))
+    throw new Error("Assignment promotion receipt has unexpected fields");
+  /** Immutable receipt identity excluding replaceable recovered lease IDs. */
+  const identity = {
+    operationDigest: promotion.operationDigest,
+    ownerId: promotion.ownerId,
+    schema: "assignment-intent-v1",
+    selectionBasisDigest: promotion.selectionBasisDigest,
+    state: "complete",
+    targetAgentId: promotion.targetAgentId,
+    taskId: promotion.taskId,
+    taskStatus: promotion.taskStatus,
+    taskVersion: promotion.taskVersion,
+  };
+  for (const [field, expected] of Object.entries(identity))
+    if (current[field] !== expected)
+      throw new Error("Assignment promotion receipt identity changed");
+  /** Active projection proving both replacement lease IDs are authoritative. */
+  const projection = await provider.getLeaseProjection(promotion.targetAgentId);
+  if (
+    !projection.runLeaseIds.includes(promotion.runLeaseId) ||
+    !projection.taskLeaseIds.includes(promotion.taskLeaseId) ||
+    !projection.taskIds.includes(promotion.taskId)
+  )
+    throw new Error("Recovered assignment leases are not active");
+  /** Recovered run lease checked against the immutable assignment owner. */
+  const runLease = await provider.getLeaseSnapshot(promotion.runLeaseId);
+  /** Recovered Task lease checked against the same owner and Task. */
+  const taskLease = await provider.getLeaseSnapshot(promotion.taskLeaseId);
+  if (
+    runLease === null ||
+    runLease.released ||
+    runLease.scope !== "agent_run" ||
+    runLease.ownerId !== promotion.ownerId ||
+    runLease.agentId !== promotion.targetAgentId ||
+    runLease.taskId !== null ||
+    taskLease === null ||
+    taskLease.released ||
+    taskLease.scope !== "task_assignment" ||
+    taskLease.ownerId !== promotion.ownerId ||
+    taskLease.agentId !== promotion.targetAgentId ||
+    taskLease.taskId !== promotion.taskId
+  )
+    throw new Error("Recovered assignment lease identity is invalid");
+  /** Rebound receipt preserving every field except the recovered lease IDs. */
+  const body = JSON.stringify({
+    ...identity,
+    runLeaseId: promotion.runLeaseId,
+    taskLeaseId: promotion.taskLeaseId,
+  });
+  if (operation.body !== body)
+    await provider.putOperation({
+      body,
+      dependencies: [],
+      digest: sha256(body),
+      idempotencyKey: `${key}:rebind:${sha256(body)}`,
+      key,
+      kind: "assignment/intent",
+      state: "active",
+      version: "v1",
+    });
+  await verifyAssignmentPromotion(provider, promotion);
+}
+
 /** Parses an explicit assignment and verifies its canonical digest. */
 export function parseExplicitAssignment(value: JsonValue): ExplicitAssignment {
   /** Object used during parse explicit assignment. */

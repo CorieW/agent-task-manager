@@ -10,6 +10,7 @@ import {
   finalizeExplicitAssignment,
   prepareSelection,
   promoteExplicitAssignment,
+  rebindAssignmentPromotion,
   type ActivationRuntime,
   type AssignmentPromotion,
   type SelectionContext,
@@ -19,7 +20,11 @@ import {
   type JsonObject,
   type JsonValue,
 } from "../domain/json.js";
-import type { AgentDefinition, TaskSnapshot } from "../domain/records.js";
+import type {
+  AgentDefinition,
+  LeaseSnapshot,
+  TaskSnapshot,
+} from "../domain/records.js";
 import { finalizeRequest } from "../effects/external-effect-broker.js";
 import {
   OutcomeTransitionBroker,
@@ -157,6 +162,20 @@ export interface HarnessAssignmentRequest {
   readonly provider: AgentTaskProvider;
   /** Task explicitly assigned to the selected Agent. */
   readonly taskId: string;
+}
+
+/** Result of extending or recovering one prepared harness assignment. */
+export interface HarnessAssignmentRenewal {
+  /** Canonical UTC expiry now protecting both assignment leases. */
+  readonly expiresAt: string;
+  /** Stable caller key identifying the logical assignment. */
+  readonly operationKey: string;
+  /** Current provider-backed promotion, including recovered lease IDs. */
+  readonly promotion: AssignmentPromotion;
+  /** Wire schema for an external-harness lease renewal. */
+  readonly schema: "harness-assignment-renewal-v1";
+  /** Whether existing leases were extended or expired leases were reacquired. */
+  readonly state: "recovered" | "renewed";
 }
 
 /** Harness attestation for one externally performed proposed intent. */
@@ -580,6 +599,89 @@ export async function prepareHarnessAssignment(
   return { assignment: persisted, state: "prepared" };
 }
 
+/** Extends a prepared assignment, reacquiring its exact authority after expiry. */
+export async function renewHarnessAssignment(input: {
+  /** Environment identity used when the assignment was prepared. */
+  readonly environmentId: string;
+  /** Canonical future expiry requested for both assignment leases. */
+  readonly expiresAt: string;
+  /** Stable operation key used when the assignment was prepared. */
+  readonly operationKey: string;
+  /** Provider owning the assignment and lease state. */
+  readonly provider: AgentTaskProvider;
+}): Promise<HarnessAssignmentRenewal> {
+  assertFutureLeaseExpiry(input.expiresAt);
+  /** Prepared operation whose immutable Task and Agent basis is renewed. */
+  const intent = await input.provider.getOperationIntent(
+    harnessIntentId(input.environmentId, input.operationKey),
+  );
+  if (intent === null)
+    throw new Error("Harness assignment has not been prepared");
+  assertOperation(intent.operation);
+  if (intent.state === "applied")
+    throw new Error("Completed harness assignment cannot be renewed");
+  /** Frozen assignment authorized by the pending operation. */
+  const payload = parseOperationPayload(intent.payload);
+  if (
+    payload.environmentId !== input.environmentId ||
+    payload.assignment.operationKey !== input.operationKey
+  )
+    throw new Error("Harness assignment identity does not match renewal");
+  /** Current activation checked before any lease is changed. */
+  const { activated, runtime } = await activateForHarness(input.provider);
+  /** Current target corresponding to the frozen assignment definition. */
+  const target = requiredActivated(
+    activated,
+    payload.assignment.context.definition.id,
+  );
+  if (target.digest !== payload.assignment.context.activationDigest)
+    throw new Error("Agent definition or Resources changed after preparation");
+  await assertTaskBasis(input.provider, payload.assignment.promotion);
+  /** Current authority, or newly reacquired authority after expiry. */
+  const existing = await activeAssignmentPromotion(
+    input.provider,
+    payload.assignment.promotion,
+  );
+  const promotion =
+    existing ??
+    (await recoverAssignmentPromotion(
+      input.provider,
+      payload.assignment.promotion,
+      input.operationKey,
+      input.expiresAt,
+    ));
+  /** Promotion after convergent extension of both live leases. */
+  const renewed = await extendAssignmentPromotion(
+    input.provider,
+    promotion,
+    input.operationKey,
+    input.expiresAt,
+  );
+  await input.provider.reconcileAgentActivity(
+    renewed.targetAgentId,
+    `${input.operationKey}:activity-renew:${sha256(input.expiresAt)}`,
+  );
+  try {
+    await verifyLiveAssignment({
+      activated: target,
+      activationRuntime: runtime,
+      promotion: renewed,
+      provider: input.provider,
+    });
+  } catch (error) {
+    if (existing === null)
+      await releaseAssignment(input.provider, renewed, input.operationKey);
+    throw error;
+  }
+  return {
+    expiresAt: input.expiresAt,
+    operationKey: input.operationKey,
+    promotion: renewed,
+    schema: "harness-assignment-renewal-v1",
+    state: existing === null ? "recovered" : "renewed",
+  };
+}
+
 /** Validates an external result, applies its provider outcome, and releases leases. */
 export async function completeHarnessAssignment(input: {
   /** Completion envelope returned by the trusted external harness. */
@@ -656,7 +758,8 @@ export async function completeHarnessAssignment(input: {
       );
     await releaseAssignment(
       input.provider,
-      assignment.promotion,
+      (await activeAssignmentPromotion(input.provider, assignment.promotion)) ??
+        assignment.promotion,
       input.operationKey,
     );
     return report;
@@ -668,14 +771,59 @@ export async function completeHarnessAssignment(input: {
   const target = requiredActivated(activated, definition.id);
   if (target.digest !== assignment.context.activationDigest)
     throw new Error("Agent definition or Resources changed after preparation");
+  /** Live authority currently owned by this logical assignment. */
+  let effectivePromotion = await activeAssignmentPromotion(
+    input.provider,
+    assignment.promotion,
+  );
+  /** Whether this completion reacquired expired lease slots. */
+  let recoveredAuthority = false;
+  if (effectivePromotion === null) {
+    /** Current Task used to distinguish safe recovery from stale work. */
+    const currentTask = await input.provider.getTaskSnapshot(
+      assignment.context.task.id,
+    );
+    /** A partially committed human request is replayable without reacquisition. */
+    const partialHumanRequest =
+      input.completion.humanResolution !== null &&
+      definition.humanResolutionOutcomes.includes(result.outcome) &&
+      (currentTask.version !== assignment.promotion.taskVersion ||
+        currentTask.status !== assignment.promotion.taskStatus);
+    if (!partialHumanRequest) {
+      try {
+        await assertTaskBasis(input.provider, assignment.promotion);
+      } catch (error) {
+        await input.provider.reconcileAgentActivity(
+          assignment.promotion.targetAgentId,
+          `${input.operationKey}:activity-expired-stale`,
+        );
+        throw error;
+      }
+      effectivePromotion = await recoverAssignmentPromotion(
+        input.provider,
+        assignment.promotion,
+        input.operationKey,
+        new Date(Date.now() + 2 * 60 * 60 * 1_000).toISOString(),
+      );
+      recoveredAuthority = true;
+    }
+  }
   try {
+    if (effectivePromotion === null)
+      throw new Error("Assignment leases are not active");
     await verifyLiveAssignment({
       activated: target,
       activationRuntime: runtime,
-      promotion: assignment.promotion,
+      promotion: effectivePromotion,
       provider: input.provider,
     });
   } catch (error) {
+    if (recoveredAuthority && effectivePromotion !== null)
+      await releaseAssignment(
+        input.provider,
+        effectivePromotion,
+        input.operationKey,
+      );
     /** Current Task used only to recognize a partially committed human request. */
     const currentTask = await input.provider.getTaskSnapshot(
       assignment.context.task.id,
@@ -691,10 +839,15 @@ export async function completeHarnessAssignment(input: {
     )
       throw error;
   }
+  /** Assignment with the current recovered or renewed lease identities. */
+  const effectiveAssignment =
+    effectivePromotion === null
+      ? assignment
+      : { ...assignment, promotion: effectivePromotion };
   /** Durable provider transition derived from the validated Agent result. */
   const transition = await applyOutcome(
     input.provider,
-    assignment,
+    effectiveAssignment,
     result,
     input.completion,
     taskUpdate,
@@ -722,7 +875,7 @@ export async function completeHarnessAssignment(input: {
   const persistedReport = parseReport(completed.result);
   await releaseAssignment(
     input.provider,
-    assignment.promotion,
+    effectiveAssignment.promotion,
     input.operationKey,
   );
   return persistedReport;
@@ -1067,6 +1220,182 @@ function planningQuestionsPrompt(questions: readonly string[]): string {
     .join("\n")}`;
 }
 
+/** Active leases currently owned by one logical harness assignment. */
+interface OwnedAssignmentLeases {
+  /** Active run lease owned by the assignment, when present. */
+  readonly run: LeaseSnapshot | null;
+  /** Active Task lease owned by the assignment, when present. */
+  readonly task: LeaseSnapshot | null;
+}
+
+/** Finds active lease slots belonging to the exact assignment owner and Task. */
+async function ownedAssignmentLeases(
+  provider: AgentTaskProvider,
+  promotion: AssignmentPromotion,
+): Promise<OwnedAssignmentLeases> {
+  /** Provider projection excluding released and expired leases. */
+  const projection = await provider.getLeaseProjection(promotion.targetAgentId);
+  /** Active lease snapshots named by the authoritative projection. */
+  const snapshots = await Promise.all(
+    [...projection.runLeaseIds, ...projection.taskLeaseIds].map((leaseId) =>
+      provider.getLeaseSnapshot(leaseId),
+    ),
+  );
+  if (snapshots.some((lease) => lease === null))
+    throw new Error("Assignment lease projection changed during inspection");
+  /** Matching run leases for the exact assignment owner. */
+  const runs = (snapshots as LeaseSnapshot[]).filter(
+    (lease) =>
+      !lease.released &&
+      lease.scope === "agent_run" &&
+      lease.agentId === promotion.targetAgentId &&
+      lease.ownerId === promotion.ownerId,
+  );
+  /** Matching Task leases for the exact assignment owner and Task. */
+  const tasks = (snapshots as LeaseSnapshot[]).filter(
+    (lease) =>
+      !lease.released &&
+      lease.scope === "task_assignment" &&
+      lease.agentId === promotion.targetAgentId &&
+      lease.ownerId === promotion.ownerId &&
+      lease.taskId === promotion.taskId,
+  );
+  if (runs.length > 1 || tasks.length > 1)
+    throw new Error("Harness assignment owns duplicate active leases");
+  return { run: runs[0] ?? null, task: tasks[0] ?? null };
+}
+
+/** Returns the assignment promotion rewritten to its current active lease IDs. */
+async function activeAssignmentPromotion(
+  provider: AgentTaskProvider,
+  promotion: AssignmentPromotion,
+): Promise<AssignmentPromotion | null> {
+  /** Active lease pair belonging to this logical assignment. */
+  const leases = await ownedAssignmentLeases(provider, promotion);
+  if (leases.run === null || leases.task === null) return null;
+  return {
+    ...promotion,
+    runLeaseId: leases.run.leaseId,
+    taskLeaseId: leases.task.leaseId,
+  };
+}
+
+/** Reacquires missing assignment slots without weakening Task or owner identity. */
+async function recoverAssignmentPromotion(
+  provider: AgentTaskProvider,
+  promotion: AssignmentPromotion,
+  operationKey: string,
+  requestedExpiresAt: string,
+): Promise<AssignmentPromotion> {
+  assertFutureLeaseExpiry(requestedExpiresAt);
+  /** Any still-active half of a previously interrupted recovery. */
+  const existing = await ownedAssignmentLeases(provider, promotion);
+  /** One shared expiry, preserving an already-acquired half across retries. */
+  const acquisitionExpiry =
+    existing.run?.expiresAt ?? existing.task?.expiresAt ?? requestedExpiresAt;
+  /** Stable suffix binding recovery acquisition to its canonical expiry. */
+  const recoveryKey = `${operationKey}:lease-recovery:${sha256(acquisitionExpiry)}`;
+  /** Run lease reused from partial recovery or acquired for this attempt. */
+  let runLeaseId = existing.run?.leaseId ?? null;
+  if (runLeaseId === null) {
+    /** Provider decision for the assignment's exact run slot. */
+    const run = await provider.acquireLease({
+      expiresAt: acquisitionExpiry,
+      idempotencyKey: `${recoveryKey}:run`,
+      ownerId: promotion.ownerId,
+      scope: "agent_run",
+      agentId: promotion.targetAgentId,
+      taskId: null,
+    });
+    if (!run.acquired || run.leaseId === null)
+      throw new Error(
+        `Assignment run lease recovery conflicts with ${run.conflictingLeaseId ?? "an unknown lease"}`,
+      );
+    runLeaseId = run.leaseId;
+  }
+  /** Task lease reused from partial recovery or acquired for this attempt. */
+  let taskLeaseId = existing.task?.leaseId ?? null;
+  if (taskLeaseId === null) {
+    /** Provider decision for the assignment's exact Task slot. */
+    const task = await provider.acquireLease({
+      expiresAt: acquisitionExpiry,
+      idempotencyKey: `${recoveryKey}:task`,
+      ownerId: promotion.ownerId,
+      scope: "task_assignment",
+      agentId: promotion.targetAgentId,
+      taskId: promotion.taskId,
+    });
+    if (!task.acquired || task.leaseId === null) {
+      await releaseLease(provider, runLeaseId, promotion.ownerId);
+      await provider.reconcileAgentActivity(
+        promotion.targetAgentId,
+        `${recoveryKey}:activity-compensate`,
+      );
+      throw new Error(
+        `Assignment Task lease recovery conflicts with ${task.conflictingLeaseId ?? "an unknown lease"}`,
+      );
+    }
+    taskLeaseId = task.leaseId;
+  }
+  await provider.reconcileAgentActivity(
+    promotion.targetAgentId,
+    `${recoveryKey}:activity`,
+  );
+  /** Promotion rewritten to the recovered live lease identities. */
+  const recovered = await extendAssignmentPromotion(
+    provider,
+    { ...promotion, runLeaseId, taskLeaseId },
+    operationKey,
+    requestedExpiresAt,
+  );
+  await rebindAssignmentPromotion(provider, recovered);
+  return recovered;
+}
+
+/** Convergently extends both active assignment leases to one requested expiry. */
+async function extendAssignmentPromotion(
+  provider: AgentTaskProvider,
+  promotion: AssignmentPromotion,
+  operationKey: string,
+  nextExpiresAt: string,
+): Promise<AssignmentPromotion> {
+  assertFutureLeaseExpiry(nextExpiresAt);
+  for (const leaseId of [promotion.runLeaseId, promotion.taskLeaseId]) {
+    /** Current lease version and expiry used as the renewal CAS basis. */
+    const lease = await provider.getLeaseSnapshot(leaseId);
+    if (lease === null || lease.released || lease.ownerId !== promotion.ownerId)
+      throw new Error(`Assignment lease ${leaseId} is not renewable`);
+    if (lease.expiresAt === nextExpiresAt) continue;
+    if (Date.parse(lease.expiresAt) > Date.parse(nextExpiresAt)) continue;
+    /** Idempotent provider renewal preserving the current lease identifier. */
+    const renewed = await provider.renewLease({
+      expectedExpiresAt: lease.expiresAt,
+      idempotencyKey: `${operationKey}:lease-renew:${leaseId}:${sha256(`${lease.expiresAt}\0${nextExpiresAt}`)}`,
+      leaseId,
+      nextExpiresAt,
+      ownerId: promotion.ownerId,
+    });
+    if (!renewed.acquired || renewed.leaseId !== leaseId)
+      throw new Error(`Assignment lease ${leaseId} could not be renewed`);
+  }
+  return promotion;
+}
+
+/** Rejects recovery when the assigned Task no longer matches its frozen basis. */
+async function assertTaskBasis(
+  provider: AgentTaskProvider,
+  promotion: AssignmentPromotion,
+): Promise<void> {
+  /** Current Task snapshot compared before any expired authority is reacquired. */
+  const task = await provider.getTaskSnapshot(promotion.taskId);
+  if (
+    task.archived ||
+    task.version !== promotion.taskVersion ||
+    task.status !== promotion.taskStatus
+  )
+    throw new Error("Assigned Task changed after selection");
+}
+
 /** Releases both assignment leases and reconciles the Agent activity projection. */
 async function releaseAssignment(
   provider: AgentTaskProvider,
@@ -1289,7 +1618,6 @@ function requestDigest(request: HarnessAssignmentRequest): string {
       agentId: request.agentId,
       assignmentDepth: request.assignmentDepth,
       environmentId: request.environmentId,
-      expiresAt: request.expiresAt,
       input: request.input,
       operationKey: request.operationKey,
       taskId: request.taskId,
@@ -1308,17 +1636,22 @@ function validateRequest(request: HarnessAssignmentRequest): void {
     request.assignmentDepth < 0
   )
     throw new TypeError("Assignment depth must be a non-negative integer");
-  /** Parsed canonical expiry compared with the local preparation clock. */
-  const expiresAt = Date.parse(request.expiresAt);
+  assertFutureLeaseExpiry(request.expiresAt);
+  jsonObject(request.input, "Harness input");
+}
+
+/** Requires one canonical UTC timestamp strictly after the local clock. */
+function assertFutureLeaseExpiry(value: string): void {
+  /** Parsed canonical expiry compared with the local harness clock. */
+  const expiresAt = Date.parse(value);
   if (
     !Number.isFinite(expiresAt) ||
-    new Date(expiresAt).toISOString() !== request.expiresAt ||
+    new Date(expiresAt).toISOString() !== value ||
     expiresAt <= Date.now()
   )
     throw new TypeError(
       "Lease expiry must be a canonical future UTC timestamp",
     );
-  jsonObject(request.input, "Harness input");
 }
 
 /** Returns the provider intent address for one environment-scoped operation key. */

@@ -20,6 +20,7 @@ import {
   parseHarnessAssignmentCompletion,
   prepareHarnessAssignment,
   prepareHarnessSelection,
+  renewHarnessAssignment,
 } from "./harness/assignment-session.js";
 import {
   inspectHumanRecovery,
@@ -45,6 +46,7 @@ Usage:
   agent-task-manager inspect (--task <task-id> | --agent <definition-id> | --lease <lease-id>) [--json] [--config <path>]
   agent-task-manager candidates --agent <definition-id> [--json] [--config <path>]
   agent-task-manager assignment prepare --agent <definition-id> --task <task-id> --operation-key <stable-key> [--expires-at <iso-timestamp>] [--depth <integer>] [--input <json-path>] [--json] [--config <path>]
+  agent-task-manager assignment renew --operation-key <stable-key> --expires-at <iso-timestamp> [--json] [--config <path>]
   agent-task-manager assignment complete --operation-key <stable-key> --completion <json-path|-> [--json] [--config <path>]
   agent-task-manager reconcile activity --agent <definition-id> [--json] [--config <path>]
   agent-task-manager reconcile human --task <task-id> --slot <sha256> [--json] [--config <path>]
@@ -55,8 +57,9 @@ Planning and validation are read-only. Schema apply is human-only and requires
 the exact digest of a freshly recomputed plan. Inspect is read-only; reconcile
 performs only the explicitly named recovery operation.
 Candidates is a read-only provider-defined selection snapshot. Assignment
-prepare emits immutable context for an external harness; assignment complete
-validates the returned result and attestations without invoking a model.
+prepare emits immutable context for an external harness; assignment renew
+extends or safely recovers its leases; assignment complete validates the
+returned result and attestations without invoking a model.
 `;
 
 /** Returns the configured environment path or its conventional default. */
@@ -389,8 +392,8 @@ export async function main(
 async function assignmentCommand(args: readonly string[]): Promise<number> {
   /** Assignment phase selected by the external harness. */
   const action = args[1];
-  if (action !== "prepare" && action !== "complete")
-    throw new Error("assignment requires prepare or complete");
+  if (action !== "prepare" && action !== "renew" && action !== "complete")
+    throw new Error("assignment requires prepare, renew, or complete");
   /** Stable logical key shared by preparation and completion. */
   const operationKey = option(args, "--operation-key");
 
@@ -399,10 +402,10 @@ async function assignmentCommand(args: readonly string[]): Promise<number> {
     const agentId = option(args, "--agent");
     /** Exact eligible Task selected by the external Task Master harness. */
     const taskId = option(args, "--task");
-    /** Canonical lease expiry supplied explicitly or bounded to two hours. */
+    /** Canonical lease expiry supplied explicitly or bounded to one day. */
     const expiresAt =
       optionalOption(args, "--expires-at") ??
-      new Date(Date.now() + 2 * 60 * 60 * 1_000).toISOString();
+      new Date(Date.now() + 24 * 60 * 60 * 1_000).toISOString();
     assertCanonicalFutureTimestamp(expiresAt, "--expires-at");
     /** Assignment depth propagated by a parent harness, or zero at the root. */
     const depth = Number(optionalOption(args, "--depth") ?? "0");
@@ -436,6 +439,29 @@ async function assignmentCommand(args: readonly string[]): Promise<number> {
       preparation.state === "prepared"
         ? `Prepared ${agentId} assignment for Task ${taskId}.`
         : `Assignment ${operationKey} is already complete.`,
+    );
+    return 0;
+  }
+
+  if (action === "renew") {
+    /** Explicit canonical lease horizon chosen by the external harness. */
+    const expiresAt = option(args, "--expires-at");
+    assertCanonicalFutureTimestamp(expiresAt, "--expires-at");
+    /** Environment and ready provider loaded after local timestamp validation. */
+    const config = await loadConfig(configPath(args));
+    /** Validated Notion boundary that owns the assignment lifecycle. */
+    const provider = await readyNotionProvider(config);
+    /** Extended or recovered provider authority for the pending assignment. */
+    const renewal = await renewHarnessAssignment({
+      environmentId: config.environmentId,
+      expiresAt,
+      operationKey,
+      provider,
+    });
+    writeCommandOutput(
+      renewal,
+      args.includes("--json"),
+      `${renewal.state === "recovered" ? "Recovered" : "Renewed"} assignment ${operationKey} through ${expiresAt}.`,
     );
     return 0;
   }

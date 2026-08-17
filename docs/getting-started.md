@@ -67,6 +67,7 @@ node dist/src/cli.js inspect --agent <definition-id> --json [--config <path>]
 node dist/src/cli.js inspect --lease <lease-id> --json [--config <path>]
 node dist/src/cli.js candidates --agent <definition-id> --json [--config <path>]
 node dist/src/cli.js assignment prepare --agent <definition-id> --task <task-id> --operation-key <stable-key> --json [--config <path>]
+node dist/src/cli.js assignment renew --operation-key <stable-key> --expires-at <canonical-future-utc-timestamp> --json [--config <path>]
 node dist/src/cli.js assignment complete --operation-key <stable-key> --completion <json-path|-> --json [--config <path>]
 node dist/src/cli.js reconcile activity --agent <definition-id> --json [--config <path>]
 node dist/src/cli.js reconcile human --task <task-id> --slot <sha256> --json [--config <path>]
@@ -97,6 +98,12 @@ harness performs the role, creates child agents when needed, and executes any
 approved external effects. `assignment complete` validates the harness result
 and ordered effect attestations, applies the provider-defined outcome, and
 releases the leases. The CLI never calls a model endpoint.
+
+Preparation defaults to a 24-hour lease horizon. Long-running harnesses should
+call `assignment renew` before expiry. Renewal is idempotent and, if the leases
+already expired, reacquires the exact unchanged assignment only when no
+competing lease exists. Completion uses the same fail-closed recovery as a last
+resort, while still rejecting changed Tasks, definitions, Resources, or owners.
 
 Operational CLI commands currently support Notion environments. Provider-neutral
 library APIs remain available for other provider integrations. See the

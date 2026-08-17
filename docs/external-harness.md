@@ -33,10 +33,21 @@ Agent Task Manager.
 4. Let the external role perform its work. If it needs Coder, Reviewer, Tester,
    or another child, the harness creates that child itself. Agent Task Manager
    does not invoke a model.
-5. Execute authorized external proposed effects and retain bounded evidence for
+5. For work that may approach its lease horizon, renew the assignment before
+   expiry. The operation is safe to repeat and can reacquire the same unchanged
+   Task after expiry when no competing assignment exists:
+
+   ```powershell
+   agent-task-manager assignment renew `
+     --operation-key <stable-key> `
+     --expires-at <canonical-future-utc-timestamp> `
+     --json
+   ```
+
+6. Execute authorized external proposed effects and retain bounded evidence for
    each one. The manager applies `task.plan.publish` and
    `task.github_link.record` itself during outcome routing.
-6. Submit the result and attestations:
+7. Submit the result and attestations:
 
    ```powershell
    agent-task-manager assignment complete `
@@ -48,6 +59,15 @@ Agent Task Manager.
 Use the same operation key after interruption. Preparation returns the existing
 assignment or terminal report. Completion replays the terminal report and
 finishes any interrupted lease cleanup without rerouting the outcome.
+Lease expiry is lifecycle state rather than logical request identity, so an
+exact preparation replay returns the original assignment even when its default
+expiry would now be different. The default preparation horizon is 24 hours.
+
+Completion also performs a fail-closed recovery when the leases expired but the
+Task version/status, Agent activation, Resource pins, owner, and exclusive lease
+slots are still unchanged. It rejects recovery if another assignment acquired a
+slot or the immutable work basis drifted. Renewal remains the preferred path for
+long-running work because it maintains uninterrupted authority.
 
 ## Completion envelope
 
