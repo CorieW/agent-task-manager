@@ -1,6 +1,7 @@
 /** Provider-neutral the safe canonical enhanced-Markdown boundary for readable Notion Resources contract. */
 import { sha256 } from "../../core/digest.js";
-import type { JsonObject, JsonValue } from "../../domain/json.js";
+import type { JsonObject } from "../../domain/json.js";
+import { requiredString } from "./notion-json-boundary.js";
 
 /** Exact managed heading that precedes every readable Resource body. */
 const RESOURCE_BODY_HEADING = "## Resource body";
@@ -140,12 +141,4 @@ function assertSafeMarkdownLine(line: string): void {
 /** Normalizes provider Markdown for stable comparisons and SHA-256 digests. */
 function normalizeMarkdown(markdown: string): string {
   return markdown.replace(/\r\n?/gu, "\n").normalize("NFC");
-}
-
-/** Returns a required non-empty string or throws a closed-boundary error. */
-function requiredString(value: JsonValue | undefined, label: string): string {
-  if (typeof value !== "string" || value === "") {
-    throw new TypeError(`${label} must be a non-empty string`);
-  }
-  return value;
 }

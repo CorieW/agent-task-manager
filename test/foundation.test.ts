@@ -11,6 +11,12 @@ import {
   parseEnvironmentConfig,
   ProviderRegistry,
 } from "../src/index.js";
+import { sameStringSet } from "../src/core/string-set.js";
+
+test("string-set comparison ignores order and duplicate values", () => {
+  assert.equal(sameStringSet(["b", "a", "a"], ["a", "b"]), true);
+  assert.equal(sameStringSet(["a"], ["a", "b"]), false);
+});
 
 test("canonicalize sorts object keys recursively", () => {
   assert.equal(

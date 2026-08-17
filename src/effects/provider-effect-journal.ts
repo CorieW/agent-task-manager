@@ -1,7 +1,7 @@
 /** Completes external-effect intents and receipts in provider Operations. */
 import { canonicalize } from "../core/canonical-json.js";
 import { randomUUID } from "node:crypto";
-import { sha256 } from "../core/digest.js";
+import { isSha256Digest, sha256 } from "../core/digest.js";
 import { toJsonValue } from "../domain/json.js";
 import type { OperationRecord } from "../domain/records.js";
 import type { AgentTaskProvider } from "../provider/agent-task-provider.js";
@@ -165,11 +165,6 @@ function validateIntent(value: ExternalEffectIntentRecord): void {
   )
     throw new TypeError("Terminal external-effect intent requires a receipt");
   toJsonValue(value.payload);
-}
-
-/** Returns whether a value is a lowercase SHA-256 digest. */
-function isSha256Digest(value: string): boolean {
-  return /^[a-f0-9]{64}$/u.test(value);
 }
 
 /** Returns whether an error requests retained effect ownership. */

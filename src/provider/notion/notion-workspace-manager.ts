@@ -8,6 +8,7 @@ import {
   type JsonObject,
   type JsonValue,
 } from "../../domain/json.js";
+import { ERROR_STATUSES } from "../../domain/records.js";
 import {
   TABLE_KINDS,
   type ProviderEnvironment,
@@ -23,6 +24,7 @@ import type {
   WorkspaceSchemaRequest,
   WorkspaceSchemaSnapshot,
 } from "../../domain/schema.js";
+import { objectValue, requiredString } from "./notion-json-boundary.js";
 import { NotionPageStore } from "./notion-page-store.js";
 import { parseWriteReceipt } from "../write-receipt-codec.js";
 import {
@@ -1006,8 +1008,7 @@ function selectOptions(table: TableKind, property: string): readonly string[] {
     return RESOURCE_KIND_OPTIONS;
   if (table === "errors" && property === "Severity")
     return ERROR_SEVERITY_OPTIONS;
-  if (table === "errors" && property === "Status")
-    return ["Not Fixed", "Fixing", "Fixed"];
+  if (table === "errors" && property === "Status") return ERROR_STATUSES;
   if (table === "agents" && property === "Status") return ["Online", "Offline"];
   return [];
 }
@@ -1299,24 +1300,5 @@ function requiredDraft<T>(value: T | undefined): T {
 /** Returns a JSON value or throws when it is missing. */
 function requiredValue(value: JsonValue | undefined): JsonValue {
   if (value === undefined) throw new TypeError("Expected value is missing");
-  return value;
-}
-
-/** Returns a validated JSON object. */
-function objectValue(value: JsonValue | undefined, label: string): JsonObject {
-  if (
-    value === null ||
-    value === undefined ||
-    typeof value !== "object" ||
-    Array.isArray(value)
-  )
-    throw new TypeError(`${label} must be an object`);
-  return value;
-}
-
-/** Returns a required non-empty string or throws. */
-function requiredString(value: JsonValue | undefined, label: string): string {
-  if (typeof value !== "string" || value === "")
-    throw new TypeError(`${label} must be a non-empty string`);
   return value;
 }

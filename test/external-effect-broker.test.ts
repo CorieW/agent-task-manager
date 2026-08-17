@@ -135,6 +135,10 @@ test("serializes concurrent execution of one effect identity", async () => {
   const provider = new InMemoryProvider(environment, target);
   /** Counts external applications to detect duplicate effects. */
   let applications = 0;
+  /** Signals that the first external application owns the effect identity. */
+  const applyStarted = deferredSignal();
+  /** Holds the first application until both executions are competing. */
+  const releaseApply = deferredSignal();
   /** Executes the durable effect workflow under test. */
   const broker = brokerFor(
     provider,
@@ -142,18 +146,31 @@ test("serializes concurrent execution of one effect identity", async () => {
       /** Simulates effect application. */
       async apply() {
         applications += 1;
-        await new Promise((resolve) => setTimeout(resolve, 5));
+        applyStarted.resolve();
+        await releaseApply.promise;
         return applied("once");
       },
     }),
   );
   /** Supplies the operation input under test. */
   const request = requestFor("git.commit", { message: "feat: once" });
-  /** Creates two handlers competing for one effect identity. */
-  const [left, right] = await Promise.all([
+  /** Both executions created before the application barrier is released. */
+  const executions = Promise.all([
     broker.execute(request, deadline()),
     broker.execute(request, deadline()),
   ]);
+  try {
+    await Promise.race([
+      applyStarted.promise,
+      executions.then(() => {
+        throw new Error("Effect executions completed before apply started");
+      }),
+    ]);
+  } finally {
+    releaseApply.resolve();
+  }
+  /** Results returned after one application and one durable replay. */
+  const [left, right] = await executions;
   assert.equal(applications, 1);
   assert.deepEqual(left.receipt, right.receipt);
 });
@@ -373,8 +390,15 @@ test("retains the provider claim when deadline cancellation is not acknowledged"
 });
 
 test("durable quarantine blocks replay after its provider claim expires", async () => {
+  /** Mutable provider clock used to expire the retained claim deterministically. */
+  let providerNow = Date.now();
   /** Provides isolated provider state for the scenario. */
-  const provider = new InMemoryProvider(environment, target);
+  const provider = new InMemoryProvider(
+    environment,
+    target,
+    undefined,
+    () => new Date(providerNow),
+  );
   /** Counts external applications to detect duplicate effects. */
   let applications = 0;
   /** Simulates the external effect adapter under test. */
@@ -412,6 +436,8 @@ test("durable quarantine blocks replay after its provider claim expires", async 
     runtime: null,
     schema: "agent-task-manager-environment-v1" as const,
   };
+  /** Cancellation grace included in the retained provider claim expiry. */
+  const cancellationGraceMilliseconds = 5;
   /** Executes the durable effect workflow under test. */
   const broker = new ExternalEffectBroker(
     resolveExternalEffectEnvironment(environmentConfig, [handler]),
@@ -420,20 +446,22 @@ test("durable quarantine blocks replay after its provider claim expires", async 
       /** Simulates authorization verification. */
       async verify() {},
     },
-    5,
+    cancellationGraceMilliseconds,
     0,
   );
   /** Supplies the operation input under test. */
   const request = requestFor("git.commit", {
     message: "fix: durable quarantine",
   });
+  /** Deadline whose exact claim expiry is advanced after cancellation settles. */
+  const firstDeadline = Date.now() + 25;
   await assert.rejects(
-    broker.execute(request, Date.now() + 25),
+    broker.execute(request, firstDeadline),
     (error: unknown) =>
       error instanceof IndeterminateExternalEffectError &&
       error.retainClaimUntilExpiry,
   );
-  await new Promise((resolve) => setTimeout(resolve, 10));
+  providerNow = firstDeadline + cancellationGraceMilliseconds;
   await assert.rejects(
     broker.execute(request, deadline()),
     (error: unknown) =>
@@ -532,4 +560,18 @@ function testHandler(
 /** Returns a future deadline for the test scenario. */
 function deadline(): number {
   return Date.now() + 10_000;
+}
+
+/** Creates a one-shot signal for deterministic asynchronous test coordination. */
+function deferredSignal(): {
+  readonly promise: Promise<void>;
+  readonly resolve: () => void;
+} {
+  /** Resolves the signal once the test reaches its intended transition. */
+  let resolve!: () => void;
+  /** Promise awaited by the other side of the test barrier. */
+  const promise = new Promise<void>((complete) => {
+    resolve = complete;
+  });
+  return { promise, resolve };
 }

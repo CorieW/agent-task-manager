@@ -36,6 +36,7 @@ import {
   type JsonValue,
 } from "../../domain/json.js";
 import { digestJson, sha256 } from "../../core/digest.js";
+import { sameStringSet } from "../../core/string-set.js";
 import type {
   TableValidationReport,
   WorkspaceMigrationPlan,
@@ -258,8 +259,8 @@ export class NotionProvider implements AgentTaskProvider {
       /** Canonically ordered Task relations derived from assignment leases. */
       const activeTasks = projection.taskIds;
       if (
-        !sameSet(activeRuns, change.nextRunLeaseIds) ||
-        !sameSet(activeTasks, change.nextTaskIds)
+        !sameStringSet(activeRuns, change.nextRunLeaseIds) ||
+        !sameStringSet(activeTasks, change.nextTaskIds)
       ) {
         throw new Error(
           "Agent activity must equal the provider's active lease projection",
@@ -520,7 +521,7 @@ export class NotionProvider implements AgentTaskProvider {
       };
       if (
         observed.status === expectedStatus &&
-        sameSet(observed.taskIds, activeTaskIds)
+        sameStringSet(observed.taskIds, activeTaskIds)
       )
         return { basis, receipt: null };
       /** Result of `reconcileAgentActivity`, retained for validation and reuse. */
@@ -765,14 +766,6 @@ function jsonObject(value: JsonValue | undefined, label: string): JsonObject {
   if (checked === null || typeof checked !== "object" || Array.isArray(checked))
     throw new TypeError(`${label} must be an object`);
   return checked;
-}
-
-/** Compares two string collections as normalized sets. */
-function sameSet(left: readonly string[], right: readonly string[]): boolean {
-  return (
-    [...new Set(left)].sort().join("\0") ===
-    [...new Set(right)].sort().join("\0")
-  );
 }
 
 /** Reports whether a Resource record exactly matches a mutation target. */

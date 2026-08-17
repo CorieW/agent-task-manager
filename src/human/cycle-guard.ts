@@ -1,5 +1,5 @@
 /** Implements the provider-neutral state machine shared by remediation-cycle guards. */
-import { digestJson } from "../core/digest.js";
+import { digestJson, isSha256Digest } from "../core/digest.js";
 import { toJsonValue, type JsonObject } from "../domain/json.js";
 
 /** Provider-neutral provider property names, limits, and diagnostics for one remediation cycle contract. */
@@ -198,7 +198,7 @@ function optionalCount(value: unknown, label: string): number {
 /** Returns a SHA-256 property, defaulting an absent or empty value to null. */
 function optionalDigest(value: unknown, label: string): string | null {
   if (value === undefined || value === null || value === "") return null;
-  if (typeof value !== "string" || !/^[a-f0-9]{64}$/u.test(value)) {
+  if (!isSha256Digest(value)) {
     throw new TypeError(`${label} must be a SHA-256 digest`);
   }
   return value;

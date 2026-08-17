@@ -31,19 +31,36 @@ export class SingleHostMutex {
       handle = await this.acquire();
       return await operation();
     } finally {
-      if (handle !== undefined) {
-        await handle.close();
-        await rm(this.#path, { force: true });
+      try {
+        if (handle !== undefined) {
+          try {
+            await handle.close();
+          } finally {
+            await rm(this.#path, { force: true });
+          }
+        }
+      } finally {
+        releaseQueue();
       }
-      releaseQueue();
     }
   }
 
   /** Acquires acquire. */
   private async acquire() {
     try {
-      /** Result of `open`, retained for `acquire`. */
-      const handle = await open(this.#path, "wx", 0o600);
+      return await this.createLock();
+    } catch (error) {
+      if (!isAlreadyExists(error) || !(await this.clearStaleOwner()))
+        throw error;
+      return this.createLock();
+    }
+  }
+
+  /** Creates and initializes a lock, restoring the unlocked state on failure. */
+  private async createLock() {
+    /** Exclusively created lock handle owned by this acquisition attempt. */
+    const handle = await open(this.#path, "wx", 0o600);
+    try {
       await handle.writeFile(
         JSON.stringify({
           pid: process.pid,
@@ -53,18 +70,17 @@ export class SingleHostMutex {
       );
       return handle;
     } catch (error) {
-      if (!isAlreadyExists(error) || !(await this.clearStaleOwner()))
-        throw error;
-      /** Result of `open`, retained for `acquire`. */
-      const handle = await open(this.#path, "wx", 0o600);
-      await handle.writeFile(
-        JSON.stringify({
-          pid: process.pid,
-          startedAt: new Date().toISOString(),
-        }),
-        "utf8",
-      );
-      return handle;
+      try {
+        await handle.close();
+      } catch {
+        // Preserve the initialization failure that made this lock unusable.
+      }
+      try {
+        await rm(this.#path, { force: true });
+      } catch {
+        // The primary initialization failure remains the actionable cause.
+      }
+      throw error;
     }
   }
 

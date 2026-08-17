@@ -1,5 +1,5 @@
 /** Provider-neutral immutable, digest-bound context, runtime receipts, and agent results contract. */
-import { digestJson } from "../core/digest.js";
+import { digestJson, isSha256Digest } from "../core/digest.js";
 import {
   toJsonValue,
   type JsonObject,
@@ -255,10 +255,7 @@ export function validateRuntimeCapabilityReceipt(
     );
   }
   for (const [key, value] of Object.entries(receipt)) {
-    if (
-      key.endsWith("Digest") &&
-      (typeof value !== "string" || !/^[a-f0-9]{64}$/u.test(value))
-    )
+    if (key.endsWith("Digest") && !isSha256Digest(value))
       throw new TypeError(`Runtime receipt ${key} is not a SHA-256 digest`);
   }
   for (const key of [
@@ -296,7 +293,7 @@ function requireString(value: JsonValue | undefined, label: string): string {
 function requireDigest(value: JsonValue | undefined, label: string): string {
   /** Validated result returned by require digest. */
   const result = requireString(value, label);
-  if (!/^[a-f0-9]{64}$/u.test(result))
+  if (!isSha256Digest(result))
     throw new TypeError(`${label} must be a SHA-256 digest`);
   return result;
 }

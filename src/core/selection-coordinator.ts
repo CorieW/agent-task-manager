@@ -1,5 +1,6 @@
 /** Validates typed selections and promotes them into provider-backed worker leases. */
 import { digestJson, sha256 } from "./digest.js";
+import { sameStringSet } from "./string-set.js";
 import {
   assertSelectionAuthority,
   parseTaskSelectionResult,
@@ -1093,15 +1094,7 @@ function activityMatches(
     projection.runLeaseIds.length === 0 ? "Offline" : "Online";
   return (
     activity.status === expectedStatus &&
-    sameSet(activity.taskIds, projection.taskIds)
-  );
-}
-
-/** Checks whether two string collections contain the same values. */
-function sameSet(left: readonly string[], right: readonly string[]): boolean {
-  return (
-    [...new Set(left)].sort().join("\0") ===
-    [...new Set(right)].sort().join("\0")
+    sameStringSet(activity.taskIds, projection.taskIds)
   );
 }
 

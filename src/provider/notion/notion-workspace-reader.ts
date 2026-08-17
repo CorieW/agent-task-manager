@@ -21,6 +21,7 @@ import type {
   WorkspaceSchemaDescriptor,
   WorkspaceSchemaSnapshot,
 } from "../../domain/schema.js";
+import { objectValue, requiredString } from "./notion-json-boundary.js";
 import { NotionApiError, type NotionTransport } from "./notion-transport.js";
 
 /** Notion property types the manager may inspect but never mutate. */
@@ -323,26 +324,6 @@ function objectAt(
   const item = value[index];
   if (item === undefined) throw new TypeError(`${label} is missing`);
   return objectValue(item, label);
-}
-
-/** Returns a validated JSON object. */
-function objectValue(value: JsonValue | undefined, label: string): JsonObject {
-  if (
-    value === null ||
-    value === undefined ||
-    typeof value !== "object" ||
-    Array.isArray(value)
-  ) {
-    throw new TypeError(`${label} must be an object`);
-  }
-  return value;
-}
-
-/** Returns a required non-empty string or throws. */
-function requiredString(value: JsonValue | undefined, label: string): string {
-  if (typeof value !== "string" || value === "")
-    throw new TypeError(`${label} must be a non-empty string`);
-  return value;
 }
 
 /** Creates an error-severity validation issue. */

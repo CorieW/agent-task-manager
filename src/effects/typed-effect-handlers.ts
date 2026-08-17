@@ -1,4 +1,5 @@
 /** Converts closed provider-defined effect payloads into trusted adapter calls. */
+import { isSha256Digest } from "../core/digest.js";
 import type { JsonObject, JsonValue } from "../domain/json.js";
 import type {
   ExternalEffectControl,
@@ -621,7 +622,7 @@ function nullableRevision(
 function digest(value: JsonValue | undefined, label: string): string {
   /** Validated result returned by digest. */
   const result = text(value, label);
-  if (!/^[a-f0-9]{64}$/u.test(result))
+  if (!isSha256Digest(result))
     throw new TypeError(`${label} must be a SHA-256 digest`);
   return result;
 }

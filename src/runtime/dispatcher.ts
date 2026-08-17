@@ -1,5 +1,6 @@
 /** Launches one currently assigned Agent through environment-bound trusted adapters. */
-import { digestJson } from "../core/digest.js";
+import { digestJson, isSha256Digest } from "../core/digest.js";
+import { sameStringSet } from "../core/string-set.js";
 import {
   activateDefinitions,
   type ActivatedDefinition,
@@ -379,7 +380,7 @@ export async function verifyLiveAssignment(input: {
   const activity = await input.provider.getAgentActivity(definitionId);
   if (
     activity.status !== "Online" ||
-    !sameSet(activity.taskIds, projection.taskIds)
+    !sameStringSet(activity.taskIds, projection.taskIds)
   )
     throw new RuntimeDispatchError(
       "activity_mismatch",
@@ -579,19 +580,11 @@ function jsonObject(value: unknown, label: string): JsonObject {
 
 /** Returns digest or throws when invalid or absent. */
 function requireDigest(value: string, label: string): void {
-  if (!/^[a-f0-9]{64}$/u.test(value))
+  if (!isSha256Digest(value))
     throw new RuntimeDispatchError(
       "receipt_digest_invalid",
       `${label} is invalid`,
     );
-}
-
-/** Compares values without making ordering observable. */
-function sameSet(left: readonly string[], right: readonly string[]): boolean {
-  return (
-    [...new Set(left)].sort().join("\0") ===
-    [...new Set(right)].sort().join("\0")
-  );
 }
 
 /** Bounds an asynchronous operation by the remaining absolute deadline. */

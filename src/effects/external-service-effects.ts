@@ -2,7 +2,7 @@
 import { readFile } from "node:fs/promises";
 import { isAbsolute, parse, resolve } from "node:path";
 
-import { sha256 } from "../core/digest.js";
+import { isSha256Digest, sha256 } from "../core/digest.js";
 import type { JsonObject } from "../domain/json.js";
 import type {
   ExternalEffectControl,
@@ -374,7 +374,7 @@ function validateCommand(command: ConfiguredCommand): void {
   if (
     command.key === "" ||
     !isAbsolute(command.executablePath) ||
-    !/^[a-f0-9]{64}$/u.test(command.executableDigest) ||
+    !isSha256Digest(command.executableDigest) ||
     command.timeoutMilliseconds < 1 ||
     !Number.isSafeInteger(command.timeoutMilliseconds) ||
     command.argumentsPrefix.some((value) => value.includes("\0"))

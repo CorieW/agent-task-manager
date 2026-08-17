@@ -1,5 +1,5 @@
 /** Builds and advances an in-memory, fail-closed identification trial over exactly ten Tasks without provider writes. */
-import { digestJson } from "../core/digest.js";
+import { digestJson, isSha256Digest } from "../core/digest.js";
 import { resolveLoadedDefinition } from "../core/definition-resolver.js";
 import { toJsonValue } from "../domain/json.js";
 import type { ErrorMutation, TaskSnapshot } from "../domain/records.js";
@@ -887,8 +887,7 @@ function assertExactKeys(
 
 /** Rejects values that violate the SHA-256 contract. */
 function assertSha256(value: string, label: string): void {
-  if (!/^[a-f0-9]{64}$/u.test(value))
-    throw new TypeError(`${label} is invalid`);
+  if (!isSha256Digest(value)) throw new TypeError(`${label} is invalid`);
 }
 
 /** Rejects values that violate the blocker contract. */

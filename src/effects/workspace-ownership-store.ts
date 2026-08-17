@@ -1,7 +1,7 @@
 /** Persists workspace ownership in provider Operations for crash recovery. */
 import { canonicalize } from "../core/canonical-json.js";
 import { randomUUID } from "node:crypto";
-import { sha256 } from "../core/digest.js";
+import { isSha256Digest, sha256 } from "../core/digest.js";
 import { toJsonValue } from "../domain/json.js";
 import type { AgentTaskProvider } from "../provider/agent-task-provider.js";
 import type { WorkspaceProvisionPayload } from "./typed-effect-handlers.js";
@@ -262,7 +262,7 @@ function requireClosedKeys(value: Record<string, unknown>): void {
 
 /** Returns digest or throws when invalid or absent. */
 function requireDigest(value: unknown, field: string): string {
-  if (typeof value !== "string" || !/^[a-f0-9]{64}$/u.test(value))
+  if (!isSha256Digest(value))
     throw new TypeError(`Workspace ownership ${field} is malformed`);
   return value;
 }

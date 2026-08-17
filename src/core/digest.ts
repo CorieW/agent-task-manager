@@ -13,3 +13,8 @@ export function sha256(value: string | Uint8Array): string {
 export function digestJson(value: JsonValue): string {
   return sha256(canonicalize(value));
 }
+
+/** Reports whether a value is a lowercase hexadecimal SHA-256 digest. */
+export function isSha256Digest(value: unknown): value is string {
+  return typeof value === "string" && /^[a-f0-9]{64}$/u.test(value);
+}

@@ -11,7 +11,7 @@ import {
 import { isAbsolute, join, parse, relative, resolve } from "node:path";
 import { AsyncLocalStorage } from "node:async_hooks";
 
-import { sha256 } from "../core/digest.js";
+import { isSha256Digest, sha256 } from "../core/digest.js";
 import type {
   ExternalEffectControl,
   ExternalEffectObservation,
@@ -225,7 +225,7 @@ export class LocalGitEffects {
     return this.adapter(
       "local-git-workspace",
       (input) => this.applyRelease(input.effectId, input.payload),
-      (input) => this.reconcileRelease(input.effectId, input.payload),
+      (input) => this.reconcileRelease(input.payload),
     );
   }
   /** Returns the typed adapter bound to this local Git effect. */
@@ -443,7 +443,6 @@ export class LocalGitEffects {
 
   /** Reconciles release from observed state without blind replay. */
   private async reconcileRelease(
-    effectId: string,
     payload: WorkspaceReleasePayload,
   ): Promise<ExternalEffectObservation> {
     /** Result of `this.workspacePath`, retained for the reconcile release operation. */
@@ -521,7 +520,7 @@ export class LocalGitEffects {
       repositoryId: payload.repositoryId,
       workspaceKey: payload.workspaceKey,
     });
-    return this.reconcileRelease(effectId, payload);
+    return this.reconcileRelease(payload);
   }
 
   /** Reads the current workspace revision without mutation. */
@@ -958,7 +957,7 @@ function validateConfig(config: LocalGitEffectConfig): void {
   canonicalRoot(config.hooksDirectory, "hooksDirectory");
   if (
     !isAbsolute(config.executable.path) ||
-    !/^[a-f0-9]{64}$/u.test(config.executable.sha256) ||
+    !isSha256Digest(config.executable.sha256) ||
     config.executable.version === ""
   )
     throw new TypeError("Pinned Git executable configuration is invalid");

@@ -1,6 +1,6 @@
 /** Supervises independent child-agent DAG nodes with provider-backed node receipts. */
 import { canonicalize } from "../core/canonical-json.js";
-import { digestJson, sha256 } from "../core/digest.js";
+import { digestJson, isSha256Digest, sha256 } from "../core/digest.js";
 import { toJsonValue, type JsonObject } from "../domain/json.js";
 import type { ResourceRecord, ResourceRef } from "../domain/records.js";
 import type { AgentTaskProvider } from "../provider/agent-task-provider.js";
@@ -606,8 +606,7 @@ function string(value: unknown, label: string): string {
 function digest(value: unknown, label: string): string {
   /** Validated result returned by digest. */
   const result = string(value, label);
-  if (!/^[a-f0-9]{64}$/u.test(result))
-    throw new TypeError(`${label} must be a digest`);
+  if (!isSha256Digest(result)) throw new TypeError(`${label} must be a digest`);
   return result;
 }
 

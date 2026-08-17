@@ -5,7 +5,8 @@ import {
   activateDefinitions,
   type ActivatedDefinition,
 } from "../core/definition-activation.js";
-import { digestJson, sha256 } from "../core/digest.js";
+import { digestJson, isSha256Digest, sha256 } from "../core/digest.js";
+import { sameStringSet } from "../core/string-set.js";
 import {
   finalizeExplicitAssignment,
   prepareSelection,
@@ -20,6 +21,7 @@ import {
   type JsonObject,
   type JsonValue,
 } from "../domain/json.js";
+import { ERROR_STATUSES } from "../domain/records.js";
 import type {
   AgentDefinition,
   LeaseSnapshot,
@@ -438,11 +440,9 @@ function parseHumanError(
     error.severity !== "low"
   )
     throw new TypeError("Harness human resolution error severity is invalid");
-  if (
-    error.status !== "Not Fixed" &&
-    error.status !== "Fixing" &&
-    error.status !== "Fixed"
-  )
+  /** Canonical Error status accepted from the untrusted harness result. */
+  const status = ERROR_STATUSES.find((candidate) => candidate === error.status);
+  if (status === undefined)
     throw new TypeError("Harness human resolution error status is invalid");
   return {
     description: requiredString(
@@ -466,7 +466,7 @@ function parseHumanError(
       "Harness human resolution error resolution",
     ),
     severity: error.severity,
-    status: error.status,
+    status,
     title: requiredString(error.title, "Harness human resolution error title"),
   };
 }
@@ -1419,7 +1419,7 @@ async function releaseAssignment(
   if (
     beforeActivity.status !==
       (afterProjection.runLeaseIds.length === 0 ? "Offline" : "Online") ||
-    !sameSet(beforeActivity.taskIds, afterProjection.taskIds)
+    !sameStringSet(beforeActivity.taskIds, afterProjection.taskIds)
   ) {
     await provider.updateAgentActivity({
       expectedRunLeaseIds: beforeProjection.runLeaseIds,
@@ -1743,7 +1743,7 @@ function optionalString(value: unknown, label: string): string | null {
 function requiredDigest(value: unknown, label: string): string {
   /** Non-empty candidate checked against the canonical digest syntax. */
   const digest = requiredString(value, label);
-  if (!/^[a-f0-9]{64}$/u.test(digest))
+  if (!isSha256Digest(digest))
     throw new TypeError(`${label} must be a SHA-256 digest`);
   return digest;
 }
@@ -1751,9 +1751,4 @@ function requiredDigest(value: unknown, label: string): string {
 /** Returns unique strings in deterministic order. */
 function unique(values: readonly string[]): readonly string[] {
   return [...new Set(values)].sort();
-}
-
-/** Checks whether two collections contain the same distinct values. */
-function sameSet(left: readonly string[], right: readonly string[]): boolean {
-  return unique(left).join("\0") === unique(right).join("\0");
 }

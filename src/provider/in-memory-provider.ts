@@ -6,6 +6,7 @@ import { IdempotencyLedger } from "../core/idempotency-ledger.js";
 import { finalizeMigrationPlan } from "../core/migration-plan.js";
 import { pageAfter } from "../core/pagination.js";
 import { compareWorkspaceSchema } from "../core/schema-diff.js";
+import { sameStringSet } from "../core/string-set.js";
 import { taskPropertiesWithStatus } from "../core/task-properties.js";
 import { taskSummaryMatchesPredicate } from "../core/task-query-contract.js";
 import { toJsonValue, type JsonValue } from "../domain/json.js";
@@ -643,8 +644,8 @@ export class InMemoryProvider implements AgentTaskProvider {
       taskIds: [],
     };
     if (
-      this.sameSet(current.runLeaseIds, projection.runLeaseIds) &&
-      this.sameSet(current.taskIds, projection.taskIds)
+      sameStringSet(current.runLeaseIds, projection.runLeaseIds) &&
+      sameStringSet(current.taskIds, projection.taskIds)
     ) {
       return {
         evidence: {
@@ -693,16 +694,16 @@ export class InMemoryProvider implements AgentTaskProvider {
       taskIds: [],
     };
     if (
-      !this.sameSet(current.runLeaseIds, change.expectedRunLeaseIds) ||
-      !this.sameSet(current.taskIds, change.expectedTaskIds)
+      !sameStringSet(current.runLeaseIds, change.expectedRunLeaseIds) ||
+      !sameStringSet(current.taskIds, change.expectedTaskIds)
     ) {
       throw new Error("Agent activity version conflict");
     }
     /** Result of `this.getLeaseProjection`, retained for `updateAgentActivity`. */
     const projection = await this.getLeaseProjection(change.agentId);
     if (
-      !this.sameSet(projection.runLeaseIds, change.nextRunLeaseIds) ||
-      !this.sameSet(projection.taskIds, change.nextTaskIds)
+      !sameStringSet(projection.runLeaseIds, change.nextRunLeaseIds) ||
+      !sameStringSet(projection.taskIds, change.nextTaskIds)
     ) {
       throw new Error(
         "Agent activity must equal the provider's active lease projection",
@@ -1227,14 +1228,6 @@ export class InMemoryProvider implements AgentTaskProvider {
   /** Returns unique strings in deterministic order. */
   private normalizedSet(values: readonly string[]): readonly string[] {
     return [...new Set(values)].sort();
-  }
-
-  /** Compares two string collections as normalized sets. */
-  private sameSet(left: readonly string[], right: readonly string[]): boolean {
-    return (
-      this.normalizedSet(left).join("\0") ===
-      this.normalizedSet(right).join("\0")
-    );
   }
 
   /** Returns the payload-bound result of an earlier operation, if present. */

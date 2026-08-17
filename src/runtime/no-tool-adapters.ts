@@ -1,5 +1,5 @@
 /** A concrete safe runtime stack for context-only agents with no tool authority. */
-import { digestJson } from "../core/digest.js";
+import { digestJson, isSha256Digest } from "../core/digest.js";
 import { toJsonValue, type JsonObject } from "../domain/json.js";
 import type {
   AgentProcessCompletion,
@@ -363,6 +363,6 @@ function requireId(value: string, label: string): void {
 
 /** Returns digest or throws when invalid or absent. */
 function requireDigest(value: string, label: string): void {
-  if (!/^[a-f0-9]{64}$/u.test(value))
+  if (!isSha256Digest(value))
     throw new TypeError(`${label} must be a SHA-256 digest`);
 }

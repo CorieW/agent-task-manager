@@ -1,6 +1,6 @@
 /** Renders, parses, and verifies the only human-editable Task-body slot format. */
 import { canonicalize } from "../core/canonical-json.js";
-import { digestJson } from "../core/digest.js";
+import { digestJson, isSha256Digest } from "../core/digest.js";
 import { toJsonValue } from "../domain/json.js";
 import type {
   HumanAuthority,
@@ -276,11 +276,6 @@ function closed(
     throw new TypeError(
       "Human interaction object has unexpected or missing fields",
     );
-}
-
-/** Returns whether a value is a lowercase SHA-256 digest. */
-function isSha256Digest(value: string): boolean {
-  return /^[a-f0-9]{64}$/u.test(value);
 }
 
 /** Validates and returns a positive integer. */

@@ -1,5 +1,6 @@
 /** Owns deterministic Notion page lookup, managed-content writes, and post-verification. */
 import { digestJson, sha256 } from "../../core/digest.js";
+import { sameStringSet } from "../../core/string-set.js";
 import { taskPropertiesWithStatus } from "../../core/task-properties.js";
 import {
   toJsonValue,
@@ -36,6 +37,7 @@ import {
   collectNotionPages,
   type NotionTransport,
 } from "./notion-transport.js";
+import { requiredString } from "./notion-json-boundary.js";
 
 /** Notion property values that can be verified but not updated through a page patch. */
 const READ_ONLY_PROPERTY_TYPES = new Set([
@@ -327,11 +329,11 @@ export class NotionPageStore {
         encodeErrorSeverityOption(error.severity) &&
       propertyOption(current.page, "Status") === error.status &&
       propertyText(current.page, "Run ID") === (error.relatedRunId ?? "") &&
-      sameSet(
+      sameStringSet(
         await this.relationIds(current.page, "Agent"),
         error.relatedAgentId === null ? [] : [error.relatedAgentId],
       ) &&
-      sameSet(
+      sameStringSet(
         await this.relationIds(current.page, "Task"),
         error.relatedTaskId === null ? [] : [error.relatedTaskId],
       ) &&
@@ -354,7 +356,7 @@ export class NotionPageStore {
     const current = await this.getPage(change.agentId);
     /** Canonically ordered Task relations in the current activity projection. */
     const currentTaskIds = await this.relationIds(current.page, "Working On");
-    if (!sameSet(currentTaskIds, change.expectedTaskIds))
+    if (!sameStringSet(currentTaskIds, change.expectedTaskIds))
       throw new Error("Agent Working On conflict");
     /** Current Online/Offline projection derived from active run leases. */
     const currentStatus = propertyOption(current.page, "Status");
@@ -399,7 +401,7 @@ export class NotionPageStore {
     const current = await this.getPage(agentId);
     if (
       propertyOption(current.page, "Status") !== expectedStatus ||
-      !sameSet(
+      !sameStringSet(
         await this.relationIds(current.page, "Working On"),
         expectedTaskIds,
       )
@@ -426,7 +428,10 @@ export class NotionPageStore {
       throw new Error("Agent Status post-verification failed");
     }
     if (
-      !sameSet(await this.relationIds(verified.page, "Working On"), nextTaskIds)
+      !sameStringSet(
+        await this.relationIds(verified.page, "Working On"),
+        nextTaskIds,
+      )
     ) {
       throw new Error("Agent Working On post-verification failed");
     }
@@ -1029,17 +1034,17 @@ function propertyMatches(
   if (type === "select" || type === "status")
     return propertyOption(page, name) === expected;
   if (type === "multi_select" && Array.isArray(expected))
-    return sameSet(
+    return sameStringSet(
       multiSelectNames(property),
       multiSelectOptionNames(expected),
     );
   if (type === "people" && Array.isArray(expected))
-    return sameSet(
+    return sameStringSet(
       propertyReferenceIds(property.people, "People"),
       propertyReferenceIds(expected, "People"),
     );
   if (type === "relation" && Array.isArray(expected))
-    return sameSet(
+    return sameStringSet(
       relationIds(property),
       expected.filter((item): item is string => typeof item === "string"),
     );
@@ -1285,11 +1290,6 @@ function normalizedSet(values: readonly string[]): readonly string[] {
   return [...new Set(values)].sort();
 }
 
-/** Compares two string collections as normalized sets. */
-function sameSet(left: readonly string[], right: readonly string[]): boolean {
-  return normalizedSet(left).join("\0") === normalizedSet(right).join("\0");
-}
-
 /** Derives Agent activity from active run leases. */
 function activityStatus(runLeaseIds: readonly string[]): "Offline" | "Online" {
   return runLeaseIds.length === 0 ? "Offline" : "Online";
@@ -1307,13 +1307,6 @@ function objectValue(value: JsonValue | undefined, label: string): JsonObject {
   if (checked === null || typeof checked !== "object" || Array.isArray(checked))
     throw new TypeError(`${label} must be an object`);
   return checked;
-}
-
-/** Returns a required non-empty string or throws. */
-function requiredString(value: JsonValue | undefined, label: string): string {
-  if (typeof value !== "string" || value === "")
-    throw new TypeError(`${label} must be a non-empty string`);
-  return value;
 }
 
 /** Builds mutation digest. */

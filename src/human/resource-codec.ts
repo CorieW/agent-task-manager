@@ -1,6 +1,6 @@
 /** Encodes and validates provider-backed human slot baselines and consumption records. */
 import { canonicalize } from "../core/canonical-json.js";
-import { digestJson, sha256 } from "../core/digest.js";
+import { digestJson, isSha256Digest, sha256 } from "../core/digest.js";
 import { toJsonValue, type JsonObject } from "../domain/json.js";
 import type { OperationRecord } from "../domain/records.js";
 import type {
@@ -219,11 +219,6 @@ function closed(
     throw new TypeError(
       "Human recovery object has unexpected or missing fields",
     );
-}
-
-/** Returns whether a value is a lowercase SHA-256 digest. */
-function isSha256Digest(value: unknown): value is string {
-  return typeof value === "string" && /^[a-f0-9]{64}$/u.test(value);
 }
 
 /** Returns whether a value is a non-empty string. */

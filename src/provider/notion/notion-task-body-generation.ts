@@ -1,4 +1,5 @@
 /** Provider-neutral the single parser and ordering rule for append-only Notion Task bodies contract. */
+import { isSha256Digest } from "../../core/digest.js";
 import type { JsonObject, JsonValue } from "../../domain/json.js";
 import { NOTION_TASK_MUTATION_CAPTION_PREFIX } from "./notion-schema.js";
 
@@ -36,7 +37,7 @@ export function taskBodyGeneration(
   if (!caption.startsWith(NOTION_TASK_MUTATION_CAPTION_PREFIX)) return null;
   /** Result of `caption.slice`, retained for `taskBodyGeneration`. */
   const digest = caption.slice(NOTION_TASK_MUTATION_CAPTION_PREFIX.length);
-  if (!/^[a-f0-9]{64}$/u.test(digest)) return null;
+  if (!isSha256Digest(digest)) return null;
   return {
     block,
     body: richTextValue(code.rich_text)
