@@ -655,7 +655,28 @@ export class NotionProvider implements AgentTaskProvider {
   ): Promise<readonly ActiveAgentRecord[]> {
     const raw = pages.map((page) => ({ page, props: properties(page) }));
     const runByPage = new Map(
-      raw.map(({ page, props }) => [id(page), textValue(props["Run ID"])]),
+      raw.map(({ page, props }) => [
+        normalizeId(id(page)),
+        textValue(props["Run ID"]),
+      ]),
+    );
+    const relatedPageIds = new Set(
+      raw.flatMap(({ props }) => [
+        ...relationIds(props.Parent),
+        ...relationIds(props["Restart Of"]),
+      ]),
+    );
+    await Promise.all(
+      [...relatedPageIds]
+        .filter((pageId) => !runByPage.has(normalizeId(pageId)))
+        .map(async (pageId) => {
+          const page = await this.pageOrNull(pageId);
+          if (page !== null)
+            runByPage.set(
+              normalizeId(pageId),
+              textValue(properties(page)["Run ID"]),
+            );
+        }),
     );
     return raw.map(({ page, props }) => {
       const first = (name: string): string | null =>
@@ -671,8 +692,10 @@ export class NotionProvider implements AgentTaskProvider {
         id: id(page),
         lastHeartbeat: dateValue(props["Last Heartbeat"]) ?? "",
         outcome: textValue(props.Outcome),
-        parentRunId: runByPage.get(first("Parent") ?? "") ?? null,
-        restartOfRunId: runByPage.get(first("Restart Of") ?? "") ?? null,
+        parentRunId:
+          runByPage.get(normalizeOptionalId(first("Parent"))) ?? null,
+        restartOfRunId:
+          runByPage.get(normalizeOptionalId(first("Restart Of"))) ?? null,
         retryKey: textValue(props["Retry Key"]),
         runId: textValue(props["Run ID"]),
         startedAt: dateValue(props["Started At"]) ?? "",
@@ -936,6 +959,9 @@ function normalizeId(value: string): string {
   if (match === null)
     throw new TypeError(`Invalid Notion identifier: ${value}`);
   return match[0]!.toLowerCase();
+}
+function normalizeOptionalId(value: string | null): string {
+  return value === null ? "" : normalizeId(value);
 }
 function richTextPayload(value: string): JsonObject[] {
   return [{ text: { content: value }, type: "text" }];
