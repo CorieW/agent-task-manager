@@ -10,6 +10,7 @@ import {
   type CommandExecutionGate,
   type CommandExecutor,
 } from "../src/core/command-proxy.js";
+import { commandProxySystemPrompt } from "../src/core/agent-system-prompt.js";
 import { AgentCoordinator } from "../src/core/coordinator.js";
 import type { AgentCommandPolicy } from "../src/domain/commands.js";
 import type {
@@ -136,8 +137,8 @@ test("command proxy enforces inclusion, ownership, and path-free names", async (
   const proxy = new CommandProxy(coordinator, executor, gate);
   assert.match(context.systemPrompt, /exclusively through/u);
   assert.match(context.systemPrompt, /Never invoke a shell/u);
-  assert.match(context.systemPrompt, /--run-id "run-1"/u);
-  assert.match(context.systemPrompt, /--harness-id "harness-1"/u);
+  assert.match(context.systemPrompt, /--run-id="run-1"/u);
+  assert.match(context.systemPrompt, /--harness-id="harness-1"/u);
   assert.equal(
     (
       await proxy.execute({
@@ -186,6 +187,12 @@ test("command proxy enforces inclusion, ownership, and path-free names", async (
     /Invalid command name/u,
   );
   assert.equal(calls.length, 1);
+});
+
+test("command prompt binds flag-like run identifiers", () => {
+  const prompt = commandProxySystemPrompt("--run", "--harness");
+  assert.match(prompt, /--run-id="--run"/u);
+  assert.match(prompt, /--harness-id="--harness"/u);
 });
 
 test("command proxy exclusion denies only configured commands", async () => {
