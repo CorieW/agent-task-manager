@@ -536,7 +536,7 @@ export function agentDefinitionMarkdown(
     ...legacy,
     schema: "agent-definition-v2",
     commands:
-      legacy.commands === undefined ? { exclusion: [] } : legacy.commands,
+      legacy.commands === undefined ? { inclusion: [] } : legacy.commands,
     enabled:
       typeof legacy.enabled === "boolean"
         ? legacy.enabled
