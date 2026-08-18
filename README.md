@@ -26,6 +26,8 @@ providers
 
 Every command emits JSON. Set `AGENT_TASK_MANAGER_ENVIRONMENT` or pass `--environment`; the default is `agent-task-manager.environment.json`. For Notion, place the token in the environment variable named by `provider.connection.tokenEnv` (default `NOTION_TOKEN`).
 
+Agent commands additionally require `AGENT_TASK_MANAGER_COMMAND_BROKER` to name an absolute trusted sandbox-broker executable. The manager authorizes requests but never spawns Agent-requested executables directly.
+
 ## Development
 
 ```powershell

@@ -4,6 +4,7 @@ import test from "node:test";
 
 import {
   CommandProxy,
+  createCommandBrokerExecutor,
   type CommandExecutor,
 } from "../src/core/command-proxy.js";
 import { AgentCoordinator } from "../src/core/coordinator.js";
@@ -181,33 +182,44 @@ test("command proxy exclusion denies only configured commands", async () => {
   );
 });
 
-test("default proxy executor passes metacharacters without a shell", async () => {
-  const { coordinator } = await setup({ inclusion: ["node"] });
-  const result = await new CommandProxy(coordinator).execute({
-    arguments: ["-p", "process.argv[1]", "value && echo bypass"],
-    command: "node",
-    harnessId: "harness-1",
-    runId: "run-1",
-  });
-  assert.equal(result.exitCode, 0);
-  assert.equal(result.stdout.trim(), "value && echo bypass");
-});
-
-test("default proxy executor does not inherit manager secrets", async () => {
+test("sandbox broker receives literal arguments without manager secrets", async () => {
   const secretName = "AGENT_TASK_MANAGER_PROXY_TEST_SECRET";
   const previous = process.env[secretName];
   process.env[secretName] = "must-not-leak";
   try {
-    const { coordinator } = await setup({ inclusion: ["node"] });
-    const result = await new CommandProxy(coordinator).execute({
-      arguments: ["-p", `process.env.${secretName} ?? "not inherited"`],
-      command: "node",
-      harnessId: "harness-1",
-      runId: "run-1",
+    const broker = `
+      let input = "";
+      process.stdin.setEncoding("utf8");
+      process.stdin.on("data", chunk => input += chunk);
+      process.stdin.on("end", () => {
+        const request = JSON.parse(input);
+        process.stdout.write(JSON.stringify({
+          command: request.command,
+          exitCode: 0,
+          signal: null,
+          stderr: "",
+          stdout: JSON.stringify({ arguments: request.arguments, secret: process.env.${secretName} })
+        }));
+      });
+    `;
+    const executor = createCommandBrokerExecutor(process.execPath, [
+      "--input-type=commonjs",
+      "-e",
+      broker,
+    ]);
+    const result = await executor("git", ["status", "&&", "node"]);
+    assert.deepEqual(JSON.parse(result.stdout), {
+      arguments: ["status", "&&", "node"],
     });
-    assert.equal(result.stdout.trim(), "not inherited");
   } finally {
     if (previous === undefined) delete process.env[secretName];
     else process.env[secretName] = previous;
   }
+});
+
+test("sandbox broker path must be absolute", () => {
+  assert.throws(
+    () => createCommandBrokerExecutor("broker"),
+    /must be an absolute path/u,
+  );
 });

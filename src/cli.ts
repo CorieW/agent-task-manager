@@ -9,7 +9,10 @@ import {
   type EnvironmentConfig,
 } from "./config/environment.js";
 import { AgentCoordinator } from "./core/coordinator.js";
-import { CommandProxy } from "./core/command-proxy.js";
+import {
+  CommandProxy,
+  createCommandBrokerExecutor,
+} from "./core/command-proxy.js";
 import { toJsonValue, type JsonValue } from "./domain/json.js";
 import {
   parseReportErrorInput,
@@ -138,7 +141,7 @@ export async function runCli(
     if (executable === undefined)
       throw new Error("command proxy requires a command after --");
     return toJsonValue(
-      await new CommandProxy(coordinator).execute({
+      await new CommandProxy(coordinator, commandBrokerExecutor(env)).execute({
         arguments: arguments_,
         command: executable,
         harnessId: requiredFlag(parsed.flags, "harness-id"),
@@ -349,6 +352,16 @@ function providerFor(
     configuration.provider,
     new NotionHttpTransport({ token }),
   );
+}
+
+/** Loads the mandatory host-owned sandbox broker used for Agent commands. */
+function commandBrokerExecutor(env: NodeJS.ProcessEnv) {
+  const executable = env.AGENT_TASK_MANAGER_COMMAND_BROKER;
+  if (executable === undefined || executable.trim() === "")
+    throw new Error(
+      "AGENT_TASK_MANAGER_COMMAND_BROKER must name an absolute sandbox broker executable",
+    );
+  return createCommandBrokerExecutor(executable);
 }
 async function readErrorInput(path: string): Promise<ReportErrorInput> {
   const raw = path === "-" ? await readStdin() : await readFile(path, "utf8");
