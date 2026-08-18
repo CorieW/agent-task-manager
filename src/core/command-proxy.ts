@@ -38,7 +38,7 @@ export interface BrokerCommandRequest {
   readonly command: string;
   readonly commands: AgentCommandPolicy;
   readonly runId: string;
-  readonly schema: "agent-command-broker-request-v1";
+  readonly schema: "agent-command-broker-request-v2";
 }
 
 /** Sandboxed execution boundary supplied by the trusted host. */
@@ -122,7 +122,7 @@ export class CommandProxy {
           command,
           commands: policy,
           runId: input.runId,
-          schema: "agent-command-broker-request-v1",
+          schema: "agent-command-broker-request-v2",
         };
       },
       (request) => this.executor(request),
@@ -177,6 +177,7 @@ export function createCommandBrokerExecutor(
         clearTimeout(timer);
         child.stdout.destroy();
         child.stderr.destroy();
+        child.stdin.end();
         try {
           child.kill();
         } catch {
@@ -232,7 +233,7 @@ export function createCommandBrokerExecutor(
           reject(error);
         }
       });
-      child.stdin.end(`${JSON.stringify(request)}\n`, "utf8");
+      child.stdin.write(`${JSON.stringify(request)}\n`, "utf8");
     });
 }
 

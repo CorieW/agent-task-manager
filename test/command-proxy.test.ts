@@ -194,7 +194,7 @@ test("command proxy enforces inclusion, ownership, and path-free names", async (
       command: "git",
       commands: { inclusion: ["git"] },
       runId: "run-1",
-      schema: "agent-command-broker-request-v1",
+      schema: "agent-command-broker-request-v2",
     },
   ]);
   await assert.rejects(
@@ -284,24 +284,30 @@ test("sandbox broker receives literal arguments without manager secrets", async 
   try {
     const broker = `
       let input = "";
+      let handled = false;
       process.stdin.setEncoding("utf8");
-      process.stdin.on("data", chunk => input += chunk);
-      process.stdin.on("end", () => {
+      process.stdin.on("data", chunk => {
+        input += chunk;
+        if (handled || !input.includes("\\n")) return;
+        handled = true;
         const request = JSON.parse(input);
-        process.stdout.write(JSON.stringify({
-          command: request.command,
-          exitCode: 0,
-          signal: null,
-          stderr: "",
-          stdout: JSON.stringify({
-            arguments: request.arguments,
-            commands: request.commands,
-            locale: process.env.LANG,
-            runId: request.runId,
-            schema: request.schema,
-            secret: process.env.${secretName}
-          })
-        }));
+        setTimeout(() => {
+          process.stdout.write(JSON.stringify({
+            command: request.command,
+            exitCode: 0,
+            signal: null,
+            stderr: "",
+            stdout: JSON.stringify({
+              arguments: request.arguments,
+              commands: request.commands,
+              locale: process.env.LANG,
+              livenessChannelOpen: !process.stdin.readableEnded,
+              runId: request.runId,
+              schema: request.schema,
+              secret: process.env.${secretName}
+            })
+          }), () => process.exit(0));
+        }, 20);
       });
     `;
     const executor = createCommandBrokerExecutor(
@@ -314,14 +320,15 @@ test("sandbox broker receives literal arguments without manager secrets", async 
       command: "git",
       commands: { inclusion: ["git"] },
       runId: "run-1",
-      schema: "agent-command-broker-request-v1",
+      schema: "agent-command-broker-request-v2",
     });
     assert.deepEqual(JSON.parse(result.stdout), {
       arguments: ["status", "&&", "node"],
       commands: { inclusion: ["git"] },
       locale: "broker-locale",
+      livenessChannelOpen: true,
       runId: "run-1",
-      schema: "agent-command-broker-request-v1",
+      schema: "agent-command-broker-request-v2",
     });
   } finally {
     if (previous === undefined) delete process.env[secretName];
@@ -422,6 +429,27 @@ test("sandbox broker confirms forced shutdown and handles early stdin closure", 
   await assert.rejects(earlyExit(brokerRequest()));
 });
 
+test("sandbox broker receives cancellation through its liveness channel", async () => {
+  if (process.platform === "win32") return;
+  const broker = `
+    process.on("SIGTERM", () => undefined);
+    process.stdin.resume();
+    process.stdin.on("end", () => process.exit(0));
+    setInterval(() => undefined, 1000);
+  `;
+  const executor = createCommandBrokerExecutor(
+    process.execPath,
+    ["-e", broker],
+    { terminationGraceMilliseconds: 1000, timeoutMilliseconds: 25 },
+  );
+  const started = Date.now();
+  await assert.rejects(
+    executor(brokerRequest()),
+    /timed out after 25 milliseconds/u,
+  );
+  assert.ok(Date.now() - started < 1000);
+});
+
 test("sandbox broker rejects ambiguous terminal results", async () => {
   for (const terminal of [
     { exitCode: null, signal: null },
@@ -437,7 +465,7 @@ test("sandbox broker rejects ambiguous terminal results", async () => {
     });
     const executor = createCommandBrokerExecutor(process.execPath, [
       "-e",
-      `process.stdin.resume(); process.stdin.on("end", () => process.stdout.write(${JSON.stringify(result)}))`,
+      `process.stdin.once("data", () => process.stdout.write(${JSON.stringify(result)}, () => process.exit(0)))`,
     ]);
     await assert.rejects(
       executor(brokerRequest()),
@@ -482,7 +510,7 @@ test("command gate releases the global mutex while retaining the run lease", asy
         command: "git",
         commands: { inclusion: ["git"] },
         runId: "run-1",
-        schema: "agent-command-broker-request-v1",
+        schema: "agent-command-broker-request-v2",
       };
     },
     async () => {
@@ -512,6 +540,6 @@ function brokerRequest(): BrokerCommandRequest {
     command: "git",
     commands: { inclusion: ["git"] },
     runId: "run-1",
-    schema: "agent-command-broker-request-v1",
+    schema: "agent-command-broker-request-v2",
   };
 }
