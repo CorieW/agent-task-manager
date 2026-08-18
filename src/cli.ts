@@ -43,6 +43,7 @@ Global flags:
 `;
 
 const GLOBAL_FLAGS = ["environment", "help", "json"] as const;
+const BOOLEAN_FLAGS = new Set(["apply", "help", "json", "plan"]);
 const COMMAND_FLAGS: Readonly<Record<string, readonly string[]>> = {
   "active-agent complete": ["harness-id", "outcome", "run-id"],
   "active-agent fail": ["harness-id", "run-id", "summary"],
@@ -245,10 +246,17 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
     }
     const equals = value.indexOf("=");
     if (equals !== -1) {
-      flags[value.slice(2, equals)] = value.slice(equals + 1);
+      const name = value.slice(2, equals);
+      if (BOOLEAN_FLAGS.has(name))
+        throw new Error(`Boolean flag --${name} does not accept a value`);
+      flags[name] = value.slice(equals + 1);
       continue;
     }
     const name = value.slice(2);
+    if (BOOLEAN_FLAGS.has(name)) {
+      flags[name] = true;
+      continue;
+    }
     const next = argv[index + 1];
     if (next !== undefined && !next.startsWith("--")) {
       flags[name] = next;

@@ -16,3 +16,19 @@ test("CLI rejects unknown and command-irrelevant flags", async () => {
     providers: [{ connectionSecret: "NOTION_TOKEN", type: "notion" }],
   });
 });
+
+test("boolean flags do not consume command positionals", async () => {
+  const providers = {
+    providers: [{ connectionSecret: "NOTION_TOKEN", type: "notion" }],
+  };
+  assert.deepEqual(await runCli(["--json", "providers"]), providers);
+  const help = await runCli(["task", "--help", "list"]);
+  assert.equal(
+    typeof help === "object" && help !== null && "help" in help,
+    true,
+  );
+  await assert.rejects(
+    runCli(["providers", "--json=true"]),
+    /Boolean flag --json does not accept a value/u,
+  );
+});
