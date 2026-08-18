@@ -1,4 +1,5 @@
 /** Serializes in-process Notion writes and rejects live same-host writers through a shared lock file. */
+import { createHash } from "node:crypto";
 import { open, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -122,12 +123,16 @@ export class SingleHostMutex {
   }
 }
 
-/** Converts an environment identity into a bounded lock-file name. */
+/** Converts a full normalized identity into a bounded, collision-resistant lock-file name. */
 function safeName(value: string): string {
-  return value
-    .normalize("NFC")
-    .replace(/[^a-z0-9_.-]+/giu, "-")
-    .slice(0, 120);
+  /** Canonical identity whose complete value is bound into the filename digest. */
+  const normalized = value.normalize("NFC");
+  /** Human-readable prefix retained for local lock-file diagnostics. */
+  const prefix =
+    normalized.replace(/[^a-z0-9_.-]+/giu, "-").slice(0, 48) || "lock";
+  /** Prevents truncation and sanitization from aliasing distinct lock identities. */
+  const digest = createHash("sha256").update(normalized, "utf8").digest("hex");
+  return `${prefix}-${digest}`;
 }
 
 /** Reports whether already exists. */
