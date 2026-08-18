@@ -42,12 +42,50 @@ Global flags:
   --json               Accepted for compatibility; output is always JSON.
 `;
 
+const GLOBAL_FLAGS = ["environment", "help", "json"] as const;
+const COMMAND_FLAGS: Readonly<Record<string, readonly string[]>> = {
+  "active-agent complete": ["harness-id", "outcome", "run-id"],
+  "active-agent fail": ["harness-id", "run-id", "summary"],
+  "active-agent get": ["run-id"],
+  "active-agent heartbeat": ["harness-id", "run-id"],
+  "active-agent list": [],
+  "active-agent restart": ["failed-run-id", "harness-id", "run-id"],
+  "active-agent start": [
+    "agent-key",
+    "harness-id",
+    "parent-run-id",
+    "run-id",
+    "task-id",
+  ],
+  "active-agent sweep": [],
+  "agent get": ["key"],
+  "agent list": [],
+  "error get": ["key"],
+  "error list": [],
+  "error report": ["input"],
+  "error resolve": ["key", "resolution"],
+  help: [],
+  init: ["apply", "expected-plan-digest", "plan"],
+  providers: [],
+  "resource get": ["key"],
+  "resource list": [],
+  "task get": ["id"],
+  "task list": ["status"],
+  validate: [],
+};
+
 export async function runCli(
   argv: readonly string[],
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<JsonValue> {
   const parsed = parseArguments(argv);
   const [family, action] = parsed.positionals;
+  validateFlags(
+    family === undefined || family === "help" || parsed.flags.help === true
+      ? "help"
+      : [family, action].filter((value) => value !== undefined).join(" "),
+    parsed.flags,
+  );
   if (family === undefined || family === "help" || parsed.flags.help === true)
     return { help: HELP };
   if (family === "providers")
@@ -184,6 +222,17 @@ export async function runCli(
 interface ParsedArguments {
   readonly flags: Readonly<Record<string, boolean | string>>;
   readonly positionals: readonly string[];
+}
+function validateFlags(
+  command: string,
+  flags: Readonly<Record<string, boolean | string>>,
+): void {
+  const commandFlags = COMMAND_FLAGS[command];
+  if (commandFlags === undefined) return;
+  const allowed = new Set([...GLOBAL_FLAGS, ...commandFlags]);
+  for (const name of Object.keys(flags))
+    if (!allowed.has(name))
+      throw new Error(`Flag --${name} is not allowed for ${command}`);
 }
 function parseArguments(argv: readonly string[]): ParsedArguments {
   const flags: Record<string, boolean | string> = {};
