@@ -1,4 +1,4 @@
-/** Deterministic in-memory provider used by hosts and tests. */
+/** In-memory provider used by hosts and tests. */
 import { randomUUID } from "node:crypto";
 
 import { digestJson } from "../core/digest.js";
