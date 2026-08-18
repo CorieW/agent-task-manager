@@ -17,7 +17,7 @@ export const MAX_ATTEMPTS = 3;
 /** Result of terminating one stale root and its running descendants. */
 export interface SweepResult {
   /** Whether the terminated run remains below the automatic retry limit. */
-  readonly restartable: boolean;
+  readonly retryBudgetRemaining: boolean;
   readonly run: ActiveAgentRecord;
 }
 
@@ -161,7 +161,7 @@ export class AgentCoordinator {
         "Heartbeat expired",
       );
       results.push({
-        restartable: terminated.attempt < MAX_ATTEMPTS,
+        retryBudgetRemaining: terminated.attempt < MAX_ATTEMPTS,
         run: terminated,
       });
     }
