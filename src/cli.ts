@@ -21,6 +21,7 @@ import {
 import type { AgentTaskProvider } from "./provider/agent-task-provider.js";
 import { NotionProvider } from "./provider/notion/notion-provider.js";
 import { NotionHttpTransport } from "./provider/notion/notion-transport.js";
+import { SingleHostMutex } from "./provider/notion/single-host-mutex.js";
 
 const GLOBAL_FLAGS = ["environment", "help", "json"] as const;
 const BOOLEAN_FLAGS = new Set(["apply", "help", "json", "plan"]);
@@ -135,13 +136,18 @@ export async function runCli(
   const configuration = await loadEnvironment(parsed.flags.environment, env);
   const provider = providerFor(configuration, env);
   const coordinator = new AgentCoordinator(provider);
+  const mutex = new SingleHostMutex(configuration.environmentId);
 
   if (family === "command" && action === "proxy") {
     const [executable, ...arguments_] = parsed.commandArguments;
     if (executable === undefined)
       throw new Error("command proxy requires a command after --");
     return toJsonValue(
-      await new CommandProxy(coordinator, commandBrokerExecutor(env)).execute({
+      await new CommandProxy(
+        coordinator,
+        commandBrokerExecutor(env),
+        mutex,
+      ).execute({
         arguments: arguments_,
         command: executable,
         harnessId: requiredFlag(parsed.flags, "harness-id"),
@@ -172,7 +178,7 @@ export async function runCli(
       );
     return {
       plan,
-      tables: await provider.applyWorkspacePlan(plan),
+      tables: await mutex.run(() => provider.applyWorkspacePlan(plan)),
     } as unknown as JsonValue;
   }
   if (family === "task") {
@@ -208,45 +214,56 @@ export async function runCli(
       );
     if (action === "start")
       return toJsonValue(
-        await coordinator.start({
-          agentKey: requiredFlag(parsed.flags, "agent-key"),
-          harnessId: requiredFlag(parsed.flags, "harness-id"),
-          parentRunId: optionalString(parsed.flags["parent-run-id"]) ?? null,
-          runId: requiredFlag(parsed.flags, "run-id"),
-          taskId: requiredFlag(parsed.flags, "task-id"),
-        }),
+        await mutex.run(() =>
+          coordinator.start({
+            agentKey: requiredFlag(parsed.flags, "agent-key"),
+            harnessId: requiredFlag(parsed.flags, "harness-id"),
+            parentRunId: optionalString(parsed.flags["parent-run-id"]) ?? null,
+            runId: requiredFlag(parsed.flags, "run-id"),
+            taskId: requiredFlag(parsed.flags, "task-id"),
+          }),
+        ),
       );
     if (action === "heartbeat")
       return toJsonValue(
-        await coordinator.heartbeat(
-          requiredFlag(parsed.flags, "run-id"),
-          requiredFlag(parsed.flags, "harness-id"),
+        await mutex.run(() =>
+          coordinator.heartbeat(
+            requiredFlag(parsed.flags, "run-id"),
+            requiredFlag(parsed.flags, "harness-id"),
+          ),
         ),
       );
     if (action === "complete")
       return toJsonValue(
-        await coordinator.complete(
-          requiredFlag(parsed.flags, "run-id"),
-          requiredFlag(parsed.flags, "harness-id"),
-          requiredFlag(parsed.flags, "outcome"),
+        await mutex.run(() =>
+          coordinator.complete(
+            requiredFlag(parsed.flags, "run-id"),
+            requiredFlag(parsed.flags, "harness-id"),
+            requiredFlag(parsed.flags, "outcome"),
+          ),
         ),
       );
     if (action === "fail")
       return toJsonValue(
-        await coordinator.fail(
-          requiredFlag(parsed.flags, "run-id"),
-          requiredFlag(parsed.flags, "harness-id"),
-          requiredFlag(parsed.flags, "summary"),
+        await mutex.run(() =>
+          coordinator.fail(
+            requiredFlag(parsed.flags, "run-id"),
+            requiredFlag(parsed.flags, "harness-id"),
+            requiredFlag(parsed.flags, "summary"),
+          ),
         ),
       );
-    if (action === "sweep") return toJsonValue(await coordinator.sweep());
+    if (action === "sweep")
+      return toJsonValue(await mutex.run(() => coordinator.sweep()));
     if (action === "restart")
       return toJsonValue(
-        await coordinator.restart({
-          restartOfRunId: requiredFlag(parsed.flags, "restart-of-run-id"),
-          harnessId: requiredFlag(parsed.flags, "harness-id"),
-          runId: requiredFlag(parsed.flags, "run-id"),
-        }),
+        await mutex.run(() =>
+          coordinator.restart({
+            restartOfRunId: requiredFlag(parsed.flags, "restart-of-run-id"),
+            harnessId: requiredFlag(parsed.flags, "harness-id"),
+            runId: requiredFlag(parsed.flags, "run-id"),
+          }),
+        ),
       );
   }
   if (family === "error") {
@@ -257,15 +274,19 @@ export async function runCli(
       );
     if (action === "report")
       return toJsonValue(
-        await coordinator.reportError(
-          await readErrorInput(requiredFlag(parsed.flags, "input")),
+        await mutex.run(async () =>
+          coordinator.reportError(
+            await readErrorInput(requiredFlag(parsed.flags, "input")),
+          ),
         ),
       );
     if (action === "resolve")
       return toJsonValue(
-        await coordinator.resolveError(
-          requiredFlag(parsed.flags, "key"),
-          requiredFlag(parsed.flags, "resolution"),
+        await mutex.run(() =>
+          coordinator.resolveError(
+            requiredFlag(parsed.flags, "key"),
+            requiredFlag(parsed.flags, "resolution"),
+          ),
         ),
       );
   }

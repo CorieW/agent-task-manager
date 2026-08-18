@@ -6,6 +6,7 @@ import {
   CommandProxy,
   createCommandBrokerExecutor,
   type CommandExecutor,
+  type CommandMutex,
 } from "../src/core/command-proxy.js";
 import { AgentCoordinator } from "../src/core/coordinator.js";
 import type { AgentCommandPolicy } from "../src/domain/commands.js";
@@ -73,6 +74,10 @@ async function setup(policy: AgentCommandPolicy) {
   return { context, coordinator };
 }
 
+const immediateMutex: CommandMutex = {
+  run: async <T>(operation: () => Promise<T>) => operation(),
+};
+
 test("Agent command policies require exactly one normalized list", () => {
   const definition = {
     enabled: true,
@@ -95,7 +100,20 @@ test("Agent command policies require exactly one normalized list", () => {
 test("command proxy enforces inclusion, ownership, and path-free names", async () => {
   const { context, coordinator } = await setup({ inclusion: ["git"] });
   const calls: Array<{ arguments: readonly string[]; command: string }> = [];
+  let locked = false;
+  const mutex: CommandMutex = {
+    run: async <T>(operation: () => Promise<T>) => {
+      assert.equal(locked, false);
+      locked = true;
+      try {
+        return await operation();
+      } finally {
+        locked = false;
+      }
+    },
+  };
   const executor: CommandExecutor = async (command, arguments_) => {
+    assert.equal(locked, true);
     calls.push({ arguments: arguments_, command });
     return {
       command: "git",
@@ -105,7 +123,7 @@ test("command proxy enforces inclusion, ownership, and path-free names", async (
       stdout: "clean",
     };
   };
-  const proxy = new CommandProxy(coordinator, executor);
+  const proxy = new CommandProxy(coordinator, executor, mutex);
   assert.match(context.systemPrompt, /exclusively through/u);
   assert.match(context.systemPrompt, /Never invoke a shell/u);
   assert.match(context.systemPrompt, /--run-id "run-1"/u);
@@ -161,7 +179,7 @@ test("command proxy exclusion denies only configured commands", async () => {
     stderr: "",
     stdout: command,
   });
-  const proxy = new CommandProxy(coordinator, executor);
+  const proxy = new CommandProxy(coordinator, executor, immediateMutex);
   assert.equal(
     (
       await proxy.execute({

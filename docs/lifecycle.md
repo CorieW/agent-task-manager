@@ -8,7 +8,7 @@ Each Retry Key permits three attempts. The third failure reports `active-agent-r
 
 Completion is rejected while descendants run and unless the outcome exists in the Agent definition's `transitions` object. The mapped Task status is applied; `$current` leaves it unchanged. The successful Active Agent is then archived.
 
-One process must serialize writes with the supplied single-host mutex. Multi-host coordination is unsupported. External actions are at-least-once, so the harness must make repeats safe.
+The CLI serializes lifecycle writes and complete proxied-command executions with the supplied single-host mutex. Programmatic hosts must reuse one mutex for those same operations. Multi-host coordination is unsupported. External actions are at-least-once, so the harness must make repeats safe.
 
 The harness must expose no shell, terminal, process API, or direct executable tool to an Agent. Every operating-system command must use `agent-task-manager command proxy --run-id ID --harness-id ID -- COMMAND [ARGUMENT...]`. The proxy rejects non-running or foreign-owned runs, Agent-definition drift, path-like executable names, and commands denied by the Agent's inclusion or exclusion policy.
 

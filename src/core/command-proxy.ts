@@ -28,24 +28,32 @@ export type CommandExecutor = (
   arguments_: readonly string[],
 ) => Promise<ProxyCommandResult>;
 
+/** Exclusive-operation boundary shared with lifecycle mutations. */
+export interface CommandMutex {
+  run<T>(operation: () => Promise<T>): Promise<T>;
+}
+
 /** Verifies run ownership and Agent policy before delegating one command. */
 export class CommandProxy {
   /** Creates a proxy with a host-supplied, process-tree-contained executor. */
   public constructor(
     private readonly coordinator: AgentCoordinator,
     private readonly executor: CommandExecutor,
+    private readonly mutex: CommandMutex,
   ) {}
 
   /** Executes an allowed command for a running, harness-owned Agent. */
   public async execute(input: ProxyCommandInput): Promise<ProxyCommandResult> {
-    const command = normalizeCommandName(input.command);
-    const policy = await this.coordinator.commandPolicy(
-      input.runId,
-      input.harnessId,
-    );
-    if (!commandIsAllowed(policy, command))
-      throw new Error(`Agent command is not allowed: ${command}`);
-    return this.executor(input.command, input.arguments);
+    return this.mutex.run(async () => {
+      const command = normalizeCommandName(input.command);
+      const policy = await this.coordinator.commandPolicy(
+        input.runId,
+        input.harnessId,
+      );
+      if (!commandIsAllowed(policy, command))
+        throw new Error(`Agent command is not allowed: ${command}`);
+      return this.executor(input.command, input.arguments);
+    });
   }
 }
 
