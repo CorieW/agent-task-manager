@@ -2,6 +2,7 @@
 import { digestJson } from "../core/digest.js";
 import { toJsonValue, type JsonObject } from "../domain/json.js";
 import {
+  agentDefinitionSection,
   parseAgentDefinition,
   parseAgentTransitions,
   type AgentTransitions,
@@ -461,10 +462,10 @@ export interface LegacyAgentManifest {
 export function parseLegacyAgentManifest(
   markdown: string,
 ): LegacyAgentManifest {
-  const match = /```json\s*([\s\S]*?)```/u.exec(markdown);
-  if (match?.[1] === undefined)
+  const section = agentDefinitionSection(markdown);
+  if (section === null)
     throw new Error("Agent page does not contain a legacy JSON manifest");
-  const value = JSON.parse(match[1]) as unknown;
+  const value = JSON.parse(section.content) as unknown;
   if (value === null || typeof value !== "object" || Array.isArray(value))
     throw new TypeError("Agent manifest must be an object");
   const manifest = value as Record<string, unknown>;
@@ -498,11 +499,11 @@ export function agentDefinitionMarkdown(
   row: MigrationRow,
   relatedResourceKeys: readonly string[] = [],
 ): string {
-  const match = /```json\s*([\s\S]*?)```/u.exec(row.body);
+  const section = agentDefinitionSection(row.body);
   const legacy =
-    match?.[1] === undefined
+    section === null
       ? definitionFromProperties(row, relatedResourceKeys)
-      : parseDefinitionObject(match[1]);
+      : parseDefinitionObject(section.content);
   const calledBy = stringProperty(row.properties["Called By"], "Called By");
   const notes = stringProperty(row.properties.Notes, "Notes");
   const definition = {
@@ -521,15 +522,10 @@ export function agentDefinitionMarkdown(
     ...(legacy.notes === undefined && notes !== "" ? { notes } : {}),
   };
   const definitionMarkdown = `## Agent definition\n\n\`\`\`json\n${JSON.stringify(definition, null, 2)}\n\`\`\`\n`;
-  const existingDefinition =
-    /(?:^|\n)## Agent definition\s*\n+```json\s*[\s\S]*?```[^\S\r\n]*(?:\r?\n)?/u;
-  const markdown = existingDefinition.test(row.body)
-    ? row.body.replace(existingDefinition, (section) =>
-        section.startsWith("\n")
-          ? `\n${definitionMarkdown}`
-          : definitionMarkdown,
-      )
-    : `${definitionMarkdown}\n${row.body}`;
+  const markdown =
+    section === null
+      ? `${definitionMarkdown}\n${row.body}`
+      : `${row.body.slice(0, section.start)}${definitionMarkdown}${row.body.slice(section.end)}`;
   parseAgentDefinition(markdown);
   return markdown;
 }

@@ -147,7 +147,7 @@ test("column-backed Agent descriptions migrate into body definitions", () => {
         Reasoning: "high",
         Transitions: JSON.stringify(outcomes["Code Reviewer"]),
       },
-      "## Agent description\n\nReview the code.\n",
+      '## Agent description\n\nReview the code.\n\n```json\n{"example":true}\n```\n',
     ),
     ["prompt/code-reviewer", "policy/review/code-cleanliness"],
   );
@@ -164,11 +164,19 @@ test("column-backed Agent descriptions migrate into body definitions", () => {
 
 test("Agent definition conversion preserves content outside the managed section", () => {
   const original = fixture().agents.rows[0]!;
+  const decoy = JSON.stringify({
+    id: "wrong-agent",
+    inputResourceSelectors: ["policy/project-governance"],
+    promptResources: ["prompt/wrong-agent"],
+    reasoning: "low",
+    transitions: { wrong: "Wrong" },
+  });
   const body = agentDefinitionMarkdown({
     ...original,
-    body: `${original.body}\n## Operator guidance\n\nKeep this prose verbatim.\n`,
+    body: `## JSON example\n\n\`\`\`json\n${decoy}\n\`\`\`\n\n${original.body}\n## Operator guidance\n\nKeep this prose verbatim.\n`,
     properties: { ...original.properties, Enabled: true, Model: "gpt" },
   });
+  assert.equal(parseAgentDefinition(body).id, "code-reviewer");
   assert.match(body, /## Operator guidance\n\nKeep this prose verbatim\./u);
   assert.equal(body.match(/## Agent definition/gu)?.length, 1);
 });

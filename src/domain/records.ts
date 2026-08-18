@@ -214,20 +214,36 @@ export function parseAgentTransitions(value: string): AgentTransitions {
   return result;
 }
 
-/** Parses the authoritative JSON configuration from an Agent page body. */
-export function parseAgentDefinition(markdown: string): AgentDefinition {
+/** Locates the managed Agent-definition section and its JSON content. */
+export function agentDefinitionSection(markdown: string): {
+  readonly content: string;
+  readonly end: number;
+  readonly start: number;
+} | null {
   const match =
-    /(?:^|\n)## Agent definition\s*\n+```json\s*\n?([\s\S]*?)```/u.exec(
+    /(^|\r?\n)## Agent definition[^\S\r\n]*\r?\n(?:[^\S\r\n]*\r?\n)*```json[^\S\r\n]*(?:\r?\n)?([\s\S]*?)```[^\S\r\n]*(?:\r?\n)?/u.exec(
       markdown,
     );
-  if (match?.[1] === undefined)
+  if (match?.[2] === undefined) return null;
+  const prefixLength = match[1]?.length ?? 0;
+  return {
+    content: match[2],
+    end: match.index + match[0].length,
+    start: match.index + prefixLength,
+  };
+}
+
+/** Parses the authoritative JSON configuration from an Agent page body. */
+export function parseAgentDefinition(markdown: string): AgentDefinition {
+  const section = agentDefinitionSection(markdown);
+  if (section === null)
     throw new TypeError(
       "Agent page body must contain an '## Agent definition' JSON block",
     );
 
   let parsed: unknown;
   try {
-    parsed = JSON.parse(match[1]) as unknown;
+    parsed = JSON.parse(section.content) as unknown;
   } catch {
     throw new TypeError("Agent definition must be valid JSON");
   }
