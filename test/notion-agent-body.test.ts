@@ -56,6 +56,27 @@ test("Notion Agent records derive configuration and Resources from the page body
   assert.deepEqual(Object.keys(agent.properties), ["Name"]);
 });
 
+test("Notion Agent loading retries a body and metadata torn read", async () => {
+  const provider = new NotionProvider(
+    {
+      bootstrapParent: "ffffffffffffffffffffffffffffffff",
+      connection: {},
+      tables: {
+        activeAgents: ids.activeAgents,
+        agents: ids.agents,
+        errors: ids.errors,
+        resources: ids.resources,
+        tasks: ids.tasks,
+      },
+      type: "notion",
+    },
+    new TornAgentBodyTransport(),
+  );
+
+  const agent = await provider.getAgentByKey("code-reviewer");
+  assert.equal(agent?.version, "2026-08-17T13:00:00.000Z");
+});
+
 test("Notion workspace validation reports malformed Agent bodies", async () => {
   const provider = new NotionProvider(
     {
@@ -197,8 +218,16 @@ class AgentBodyTransport implements NotionTransport {
 \`\`\`
 `,
       };
+    if (request.path === `/v1/pages/${ids.agent}`)
+      return page(ids.agent, {
+        Name: richTextProperty("title", "Code Reviewer"),
+      });
     if (request.path === `/v1/pages/${ids.badAgent}/markdown`)
       return { markdown: "## Agent definition\n\n```json\nnot json\n```" };
+    if (request.path === `/v1/pages/${ids.badAgent}`)
+      return page(ids.badAgent, {
+        Name: richTextProperty("title", "Broken Draft"),
+      });
     if (request.path === `/v1/pages/${ids.parentRun}`)
       return activeAgentPage(ids.parentRun, "root");
     if (request.path === `/v1/pages/${ids.restartRun}`)
@@ -210,6 +239,19 @@ class AgentBodyTransport implements NotionTransport {
     throw new Error(
       `Unexpected Notion request: ${request.method} ${request.path}`,
     );
+  }
+}
+
+class TornAgentBodyTransport extends AgentBodyTransport {
+  public override async request(request: NotionRequest): Promise<JsonObject> {
+    if (request.path === `/v1/pages/${ids.agent}`)
+      return {
+        ...page(ids.agent, {
+          Name: richTextProperty("title", "Code Reviewer"),
+        }),
+        last_edited_time: "2026-08-17T13:00:00.000Z",
+      };
+    return super.request(request);
   }
 }
 

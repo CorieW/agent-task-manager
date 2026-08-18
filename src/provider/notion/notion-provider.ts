@@ -531,9 +531,19 @@ export class NotionProvider implements AgentTaskProvider {
     page: JsonObject,
     resourceIdByKey: ReadonlyMap<string, string>,
   ): Promise<AgentRecord> {
-    const body = await this.markdown(id(page));
-    const definition = parseAgentDefinition(body);
-    return this.agentRecord(page, body, definition, resourceIdByKey);
+    let metadata = page;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const body = await this.markdown(id(metadata));
+      const current = await this.pageOrNull(id(metadata));
+      if (current === null)
+        throw new Error(`Agent page disappeared while loading: ${id(page)}`);
+      if (version(current) === version(metadata)) {
+        const definition = parseAgentDefinition(body);
+        return this.agentRecord(current, body, definition, resourceIdByKey);
+      }
+      metadata = current;
+    }
+    throw new Error(`Agent page changed repeatedly while loading: ${id(page)}`);
   }
   private agentRecord(
     page: JsonObject,
