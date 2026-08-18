@@ -653,7 +653,7 @@ function compareExact(
   if (
     JSON.stringify([...actual].sort()) !== JSON.stringify([...expected].sort())
   )
-    failures.push(`${label} inventory differs from the captured fixture`);
+    failures.push(`${label} inventory differs from the expected baseline`);
 }
 function requiredText(value: unknown, label: string): string {
   if (typeof value !== "string" || value === "")
