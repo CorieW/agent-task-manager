@@ -108,13 +108,13 @@ test("Agent command policies require exactly one normalized list", () => {
   assert.deepEqual(parseAgentCommandPolicy({ inclusion: ["git.com"] }), {
     inclusion: ["git"],
   });
-  assert.deepEqual(parseAgentCommandPolicy({ inclusion: ["git.exe.com"] }), {
+  assert.deepEqual(parseAgentCommandPolicy({ inclusion: ["git.exe.com..."] }), {
     inclusion: ["git"],
   });
   assert.throws(
     () =>
       parseAgentCommandPolicy({
-        inclusion: ["git", "git.com", "git.exe.com"],
+        inclusion: ["git", "git.com", "git.exe.com..."],
       }),
     /contains duplicates/u,
   );
@@ -159,7 +159,7 @@ test("command proxy enforces inclusion, ownership, and path-free names", async (
     (
       await proxy.execute({
         arguments: ["status"],
-        command: "git.exe.com",
+        command: "git.exe.com...",
         harnessId: "harness-1",
         runId: "run-1",
       })
@@ -213,7 +213,7 @@ test("command prompt binds flag-like run identifiers", () => {
 
 test("command proxy exclusion denies only configured commands", async () => {
   const { coordinator } = await setup(
-    parseAgentCommandPolicy({ exclusion: ["rm.exe.com"] }),
+    parseAgentCommandPolicy({ exclusion: ["rm"] }),
   );
   const executor: CommandExecutor = async (request) => ({
     command: request.command,
@@ -237,7 +237,7 @@ test("command proxy exclusion denies only configured commands", async () => {
   await assert.rejects(
     proxy.execute({
       arguments: [],
-      command: "rm.exe.com",
+      command: "rm.exe.com...",
       harnessId: "harness-1",
       runId: "run-1",
     }),
