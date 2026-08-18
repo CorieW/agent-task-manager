@@ -303,14 +303,10 @@ export async function runCli(
       return toJsonValue(
         await provider.getErrorByKey(requiredFlag(parsed.flags, "key")),
       );
-    if (action === "report")
-      return toJsonValue(
-        await mutex.run(async () =>
-          coordinator.reportError(
-            await readErrorInput(requiredFlag(parsed.flags, "input")),
-          ),
-        ),
-      );
+    if (action === "report") {
+      const input = await readErrorInput(requiredFlag(parsed.flags, "input"));
+      return toJsonValue(await mutex.run(() => coordinator.reportError(input)));
+    }
     if (action === "resolve")
       return toJsonValue(
         await mutex.run(() =>
