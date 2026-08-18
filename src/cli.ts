@@ -413,7 +413,31 @@ function commandBrokerExecutor(env: NodeJS.ProcessEnv) {
     throw new Error(
       "AGENT_TASK_MANAGER_COMMAND_BROKER must name an absolute sandbox broker executable",
     );
-  return createCommandBrokerExecutor(executable);
+  const maxOutputBytes = optionalPositiveInteger(
+    env.AGENT_TASK_MANAGER_COMMAND_MAX_OUTPUT_BYTES,
+    "AGENT_TASK_MANAGER_COMMAND_MAX_OUTPUT_BYTES",
+  );
+  const timeoutMilliseconds = optionalPositiveInteger(
+    env.AGENT_TASK_MANAGER_COMMAND_TIMEOUT_MS,
+    "AGENT_TASK_MANAGER_COMMAND_TIMEOUT_MS",
+  );
+  return createCommandBrokerExecutor(executable, [], {
+    environment: env,
+    ...(maxOutputBytes === undefined ? {} : { maxOutputBytes }),
+    ...(timeoutMilliseconds === undefined ? {} : { timeoutMilliseconds }),
+  });
+}
+
+/** Parses an optional positive integer environment setting. */
+function optionalPositiveInteger(
+  value: string | undefined,
+  name: string,
+): number | undefined {
+  if (value === undefined) return undefined;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0)
+    throw new Error(`${name} must be a positive integer`);
+  return parsed;
 }
 
 /** Serializes a terminal lifecycle mutation against commands in its subtree. */

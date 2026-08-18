@@ -239,6 +239,7 @@ test("sandbox broker receives literal arguments without manager secrets", async 
           stdout: JSON.stringify({
             arguments: request.arguments,
             commands: request.commands,
+            locale: process.env.LANG,
             runId: request.runId,
             schema: request.schema,
             secret: process.env.${secretName}
@@ -246,11 +247,11 @@ test("sandbox broker receives literal arguments without manager secrets", async 
         }));
       });
     `;
-    const executor = createCommandBrokerExecutor(process.execPath, [
-      "--input-type=commonjs",
-      "-e",
-      broker,
-    ]);
+    const executor = createCommandBrokerExecutor(
+      process.execPath,
+      ["--input-type=commonjs", "-e", broker],
+      { environment: { ...process.env, LANG: "broker-locale" } },
+    );
     const result = await executor({
       arguments: ["status", "&&", "node"],
       command: "git",
@@ -261,6 +262,7 @@ test("sandbox broker receives literal arguments without manager secrets", async 
     assert.deepEqual(JSON.parse(result.stdout), {
       arguments: ["status", "&&", "node"],
       commands: { inclusion: ["git"] },
+      locale: "broker-locale",
       runId: "run-1",
       schema: "agent-command-broker-request-v1",
     });
@@ -275,6 +277,30 @@ test("sandbox broker path must be absolute", () => {
     () => createCommandBrokerExecutor("broker"),
     /must be an absolute path/u,
   );
+});
+
+test("sandbox broker exchange enforces timeout and output bounds", async () => {
+  const hanging = createCommandBrokerExecutor(
+    process.execPath,
+    ["-e", "setInterval(() => undefined, 1000)"],
+    { timeoutMilliseconds: 25 },
+  );
+  await assert.rejects(
+    hanging(brokerRequest()),
+    /timed out after 25 milliseconds/u,
+  );
+  for (const stream of ["stdout", "stderr"] as const) {
+    const script = `process.${stream}.write("x".repeat(256))`;
+    const overflowing = createCommandBrokerExecutor(
+      process.execPath,
+      ["-e", script],
+      { maxOutputBytes: 64 },
+    );
+    await assert.rejects(
+      overflowing(brokerRequest()),
+      /output exceeded 64 bytes/u,
+    );
+  }
 });
 
 test("command gate releases the global mutex while retaining the run lease", async () => {
@@ -323,4 +349,25 @@ test("command gate releases the global mutex while retaining the run lease", asy
   );
   assert.equal(result, "complete");
   assert.equal(runLocked, false);
+  await assert.rejects(
+    gate.execute(
+      "run-1",
+      async () => brokerRequest(),
+      async () => {
+        throw new Error("broker failed");
+      },
+    ),
+    /broker failed/u,
+  );
+  assert.equal(runLocked, false);
 });
+
+function brokerRequest(): BrokerCommandRequest {
+  return {
+    arguments: [],
+    command: "git",
+    commands: { inclusion: ["git"] },
+    runId: "run-1",
+    schema: "agent-command-broker-request-v1",
+  };
+}

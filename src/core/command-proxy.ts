@@ -23,6 +23,13 @@ export interface ProxyCommandResult {
   readonly stdout: string;
 }
 
+/** Manager-side safety bounds for one broker protocol exchange. */
+export interface CommandBrokerOptions {
+  readonly environment?: NodeJS.ProcessEnv;
+  readonly maxOutputBytes?: number;
+  readonly timeoutMilliseconds?: number;
+}
+
 /** Versioned, fully authorized request sent to the sandbox broker. */
 export interface BrokerCommandRequest {
   readonly arguments: readonly string[];
@@ -122,23 +129,67 @@ export class CommandProxy {
 export function createCommandBrokerExecutor(
   brokerExecutable: string,
   brokerArguments: readonly string[] = [],
+  options: CommandBrokerOptions = {},
 ): CommandExecutor {
   if (!isAbsolute(brokerExecutable))
     throw new TypeError("Command broker executable must be an absolute path");
+  const maxOutputBytes = positiveInteger(
+    options.maxOutputBytes ?? 1024 * 1024,
+    "Command broker maxOutputBytes",
+  );
+  const timeoutMilliseconds = positiveInteger(
+    options.timeoutMilliseconds ?? 5 * 60 * 1000,
+    "Command broker timeoutMilliseconds",
+  );
   return async (request) =>
     new Promise((resolve, reject) => {
       const child = spawn(brokerExecutable, brokerArguments, {
-        env: commandEnvironment(process.env),
+        env: commandEnvironment(options.environment ?? process.env),
         shell: false,
         stdio: ["pipe", "pipe", "pipe"],
         windowsHide: true,
       });
       const stdout: Buffer[] = [];
       const stderr: Buffer[] = [];
-      child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
-      child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
-      child.once("error", reject);
+      let outputBytes = 0;
+      let settled = false;
+      const timer = setTimeout(() => {
+        fail(
+          new Error(
+            `Command broker timed out after ${timeoutMilliseconds} milliseconds`,
+          ),
+        );
+      }, timeoutMilliseconds);
+      const fail = (error: Error): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        child.stdout.destroy();
+        child.stderr.destroy();
+        try {
+          child.kill();
+        } catch {
+          // Preserve the protocol failure that required broker termination.
+        }
+        reject(error);
+      };
+      const collect = (chunks: Buffer[]) => (chunk: Buffer) => {
+        outputBytes += chunk.length;
+        if (outputBytes > maxOutputBytes) {
+          fail(
+            new Error(`Command broker output exceeded ${maxOutputBytes} bytes`),
+          );
+          return;
+        }
+        chunks.push(chunk);
+      };
+      child.stdout.on("data", collect(stdout));
+      child.stderr.on("data", collect(stderr));
+      child.once("error", (error) => fail(error));
       child.once("close", (exitCode, signal) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
         if (exitCode !== 0 || signal !== null) {
           reject(
             new Error(
@@ -160,6 +211,13 @@ export function createCommandBrokerExecutor(
       });
       child.stdin.end(`${JSON.stringify(request)}\n`, "utf8");
     });
+}
+
+/** Requires a finite positive integer broker bound. */
+function positiveInteger(value: number, name: string): number {
+  if (!Number.isSafeInteger(value) || value <= 0)
+    throw new TypeError(`${name} must be a positive integer`);
+  return value;
 }
 
 /** Validates the single JSON result emitted by the command broker. */
