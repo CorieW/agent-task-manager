@@ -6,7 +6,10 @@ import {
   parseEnvironmentConfig,
 } from "../src/config/environment.js";
 import { toJsonValue } from "../src/domain/json.js";
-import { parseAgentDefinition } from "../src/domain/records.js";
+import {
+  parseAgentDefinition,
+  parseReportErrorInput,
+} from "../src/domain/records.js";
 import { NOTION_TABLES } from "../src/provider/notion/notion-schema.js";
 
 test("v2 environment accepts only the five simplified tables", () => {
@@ -164,5 +167,33 @@ test("Agent definitions require explicit Prompt and Policy resources", () => {
         }),
       ),
     /inputResourceSelectors must contain a policy\/\*/u,
+  );
+});
+
+test("Error report input rejects unknown fields and invalid enums", () => {
+  const valid = {
+    activeAgentId: null,
+    agentId: "agent",
+    description: "Failure details",
+    errorKey: "failure-key",
+    resolution: "",
+    severity: "high",
+    source: "system",
+    taskId: "task",
+    title: "Failure",
+  };
+  assert.deepEqual(parseReportErrorInput(valid), valid);
+  assert.throws(
+    () => parseReportErrorInput({ ...valid, severity: "urgent" }),
+    /severity is invalid/u,
+  );
+  assert.throws(
+    () => parseReportErrorInput({ ...valid, unexpected: true }),
+    /unsupported fields: unexpected/u,
+  );
+  const { title: _title, ...missingTitle } = valid;
+  assert.throws(
+    () => parseReportErrorInput(missingTitle),
+    /title must be a string/u,
   );
 });

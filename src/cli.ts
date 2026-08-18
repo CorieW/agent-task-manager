@@ -10,7 +10,10 @@ import {
 } from "./config/environment.js";
 import { AgentCoordinator } from "./core/coordinator.js";
 import { toJsonValue, type JsonValue } from "./domain/json.js";
-import type { ReportErrorInput } from "./domain/records.js";
+import {
+  parseReportErrorInput,
+  type ReportErrorInput,
+} from "./domain/records.js";
 import type { AgentTaskProvider } from "./provider/agent-task-provider.js";
 import { NotionProvider } from "./provider/notion/notion-provider.js";
 import { NotionHttpTransport } from "./provider/notion/notion-transport.js";
@@ -238,9 +241,7 @@ function providerFor(
 async function readErrorInput(path: string): Promise<ReportErrorInput> {
   const raw = path === "-" ? await readStdin() : await readFile(path, "utf8");
   const value = toJsonValue(JSON.parse(raw) as unknown);
-  if (value === null || typeof value !== "object" || Array.isArray(value))
-    throw new TypeError("Error input must be a JSON object");
-  return value as unknown as ReportErrorInput;
+  return parseReportErrorInput(value);
 }
 async function readStdin(): Promise<string> {
   const chunks: Buffer[] = [];
