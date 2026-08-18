@@ -57,7 +57,9 @@ export interface CommandExecutionGate {
 
 /** Mutex capabilities needed to register a long-lived command lease. */
 export interface CommandLeaseMutex {
-  lock(): Promise<() => Promise<void>>;
+  lock(options?: {
+    readonly reclaimable?: boolean;
+  }): Promise<() => Promise<void>>;
   run<T>(operation: () => Promise<T>): Promise<T>;
 }
 
@@ -75,7 +77,7 @@ export function createCommandExecutionGate(
       let release: (() => Promise<void>) | undefined;
       let request: BrokerCommandRequest | undefined;
       await globalMutex.run(async () => {
-        release = await runMutex(runId).lock();
+        release = await runMutex(runId).lock({ reclaimable: false });
         try {
           request = await authorize();
         } catch (error) {

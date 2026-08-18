@@ -4,6 +4,11 @@ import { open, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+/** Controls whether a dead owning process is sufficient to recover a lock. */
+export interface SingleHostMutexLockOptions {
+  readonly reclaimable?: boolean;
+}
+
 /** Implements single-host mutex. */
 export class SingleHostMutex {
   /** Provider-relative request path. */
@@ -27,7 +32,9 @@ export class SingleHostMutex {
   }
 
   /** Acquires the mutex until the returned release callback is awaited. */
-  public async lock(): Promise<() => Promise<void>> {
+  public async lock(
+    options: SingleHostMutexLockOptions = {},
+  ): Promise<() => Promise<void>> {
     /** Prior queue tail awaited before attempting the filesystem lock. */
     const previous = this.#tail;
     /** Callback that releases this caller's queue position. */
@@ -39,7 +46,7 @@ export class SingleHostMutex {
     /** Holds the exclusive lock-file handle owned by this caller. */
     let handle: Awaited<ReturnType<typeof open>>;
     try {
-      handle = await this.acquireFile();
+      handle = await this.acquireFile(options.reclaimable ?? true);
     } catch (error) {
       releaseQueue();
       throw error;
@@ -61,24 +68,25 @@ export class SingleHostMutex {
   }
 
   /** Acquires the lock, clearing one stale owner before a single retry. */
-  private async acquireFile() {
+  private async acquireFile(reclaimable: boolean) {
     try {
-      return await this.createLock();
+      return await this.createLock(reclaimable);
     } catch (error) {
       if (!isAlreadyExists(error) || !(await this.clearStaleOwner()))
         throw error;
-      return this.createLock();
+      return this.createLock(reclaimable);
     }
   }
 
   /** Creates and initializes a lock, restoring the unlocked state on failure. */
-  private async createLock() {
+  private async createLock(reclaimable: boolean) {
     /** Exclusively created lock handle owned by this acquisition attempt. */
     const handle = await open(this.#path, "wx", 0o600);
     try {
       await handle.writeFile(
         JSON.stringify({
           pid: process.pid,
+          reclaimable,
           startedAt: new Date().toISOString(),
         }),
         "utf8",
@@ -109,6 +117,8 @@ export class SingleHostMutex {
       if (
         parsed === null ||
         typeof parsed !== "object" ||
+        !("reclaimable" in parsed) ||
+        parsed.reclaimable !== true ||
         !("pid" in parsed) ||
         typeof parsed.pid !== "number"
       )

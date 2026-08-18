@@ -1,5 +1,6 @@
 /** Collision-resistance coverage for same-host mutex identities. */
-import { mkdtemp, rm } from "node:fs/promises";
+import assert from "node:assert/strict";
+import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -36,4 +37,68 @@ test("long environment and run identities use distinct mutex files", async () =>
 
 test("sanitization-equivalent identities use distinct mutex files", async () => {
   await assertDistinctLockIdentities("environment/x", "environment?x");
+});
+
+test("dead reclaimable owners are recovered", async () => {
+  /** Isolated directory containing the artificial stale lock. */
+  const root = await mkdtemp(join(tmpdir(), "agent-task-manager-mutex-"));
+  try {
+    /** Mutex used to discover its collision-resistant lock path. */
+    const mutex = new SingleHostMutex("environment", root);
+    /** Release callback for the temporary path-discovery acquisition. */
+    const release = await mutex.lock();
+    /** Exact lock path created for this identity. */
+    const path = join(root, (await readdir(root))[0]!);
+    await release();
+    await writeFile(
+      path,
+      JSON.stringify({
+        pid: Number.MAX_SAFE_INTEGER,
+        reclaimable: true,
+        startedAt: new Date(0).toISOString(),
+      }),
+      "utf8",
+    );
+    /** Release callback proves the dead owner was reclaimed. */
+    const releaseRecovered = await mutex.lock();
+    await releaseRecovered();
+  } finally {
+    await rm(root, { force: true, recursive: true });
+  }
+});
+
+test("dead command owners remain fenced until verified recovery", async () => {
+  /** Isolated directory containing the artificial orphaned lease. */
+  const root = await mkdtemp(join(tmpdir(), "agent-task-manager-mutex-"));
+  try {
+    /** Command mutex whose lock path is populated with an orphaned lease. */
+    const mutex = new SingleHostMutex("environment.command.run-1", root);
+    /** Release callback for the temporary path-discovery acquisition. */
+    const release = await mutex.lock({ reclaimable: false });
+    /** Exact lock path created for this command identity. */
+    const path = join(root, (await readdir(root))[0]!);
+    await release();
+    await writeFile(
+      path,
+      JSON.stringify({
+        pid: Number.MAX_SAFE_INTEGER,
+        reclaimable: false,
+        startedAt: new Date(0).toISOString(),
+      }),
+      "utf8",
+    );
+    await assert.rejects(
+      new SingleHostMutex("environment.command.run-1", root).lock(),
+      (error: unknown) =>
+        error instanceof Error && "code" in error && error.code === "EEXIST",
+    );
+
+    // Operators may remove the fence only after verifying broker containment stopped.
+    await rm(path);
+    /** Release callback proves deliberate recovery restores the lease. */
+    const releaseRecovered = await mutex.lock({ reclaimable: false });
+    await releaseRecovered();
+  } finally {
+    await rm(root, { force: true, recursive: true });
+  }
 });

@@ -383,8 +383,9 @@ test("command gate releases the global mutex while retaining the run lease", asy
     },
   };
   const runMutex = {
-    lock: async () => {
+    lock: async (options?: { readonly reclaimable?: boolean }) => {
       assert.equal(globallyLocked, true);
+      assert.deepEqual(options, { reclaimable: false });
       runLocked = true;
       return async () => {
         runLocked = false;
