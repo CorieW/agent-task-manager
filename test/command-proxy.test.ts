@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  type BrokerCommandRequest,
   CommandProxy,
   createCommandBrokerExecutor,
   type CommandExecutor,
@@ -99,7 +100,7 @@ test("Agent command policies require exactly one normalized list", () => {
 
 test("command proxy enforces inclusion, ownership, and path-free names", async () => {
   const { context, coordinator } = await setup({ inclusion: ["git"] });
-  const calls: Array<{ arguments: readonly string[]; command: string }> = [];
+  const calls: BrokerCommandRequest[] = [];
   let locked = false;
   const mutex: CommandMutex = {
     run: async <T>(operation: () => Promise<T>) => {
@@ -112,9 +113,9 @@ test("command proxy enforces inclusion, ownership, and path-free names", async (
       }
     },
   };
-  const executor: CommandExecutor = async (command, arguments_) => {
+  const executor: CommandExecutor = async (request) => {
     assert.equal(locked, true);
-    calls.push({ arguments: arguments_, command });
+    calls.push(request);
     return {
       command: "git",
       exitCode: 0,
@@ -139,7 +140,15 @@ test("command proxy enforces inclusion, ownership, and path-free names", async (
     ).stdout,
     "clean",
   );
-  assert.deepEqual(calls, [{ arguments: ["status"], command: "git.exe" }]);
+  assert.deepEqual(calls, [
+    {
+      arguments: ["status"],
+      command: "git",
+      commands: { inclusion: ["git"] },
+      runId: "run-1",
+      schema: "agent-command-broker-request-v1",
+    },
+  ]);
   await assert.rejects(
     proxy.execute({
       arguments: [],
@@ -172,12 +181,12 @@ test("command proxy enforces inclusion, ownership, and path-free names", async (
 
 test("command proxy exclusion denies only configured commands", async () => {
   const { coordinator } = await setup({ exclusion: ["rm"] });
-  const executor: CommandExecutor = async (command) => ({
-    command,
+  const executor: CommandExecutor = async (request) => ({
+    command: request.command,
     exitCode: 0,
     signal: null,
     stderr: "",
-    stdout: command,
+    stdout: request.command,
   });
   const proxy = new CommandProxy(coordinator, executor, immediateMutex);
   assert.equal(
@@ -218,7 +227,13 @@ test("sandbox broker receives literal arguments without manager secrets", async 
           exitCode: 0,
           signal: null,
           stderr: "",
-          stdout: JSON.stringify({ arguments: request.arguments, secret: process.env.${secretName} })
+          stdout: JSON.stringify({
+            arguments: request.arguments,
+            commands: request.commands,
+            runId: request.runId,
+            schema: request.schema,
+            secret: process.env.${secretName}
+          })
         }));
       });
     `;
@@ -227,9 +242,18 @@ test("sandbox broker receives literal arguments without manager secrets", async 
       "-e",
       broker,
     ]);
-    const result = await executor("git", ["status", "&&", "node"]);
+    const result = await executor({
+      arguments: ["status", "&&", "node"],
+      command: "git",
+      commands: { inclusion: ["git"] },
+      runId: "run-1",
+      schema: "agent-command-broker-request-v1",
+    });
     assert.deepEqual(JSON.parse(result.stdout), {
       arguments: ["status", "&&", "node"],
+      commands: { inclusion: ["git"] },
+      runId: "run-1",
+      schema: "agent-command-broker-request-v1",
     });
   } finally {
     if (previous === undefined) delete process.env[secretName];

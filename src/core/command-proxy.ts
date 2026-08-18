@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { isAbsolute } from "node:path";
 
 import { commandIsAllowed, normalizeCommandName } from "../domain/commands.js";
+import type { AgentCommandPolicy } from "../domain/commands.js";
 import type { AgentCoordinator } from "./coordinator.js";
 
 /** Harness-owned command request presented to the command proxy. */
@@ -22,10 +23,18 @@ export interface ProxyCommandResult {
   readonly stdout: string;
 }
 
+/** Versioned, fully authorized request sent to the sandbox broker. */
+export interface BrokerCommandRequest {
+  readonly arguments: readonly string[];
+  readonly command: string;
+  readonly commands: AgentCommandPolicy;
+  readonly runId: string;
+  readonly schema: "agent-command-broker-request-v1";
+}
+
 /** Sandboxed execution boundary supplied by the trusted host. */
 export type CommandExecutor = (
-  command: string,
-  arguments_: readonly string[],
+  request: BrokerCommandRequest,
 ) => Promise<ProxyCommandResult>;
 
 /** Exclusive-operation boundary shared with lifecycle mutations. */
@@ -52,7 +61,13 @@ export class CommandProxy {
       );
       if (!commandIsAllowed(policy, command))
         throw new Error(`Agent command is not allowed: ${command}`);
-      return this.executor(input.command, input.arguments);
+      return this.executor({
+        arguments: [...input.arguments],
+        command,
+        commands: policy,
+        runId: input.runId,
+        schema: "agent-command-broker-request-v1",
+      });
     });
   }
 }
@@ -64,7 +79,7 @@ export function createCommandBrokerExecutor(
 ): CommandExecutor {
   if (!isAbsolute(brokerExecutable))
     throw new TypeError("Command broker executable must be an absolute path");
-  return async (command, arguments_) =>
+  return async (request) =>
     new Promise((resolve, reject) => {
       const child = spawn(brokerExecutable, brokerArguments, {
         env: commandEnvironment(process.env),
@@ -87,20 +102,25 @@ export function createCommandBrokerExecutor(
           return;
         }
         try {
-          resolve(parseBrokerResult(Buffer.concat(stdout).toString("utf8")));
+          resolve(
+            parseBrokerResult(
+              Buffer.concat(stdout).toString("utf8"),
+              request.command,
+            ),
+          );
         } catch (error) {
           reject(error);
         }
       });
-      child.stdin.end(
-        `${JSON.stringify({ arguments: arguments_, command })}\n`,
-        "utf8",
-      );
+      child.stdin.end(`${JSON.stringify(request)}\n`, "utf8");
     });
 }
 
 /** Validates the single JSON result emitted by the command broker. */
-function parseBrokerResult(value: string): ProxyCommandResult {
+function parseBrokerResult(
+  value: string,
+  expectedCommand: string,
+): ProxyCommandResult {
   const result: unknown = JSON.parse(value);
   if (result === null || typeof result !== "object" || Array.isArray(result))
     throw new TypeError("Command broker result must be an object");
@@ -109,7 +129,7 @@ function parseBrokerResult(value: string): ProxyCommandResult {
   if (
     Object.keys(record).some((key) => !keys.includes(key)) ||
     keys.some((key) => !(key in record)) ||
-    typeof record.command !== "string" ||
+    record.command !== expectedCommand ||
     (record.exitCode !== null && typeof record.exitCode !== "number") ||
     (record.signal !== null && typeof record.signal !== "string") ||
     typeof record.stderr !== "string" ||
