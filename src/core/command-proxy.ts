@@ -1,5 +1,6 @@
 /** Authorizes Agent commands and delegates execution to a sandboxed broker. */
 import { spawn } from "node:child_process";
+import { constants as operatingSystemConstants } from "node:os";
 import { isAbsolute } from "node:path";
 
 import { commandIsAllowed, normalizeCommandName } from "../domain/commands.js";
@@ -230,12 +231,19 @@ function parseBrokerResult(
     throw new TypeError("Command broker result must be an object");
   const record = result as Record<string, unknown>;
   const keys = ["command", "exitCode", "signal", "stderr", "stdout"];
+  const normalExit =
+    Number.isSafeInteger(record.exitCode) &&
+    (record.exitCode as number) >= 0 &&
+    record.signal === null;
+  const signalledExit =
+    record.exitCode === null &&
+    typeof record.signal === "string" &&
+    Object.hasOwn(operatingSystemConstants.signals, record.signal);
   if (
     Object.keys(record).some((key) => !keys.includes(key)) ||
     keys.some((key) => !(key in record)) ||
     record.command !== expectedCommand ||
-    (record.exitCode !== null && typeof record.exitCode !== "number") ||
-    (record.signal !== null && typeof record.signal !== "string") ||
+    (!normalExit && !signalledExit) ||
     typeof record.stderr !== "string" ||
     typeof record.stdout !== "string"
   )

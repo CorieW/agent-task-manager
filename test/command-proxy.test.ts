@@ -303,6 +303,30 @@ test("sandbox broker exchange enforces timeout and output bounds", async () => {
   }
 });
 
+test("sandbox broker rejects ambiguous terminal results", async () => {
+  for (const terminal of [
+    { exitCode: null, signal: null },
+    { exitCode: 0, signal: "SIGTERM" },
+    { exitCode: -1, signal: null },
+    { exitCode: null, signal: "NOT_A_SIGNAL" },
+  ]) {
+    const result = JSON.stringify({
+      command: "git",
+      ...terminal,
+      stderr: "",
+      stdout: "",
+    });
+    const executor = createCommandBrokerExecutor(process.execPath, [
+      "-e",
+      `process.stdin.resume(); process.stdin.on("end", () => process.stdout.write(${JSON.stringify(result)}))`,
+    ]);
+    await assert.rejects(
+      executor(brokerRequest()),
+      /returned an invalid result/u,
+    );
+  }
+});
+
 test("command gate releases the global mutex while retaining the run lease", async () => {
   let globallyLocked = false;
   let runLocked = false;

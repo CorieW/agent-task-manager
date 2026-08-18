@@ -62,5 +62,6 @@ test("CLI reports signalled proxy commands as failures", () => {
     1,
   );
   assert.equal(proxyExitCode({ exitCode: 7 }), 7);
+  assert.equal(proxyExitCode({ exitCode: 0, signal: "SIGTERM" }), 1);
   assert.equal(proxyExitCode({ result: "not a command" }), null);
 });

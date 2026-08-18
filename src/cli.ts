@@ -532,8 +532,6 @@ if (
 export function proxyExitCode(result: JsonValue): number | null {
   if (result === null || Array.isArray(result) || typeof result !== "object")
     return null;
-  if (typeof result.exitCode === "number") return result.exitCode;
-  return result.exitCode === null && typeof result.signal === "string"
-    ? 1
-    : null;
+  if (typeof result.signal === "string") return 1;
+  return typeof result.exitCode === "number" ? result.exitCode : null;
 }
