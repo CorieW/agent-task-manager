@@ -1,3 +1,4 @@
+/** Strict configuration, schema, identifier, and payload parsing coverage. */
 import assert from "node:assert/strict";
 import test from "node:test";
 

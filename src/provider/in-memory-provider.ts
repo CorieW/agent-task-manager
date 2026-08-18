@@ -18,6 +18,7 @@ import type {
   CreateActiveAgentRecord,
 } from "./agent-task-provider.js";
 
+/** Optional records used to initialize an isolated in-memory provider. */
 export interface InMemorySeed {
   readonly activeAgents?: readonly ActiveAgentRecord[];
   readonly agents?: readonly AgentRecord[];
@@ -26,6 +27,7 @@ export interface InMemorySeed {
   readonly tasks?: readonly TaskRecord[];
 }
 
+/** In-process AgentTaskProvider implementation for hosts and tests. */
 export class InMemoryProvider implements AgentTaskProvider {
   readonly #activeAgents = new Map<string, ActiveAgentRecord>();
   readonly #agents = new Map<string, AgentRecord>();
@@ -34,6 +36,7 @@ export class InMemoryProvider implements AgentTaskProvider {
   readonly #tasks = new Map<string, TaskRecord>();
   #clock = 0;
 
+  /** Copies the supplied seed into independent mutable maps. */
   public constructor(seed: InMemorySeed = {}) {
     for (const value of seed.tasks ?? [])
       this.#tasks.set(value.id, clone(value));
@@ -47,12 +50,15 @@ export class InMemoryProvider implements AgentTaskProvider {
       this.#errors.set(value.errorKey, clone(value));
   }
 
+  /** @inheritdoc */
   public async validateEnvironment(): Promise<ValidationReport> {
     return { issues: [], valid: true };
   }
+  /** @inheritdoc */
   public async validateWorkspace(): Promise<ValidationReport> {
     return { issues: [], valid: true };
   }
+  /** @inheritdoc */
   public async planWorkspace(environmentId: string): Promise<WorkspacePlan> {
     const core = {
       environmentId,
@@ -62,12 +68,14 @@ export class InMemoryProvider implements AgentTaskProvider {
     };
     return { ...core, digest: digestJson(toJsonValue(core)) };
   }
+  /** @inheritdoc */
   public async applyWorkspacePlan(
     _plan: WorkspacePlan,
   ): Promise<Readonly<Record<string, string>>> {
     return {};
   }
 
+  /** @inheritdoc */
   public async listTasks(status?: string): Promise<readonly TaskRecord[]> {
     return [...this.#tasks.values()]
       .filter(
@@ -76,45 +84,54 @@ export class InMemoryProvider implements AgentTaskProvider {
       )
       .map(clone);
   }
+  /** @inheritdoc */
   public async getTask(id: string): Promise<TaskRecord | null> {
     return nullable(this.#tasks.get(id));
   }
+  /** @inheritdoc */
   public async setTaskStatus(id: string, status: string): Promise<TaskRecord> {
     const current = required(this.#tasks.get(id), `Task not found: ${id}`);
     const next = { ...current, status, version: this.version() };
     this.#tasks.set(id, next);
     return clone(next);
   }
+  /** @inheritdoc */
   public async listAgents(): Promise<readonly AgentRecord[]> {
     return [...this.#agents.values()]
       .filter((entry) => !entry.archived)
       .map(clone);
   }
+  /** @inheritdoc */
   public async getAgentByKey(key: string): Promise<AgentRecord | null> {
     return nullable(
       [...this.#agents.values()].find((entry) => entry.key === key),
     );
   }
+  /** @inheritdoc */
   public async listResources(): Promise<readonly ResourceRecord[]> {
     return [...this.#resources.values()]
       .filter((entry) => !entry.archived)
       .map(clone);
   }
+  /** @inheritdoc */
   public async getResourceByKey(key: string): Promise<ResourceRecord | null> {
     return nullable(
       [...this.#resources.values()].find((entry) => entry.key === key),
     );
   }
+  /** @inheritdoc */
   public async listActiveAgents(): Promise<readonly ActiveAgentRecord[]> {
     return [...this.#activeAgents.values()]
       .filter((entry) => !entry.archived)
       .map(clone);
   }
+  /** @inheritdoc */
   public async getActiveAgent(
     runId: string,
   ): Promise<ActiveAgentRecord | null> {
     return nullable(this.#activeAgents.get(runId));
   }
+  /** @inheritdoc */
   public async createActiveAgent(
     input: CreateActiveAgentRecord,
   ): Promise<ActiveAgentRecord> {
@@ -143,6 +160,7 @@ export class InMemoryProvider implements AgentTaskProvider {
     this.#activeAgents.set(record.runId, record);
     return clone(record);
   }
+  /** @inheritdoc */
   public async updateActiveAgent(
     runId: string,
     patch: ActiveAgentPatch,
@@ -155,6 +173,7 @@ export class InMemoryProvider implements AgentTaskProvider {
     this.#activeAgents.set(runId, next);
     return clone(next);
   }
+  /** @inheritdoc */
   public async archiveActiveAgent(runId: string): Promise<void> {
     const current = required(
       this.#activeAgents.get(runId),
@@ -166,14 +185,17 @@ export class InMemoryProvider implements AgentTaskProvider {
       version: this.version(),
     });
   }
+  /** @inheritdoc */
   public async listErrors(): Promise<readonly ErrorRecord[]> {
     return [...this.#errors.values()]
       .filter((entry) => !entry.archived)
       .map(clone);
   }
+  /** @inheritdoc */
   public async getErrorByKey(key: string): Promise<ErrorRecord | null> {
     return nullable(this.#errors.get(key));
   }
+  /** @inheritdoc */
   public async reportError(input: ReportErrorInput): Promise<ErrorRecord> {
     const existing = this.#errors.get(input.errorKey);
     const record: ErrorRecord = {
@@ -186,6 +208,7 @@ export class InMemoryProvider implements AgentTaskProvider {
     this.#errors.set(record.errorKey, record);
     return clone(record);
   }
+  /** @inheritdoc */
   public async resolveError(
     key: string,
     resolution: string,

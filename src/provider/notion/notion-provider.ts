@@ -56,8 +56,10 @@ interface WorkspaceSchemaInspection {
   readonly table: NotionTableDescriptor;
 }
 
+/** AgentTaskProvider backed by the configured Notion data sources. */
 export class NotionProvider implements AgentTaskProvider {
   readonly #tables: Record<TableKind, string | null>;
+  /** Creates a provider over a validated environment and transport. */
   public constructor(
     private readonly environment: ProviderEnvironment,
     private readonly transport: NotionTransport,
@@ -65,6 +67,7 @@ export class NotionProvider implements AgentTaskProvider {
     this.#tables = { ...environment.tables };
   }
 
+  /** @inheritdoc */
   public async validateEnvironment(): Promise<ValidationReport> {
     const issues: ValidationIssue[] = [];
     if (this.environment.type !== "notion")
@@ -82,6 +85,7 @@ export class NotionProvider implements AgentTaskProvider {
     return { issues, valid: issues.length === 0 };
   }
 
+  /** @inheritdoc */
   public async validateWorkspace(): Promise<ValidationReport> {
     const issues: ValidationIssue[] = [];
     for (const inspection of await this.inspectWorkspaceSchema()) {
@@ -118,6 +122,7 @@ export class NotionProvider implements AgentTaskProvider {
     return { issues, valid: issues.length === 0 };
   }
 
+  /** @inheritdoc */
   public async planWorkspace(environmentId: string): Promise<WorkspacePlan> {
     const steps: WorkspaceStep[] = [];
     for (const inspection of await this.inspectWorkspaceSchema()) {
@@ -207,6 +212,7 @@ export class NotionProvider implements AgentTaskProvider {
     return inspections;
   }
 
+  /** @inheritdoc */
   public async applyWorkspacePlan(
     plan: WorkspacePlan,
   ): Promise<Readonly<Record<string, string>>> {
@@ -240,6 +246,7 @@ export class NotionProvider implements AgentTaskProvider {
     );
   }
 
+  /** @inheritdoc */
   public async listTasks(status?: string): Promise<readonly TaskRecord[]> {
     const pages = await this.query(
       "tasks",
@@ -249,10 +256,12 @@ export class NotionProvider implements AgentTaskProvider {
     );
     return Promise.all(pages.map((page) => this.task(page)));
   }
+  /** @inheritdoc */
   public async getTask(id: string): Promise<TaskRecord | null> {
     const page = await this.pageOrNull(id);
     return page === null ? null : this.task(page);
   }
+  /** @inheritdoc */
   public async setTaskStatus(id: string, status: string): Promise<TaskRecord> {
     await this.transport.request({
       body: { properties: { Status: select(status) } },
@@ -265,6 +274,7 @@ export class NotionProvider implements AgentTaskProvider {
     );
   }
 
+  /** @inheritdoc */
   public async listAgents(): Promise<readonly AgentRecord[]> {
     const [pages, resourceIdByKey] = await Promise.all([
       this.query("agents"),
@@ -272,6 +282,7 @@ export class NotionProvider implements AgentTaskProvider {
     ]);
     return Promise.all(pages.map((page) => this.agent(page, resourceIdByKey)));
   }
+  /** @inheritdoc */
   public async getAgentByKey(key: string): Promise<AgentRecord | null> {
     const matches: Array<{
       body: string;
@@ -298,11 +309,13 @@ export class NotionProvider implements AgentTaskProvider {
       await this.resourceIdByKey(),
     );
   }
+  /** @inheritdoc */
   public async listResources(): Promise<readonly ResourceRecord[]> {
     return Promise.all(
       (await this.query("resources")).map((page) => this.resource(page)),
     );
   }
+  /** @inheritdoc */
   public async getResourceByKey(key: string): Promise<ResourceRecord | null> {
     const pages = await this.query("resources", {
       property: "Resource",
@@ -313,9 +326,11 @@ export class NotionProvider implements AgentTaskProvider {
     return page === undefined ? null : this.resource(page);
   }
 
+  /** @inheritdoc */
   public async listActiveAgents(): Promise<readonly ActiveAgentRecord[]> {
     return this.activeRecords(await this.query("activeAgents"));
   }
+  /** @inheritdoc */
   public async getActiveAgent(
     runId: string,
   ): Promise<ActiveAgentRecord | null> {
@@ -327,6 +342,7 @@ export class NotionProvider implements AgentTaskProvider {
     const records = await this.activeRecords(pages);
     return records[0] ?? null;
   }
+  /** @inheritdoc */
   public async createActiveAgent(
     input: CreateActiveAgentRecord,
   ): Promise<ActiveAgentRecord> {
@@ -369,6 +385,7 @@ export class NotionProvider implements AgentTaskProvider {
       `Created Active Agent is unavailable: ${requiredString(page.id, "Created page id")}`,
     );
   }
+  /** @inheritdoc */
   public async updateActiveAgent(
     runId: string,
     patch: ActiveAgentPatch,
@@ -398,6 +415,7 @@ export class NotionProvider implements AgentTaskProvider {
       `Updated Active Agent is unavailable: ${runId}`,
     );
   }
+  /** @inheritdoc */
   public async archiveActiveAgent(runId: string): Promise<void> {
     const current = required(
       await this.getActiveAgent(runId),
@@ -410,11 +428,13 @@ export class NotionProvider implements AgentTaskProvider {
     });
   }
 
+  /** @inheritdoc */
   public async listErrors(): Promise<readonly ErrorRecord[]> {
     return Promise.all(
       (await this.query("errors")).map((page) => this.error(page)),
     );
   }
+  /** @inheritdoc */
   public async getErrorByKey(key: string): Promise<ErrorRecord | null> {
     const pages = await this.query("errors", {
       property: "Error Key",
@@ -424,6 +444,7 @@ export class NotionProvider implements AgentTaskProvider {
     const page = pages[0];
     return page === undefined ? null : this.error(page);
   }
+  /** @inheritdoc */
   public async reportError(input: ReportErrorInput): Promise<ErrorRecord> {
     const existing = await this.getErrorByKey(input.errorKey);
     const properties = {
@@ -463,6 +484,7 @@ export class NotionProvider implements AgentTaskProvider {
       `Reported Error is unavailable: ${input.errorKey}`,
     );
   }
+  /** @inheritdoc */
   public async resolveError(
     key: string,
     resolution: string,

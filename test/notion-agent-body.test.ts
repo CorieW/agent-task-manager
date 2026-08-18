@@ -1,3 +1,4 @@
+/** Notion Agent-body loading, semantic validation, and relation coverage. */
 import assert from "node:assert/strict";
 import test from "node:test";
 

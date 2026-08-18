@@ -1,3 +1,4 @@
+/** Deterministic Management v2 migration planning and transport coverage. */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";

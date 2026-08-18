@@ -1,3 +1,4 @@
+/** Public package surface for configuration, coordination, and providers. */
 export * from "./config/environment.js";
 export * from "./core/coordinator.js";
 export * from "./domain/json.js";

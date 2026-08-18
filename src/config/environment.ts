@@ -1,19 +1,22 @@
-/** Parses the deliberately small v2 environment configuration. */
+/** Parses and validates v2 provider environment configuration. */
 import type { JsonObject, JsonValue } from "../domain/json.js";
 import { TABLE_KINDS, type ProviderEnvironment } from "../domain/provider.js";
 
+/** Validated v2 environment configuration and its original JSON value. */
 export interface EnvironmentConfig {
   readonly environmentId: string;
   readonly provider: ProviderEnvironment;
   readonly raw: JsonObject;
   readonly schema: "agent-task-manager-environment-v2";
 }
+/** Aggregates all problems found while parsing environment configuration. */
 export class EnvironmentConfigError extends TypeError {
   public constructor(public readonly issues: readonly string[]) {
     super(`Invalid environment configuration:\n- ${issues.join("\n- ")}`);
   }
 }
 
+/** Strictly parses v2 environment JSON, rejecting unknown or missing fields. */
 export function parseEnvironmentConfig(value: JsonValue): EnvironmentConfig {
   const issues: string[] = [];
   const root = object(value, "root", issues);

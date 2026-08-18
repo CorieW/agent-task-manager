@@ -1,4 +1,4 @@
-/** Disposable-run lifecycle built on the simplified provider. */
+/** Coordinates owned Agent runs, hierarchy, completion, failure, and retries. */
 import type {
   ActiveAgentContext,
   ActiveAgentRecord,
@@ -9,20 +9,27 @@ import type {
 } from "../domain/records.js";
 import type { AgentTaskProvider } from "../provider/agent-task-provider.js";
 
+/** Maximum time a running Agent may go without a heartbeat. */
 export const STALE_AFTER_MILLISECONDS = 5 * 60 * 1000;
+/** Maximum attempts in one retry chain before human resolution is required. */
 export const MAX_ATTEMPTS = 3;
 
+/** Result of terminating one stale root and its running descendants. */
 export interface SweepResult {
+  /** Whether the terminated run remains below the automatic retry limit. */
   readonly restartable: boolean;
   readonly run: ActiveAgentRecord;
 }
 
+/** Enforces provider-neutral lifecycle, ownership, and hierarchy invariants. */
 export class AgentCoordinator {
+  /** Creates a coordinator with an injectable clock for deterministic hosts/tests. */
   public constructor(
     private readonly provider: AgentTaskProvider,
     private readonly now: () => Date = () => new Date(),
   ) {}
 
+  /** Starts a run or idempotently replays an identical existing Run ID. */
   public async start(
     input: StartActiveAgentInput,
   ): Promise<ActiveAgentContext> {
@@ -80,6 +87,7 @@ export class AgentCoordinator {
     return { agent, resources, run, task };
   }
 
+  /** Records a heartbeat after verifying the run is running and harness-owned. */
   public async heartbeat(
     runId: string,
     harnessId: string,
@@ -90,6 +98,7 @@ export class AgentCoordinator {
     });
   }
 
+  /** Applies a declared outcome, completes the run, and archives its record. */
   public async complete(
     runId: string,
     harnessId: string,
@@ -120,6 +129,7 @@ export class AgentCoordinator {
     return completed;
   }
 
+  /** Fails a harness-owned run and stops each running descendant. */
   public async fail(
     runId: string,
     harnessId: string,
@@ -129,6 +139,7 @@ export class AgentCoordinator {
     return this.terminate(run, "failed", summary);
   }
 
+  /** Terminates stale root runs and reports whether each may be retried. */
   public async sweep(): Promise<readonly SweepResult[]> {
     const now = this.now().getTime();
     const live = (await this.provider.listActiveAgents()).filter(
@@ -157,6 +168,7 @@ export class AgentCoordinator {
     return results;
   }
 
+  /** Creates a replacement attempt for a failed or stale run. */
   public async restart(
     input: RestartActiveAgentInput,
   ): Promise<ActiveAgentContext> {
@@ -215,9 +227,11 @@ export class AgentCoordinator {
     return { agent, resources, run, task };
   }
 
+  /** Creates or reopens a keyed Error through the configured provider. */
   public async reportError(input: ReportErrorInput) {
     return this.provider.reportError(input);
   }
+  /** Stores a resolution and marks the keyed Error resolved. */
   public async resolveError(key: string, resolution: string) {
     return this.provider.resolveError(key, resolution);
   }
@@ -348,6 +362,7 @@ export class AgentCoordinator {
   }
 }
 
+/** Returns the stable Error key that gates a retry chain after its limit. */
 export function retryErrorKey(retryKey: string): string {
   return `active-agent-retry:${retryKey}`;
 }

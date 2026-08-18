@@ -3,6 +3,7 @@ import { digestJson } from "../../core/digest.js";
 import { toJsonValue } from "../../domain/json.js";
 import type { TableKind } from "../../domain/provider.js";
 
+/** Canonical shape of one Notion database property. */
 export interface NotionPropertyDescriptor {
   readonly name: string;
   readonly options: readonly string[];
@@ -11,6 +12,7 @@ export interface NotionPropertyDescriptor {
   readonly syncedName?: string;
   readonly type: string;
 }
+/** Canonical title and properties for one managed Notion table. */
 export interface NotionTableDescriptor {
   readonly kind: TableKind;
   readonly properties: readonly NotionPropertyDescriptor[];
@@ -41,6 +43,7 @@ const r = (
   type: "relation",
 });
 
+/** Canonical ordered schema for all five managed Notion tables. */
 export const NOTION_TABLES: readonly NotionTableDescriptor[] = [
   {
     kind: "tasks",
@@ -128,10 +131,13 @@ export const NOTION_TABLES: readonly NotionTableDescriptor[] = [
   },
 ];
 
+/** Version label included in the canonical Notion schema digest. */
 export const NOTION_SCHEMA_VERSION = "notion-workspace-schema-v6";
+/** SHA-256 digest of the complete canonical Notion schema. */
 export const NOTION_SCHEMA_DIGEST = digestJson(
   toJsonValue({ tables: NOTION_TABLES, version: NOTION_SCHEMA_VERSION }),
 );
+/** Returns the canonical descriptor for a provider table kind. */
 export function notionTable(kind: TableKind): NotionTableDescriptor {
   const table = NOTION_TABLES.find((entry) => entry.kind === kind);
   if (table === undefined) throw new Error(`Unknown Notion table: ${kind}`);

@@ -1,3 +1,4 @@
+/** CLI parsing and command-registry regression coverage. */
 import assert from "node:assert/strict";
 import test from "node:test";
 

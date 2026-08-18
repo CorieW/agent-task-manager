@@ -70,6 +70,7 @@ async function main(): Promise<void> {
   write(report);
 }
 
+/** Reads and normalizes every table required for migration planning. */
 export async function readManagementInventory(
   transport: NotionTransport,
   activeAgentsId: string | null,
@@ -100,6 +101,7 @@ export async function readManagementInventory(
   };
 }
 
+/** Validates a supplied Active Agents database or discovers its unique child. */
 export async function resolveActiveAgentsId(
   transport: NotionTransport,
   suppliedId: string | null,
@@ -520,6 +522,7 @@ async function patchProperties(
     path: `/v1/data_sources/${compactId(sourceId)}`,
   });
 }
+/** Atomically replaces the exact inventoried page Markdown. */
 export async function replaceMarkdown(
   transport: NotionTransport,
   pageId: string,

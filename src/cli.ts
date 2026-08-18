@@ -105,6 +105,7 @@ Global flags:
   --json               Accepted for compatibility; output is always JSON.
 `;
 
+/** Runs one CLI invocation and returns its JSON-serializable result. */
 export async function runCli(
   argv: readonly string[],
   env: NodeJS.ProcessEnv = process.env,

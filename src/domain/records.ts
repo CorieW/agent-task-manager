@@ -1,14 +1,21 @@
-/** Provider-neutral records for the simplified coordination model. */
+/** Provider-neutral Task, Agent, Resource, run, and Error records. */
 import type { JsonObject } from "./json.js";
 
+/** Lifecycle state of a Resource. */
 export type ResourceState = "active" | "draft" | "retired";
+/** Terminal or running state of an Active Agent. */
 export type ActiveAgentStatus =
   "running" | "failed" | "stale" | "completed" | "stopped";
+/** Origin classification of an Error. */
 export type ErrorSource = "human" | "ai" | "system";
+/** Resolution state of an Error. */
 export type ErrorStatus = "open" | "resolved";
+/** Impact classification of an Error. */
 export type ErrorSeverity = "critical" | "high" | "medium" | "low";
+/** Maps Agent outcomes to Task statuses; `$current` preserves the status. */
 export type AgentTransitions = Readonly<Record<string, string>>;
 
+/** Validated authoritative configuration parsed from an Agent page body. */
 export interface AgentDefinition {
   readonly calledBy: string;
   readonly enabled: boolean;
@@ -20,6 +27,7 @@ export interface AgentDefinition {
   readonly transitions: AgentTransitions;
 }
 
+/** Provider-neutral projection of one Task record. */
 export interface TaskRecord {
   readonly archived: boolean;
   readonly body: string;
@@ -32,6 +40,7 @@ export interface TaskRecord {
   readonly version: string;
 }
 
+/** Provider-neutral projection of one Resource record. */
 export interface ResourceRecord {
   readonly archived: boolean;
   readonly body: string;
@@ -43,12 +52,15 @@ export interface ResourceRecord {
   readonly version: string;
 }
 
+/** Provider-neutral projection of one Agent record and resolved configuration. */
 export interface AgentRecord {
   readonly archived: boolean;
   readonly body: string;
   readonly calledBy: string;
   readonly enabled: boolean;
+  /** Provider-owned record identifier. */
   readonly id: string;
+  /** Stable lookup key declared by the Agent definition. */
   readonly key: string;
   readonly model: string;
   readonly name: string;
@@ -60,27 +72,37 @@ export interface AgentRecord {
   readonly version: string;
 }
 
+/** Provider-neutral projection of one Active Agent run record. */
 export interface ActiveAgentRecord {
   readonly agentId: string;
+  /** Agent record version captured when this run started. */
   readonly agentVersion: string;
   readonly archived: boolean;
+  /** One-based attempt number within the retry chain. */
   readonly attempt: number;
   readonly failureSummary: string;
   readonly finishedAt: string | null;
   readonly harnessId: string;
+  /** Provider-owned record identifier. */
   readonly id: string;
   readonly lastHeartbeat: string;
   readonly outcome: string;
+  /** Run ID of the parent attempt, or null for a root. */
   readonly parentRunId: string | null;
+  /** Run ID of the preceding terminated attempt, or null initially. */
   readonly restartOfRunId: string | null;
+  /** Stable identifier shared by attempts in one retry chain. */
   readonly retryKey: string;
+  /** Harness-supplied idempotency identifier for this run attempt. */
   readonly runId: string;
   readonly startedAt: string;
   readonly status: ActiveAgentStatus;
   readonly taskId: string;
+  /** Provider version of this Active Agent record. */
   readonly version: string;
 }
 
+/** Provider-neutral projection of one keyed Error record. */
 export interface ErrorRecord {
   readonly activeAgentId: string | null;
   readonly agentId: string | null;
@@ -97,6 +119,7 @@ export interface ErrorRecord {
   readonly version: string;
 }
 
+/** Immutable Task, Agent, Resource, and run context returned at start. */
 export interface ActiveAgentContext {
   readonly agent: AgentRecord;
   readonly resources: readonly ResourceRecord[];
@@ -104,6 +127,7 @@ export interface ActiveAgentContext {
   readonly task: TaskRecord;
 }
 
+/** Caller-supplied identity and hierarchy required to start a run. */
 export interface StartActiveAgentInput {
   readonly agentKey: string;
   readonly harnessId: string;
@@ -112,13 +136,16 @@ export interface StartActiveAgentInput {
   readonly taskId: string;
 }
 
+/** Replacement run and harness identity for restarting a terminated run. */
 export interface RestartActiveAgentInput {
   readonly failedRunId: string;
   readonly harnessId: string;
   readonly runId: string;
 }
 
+/** Strict provider-neutral payload for creating or reopening a keyed Error. */
 export interface ReportErrorInput {
+  /** Provider record ID used for the optional Active Agent relation. */
   readonly activeAgentId: string | null;
   readonly agentId: string | null;
   readonly description: string;
@@ -131,6 +158,7 @@ export interface ReportErrorInput {
 }
 
 /** Parses an exact Error report payload at an untyped boundary. */
+/** Strictly parses the complete payload accepted by Error reporting. */
 export function parseReportErrorInput(value: unknown): ReportErrorInput {
   if (value === null || typeof value !== "object" || Array.isArray(value))
     throw new TypeError("Error input must be a JSON object");
@@ -188,6 +216,7 @@ export function parseReportErrorInput(value: unknown): ReportErrorInput {
 }
 
 /** Parses a compact arbitrary outcome-to-Task-status map. */
+/** Parses a serialized outcome-to-status transition object. */
 export function parseAgentTransitions(value: string): AgentTransitions {
   let parsed: unknown;
   try {
@@ -199,6 +228,7 @@ export function parseAgentTransitions(value: string): AgentTransitions {
 }
 
 /** Validates and normalizes an already-decoded Agent transition map. */
+/** Validates an already-decoded outcome-to-status transition object. */
 export function validateAgentTransitions(value: unknown): AgentTransitions {
   if (value === null || typeof value !== "object" || Array.isArray(value))
     throw new TypeError("Agent Transitions must be an object");
@@ -220,6 +250,7 @@ export function validateAgentTransitions(value: unknown): AgentTransitions {
 }
 
 /** Locates the managed Agent-definition section and its JSON content. */
+/** Locates the JSON fence governed by the `Agent definition` heading. */
 export function agentDefinitionSection(markdown: string): {
   readonly content: string;
   readonly end: number;
@@ -239,6 +270,7 @@ export function agentDefinitionSection(markdown: string): {
 }
 
 /** Parses the authoritative JSON configuration from an Agent page body. */
+/** Strictly parses an authoritative Agent definition from page Markdown. */
 export function parseAgentDefinition(markdown: string): AgentDefinition {
   const section = agentDefinitionSection(markdown);
   if (section === null)

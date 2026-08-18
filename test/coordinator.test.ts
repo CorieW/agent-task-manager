@@ -1,3 +1,4 @@
+/** Provider-neutral lifecycle, hierarchy, retry, and ownership coverage. */
 import assert from "node:assert/strict";
 import test from "node:test";
 

@@ -11,7 +11,9 @@ import {
 import { normalizeNotionId as compactId } from "../provider/notion/notion-id.js";
 import { notionTable } from "../provider/notion/notion-schema.js";
 
+/** Exact Notion page that owns the legacy Management v2 databases. */
 export const MANAGEMENT_V2_PARENT = "3bf9a6efcd5880eeaf0edef3125a1534";
+/** Exact legacy data-source IDs authorized for the one-time migration. */
 export const MANAGEMENT_V2_DATABASES = {
   agents: "ad39a6ef-cd58-8303-8ac4-876b007e359f",
   errors: "ed29a6ef-cd58-8219-9623-0787fdee9b22",
@@ -19,10 +21,12 @@ export const MANAGEMENT_V2_DATABASES = {
   resources: "7919a6ef-cd58-8311-b121-87e8e2d7db5b",
   tasks: "d9e9a6ef-cd58-82d3-a726-87a4691ba9bf",
 } as const;
+/** Database page IDs needed for destructive database-level operations. */
 export const MANAGEMENT_V2_DATABASE_PAGES = {
   operations: "9d79a6efcd5882bba58981afbbeb4012",
 } as const;
 
+/** Exact Agent titles required by the expected legacy baseline. */
 export const EXPECTED_AGENT_NAMES = [
   "Code Reviewer",
   "Code Tester",
@@ -33,6 +37,7 @@ export const EXPECTED_AGENT_NAMES = [
   "Task Master",
   "Task Planner",
 ] as const;
+/** Prompt and Policy Resource keys retained by the migration. */
 export const RETAINED_RESOURCE_KEYS = [
   "policy/delivery-coordination",
   "policy/documentation",
@@ -53,6 +58,7 @@ export const RETAINED_RESOURCE_KEYS = [
   "prompt/task-master",
   "prompt/task-planner",
 ] as const;
+/** Legacy Resource keys archived by the migration. */
 export const ARCHIVED_RESOURCE_KEYS = [
   "policy/perfect-project",
   "query/human-ready",
@@ -65,6 +71,7 @@ export const ARCHIVED_RESOURCE_KEYS = [
   "schema/role-result-v1",
   "schema/task-selection-result-v1",
 ] as const;
+/** Exact legacy Error keys archived by the migration. */
 export const EXPECTED_ERROR_KEYS = [
   "code-reviewer-fresh-agent-capacity-exhausted",
   "code-reviewer-harness-context-handoff-truncated",
@@ -73,6 +80,7 @@ export const EXPECTED_ERROR_KEYS = [
   "stale-agent-activity:code-reviewer",
 ] as const;
 
+/** Legacy property names removed after body conversion and verification. */
 export const LEGACY_PROPERTIES_BY_TABLE: Readonly<
   Record<"agents" | "errors" | "resources" | "tasks", readonly string[]>
 > = {
@@ -107,17 +115,21 @@ export const LEGACY_PROPERTIES_BY_TABLE: Readonly<
   ],
 };
 
+/** Captured page body, identity, properties, and title used for planning. */
 export interface MigrationRow {
   readonly body: string;
   readonly id: string;
   readonly properties: JsonObject;
   readonly title: string;
 }
+/** Captured data-source schema and rows used for planning. */
 export interface MigrationTable {
+  /** Notion data-source ID, not its containing database page ID. */
   readonly id: string;
   readonly properties: Readonly<Record<string, string>>;
   readonly rows: readonly MigrationRow[];
 }
+/** Complete authorized snapshot of the legacy Management v2 workspace. */
 export interface ManagementInventory {
   readonly activeAgents: MigrationTable | null;
   readonly agents: MigrationTable;
@@ -127,6 +139,7 @@ export interface ManagementInventory {
   readonly resources: MigrationTable;
   readonly tasks: MigrationTable;
 }
+/** Supported ordered operation kinds in a Management v2 migration. */
 export type MigrationActionKind =
   | "add_v2_schema"
   | "archive_error"
@@ -137,19 +150,24 @@ export type MigrationActionKind =
   | "drop_legacy_schema"
   | "rewrite_resource"
   | "verify";
+/** One deterministic migration operation and its exact target. */
 export interface MigrationAction {
   readonly id: string;
   readonly kind: MigrationActionKind;
   readonly targetId: string;
 }
+/** Digest-bound migration plan derived from one inventory snapshot. */
 export interface ManagementMigrationPlan {
   readonly actions: readonly MigrationAction[];
+  /** Digest of the plan core, including actions and inventory authorization. */
   readonly digest: string;
+  /** Digest of the complete normalized inventory snapshot. */
   readonly inventoryDigest: string;
   readonly parentId: string;
   readonly schema: "management-v2-migration-plan-v1";
 }
 
+/** Validates and converts an inventory into a deterministic migration plan. */
 export function planManagementV2Migration(
   inventory: ManagementInventory,
 ): ManagementMigrationPlan {
@@ -252,6 +270,7 @@ function orderedInventory(inventory: ManagementInventory): ManagementInventory {
   };
 }
 
+/** Fails closed unless the inventory matches the expected legacy baseline. */
 export function assertManagementV2Inventory(
   inventory: ManagementInventory,
 ): void {
@@ -453,6 +472,7 @@ function assertAgentDefinitionParity(
   }
 }
 
+/** Legacy body fields retained while converting an Agent definition. */
 export interface LegacyAgentManifest {
   readonly id: string;
   readonly inputResourceSelectors: readonly string[];
@@ -460,6 +480,7 @@ export interface LegacyAgentManifest {
   readonly reasoning: string;
   readonly transitions: AgentTransitions;
 }
+/** Parses the heading-scoped JSON manifest from a legacy Agent body. */
 export function parseLegacyAgentManifest(
   markdown: string,
 ): LegacyAgentManifest {
@@ -481,6 +502,7 @@ export function parseLegacyAgentManifest(
     transitions: validateAgentTransitions(manifest.transitions),
   };
 }
+/** Returns retained Prompt and Policy keys selected by a legacy manifest. */
 export function relatedResourceKeys(
   manifest: LegacyAgentManifest,
 ): readonly string[] {
@@ -556,9 +578,11 @@ function parseDefinitionObject(value: string): Record<string, unknown> {
   return parsed as Record<string, unknown>;
 }
 
+/** Prepends the managed coordination contract while preserving legacy guidance. */
 export function rewriteResource(key: string, legacy: string): string {
   return `## Simplified coordination contract\n\nThis Resource applies to **${key}**. Work from the current Task page and the current active Prompt and Policy Resources selected by the Agent definition.\n\nThe external harness owns conversation history, tool and command execution, browser and network access, Git and publication actions, repeat safety, and child-process spawning. Notion records only Tasks, Agent definitions, Resources, Active Agent metadata, and Errors.\n\nWhile running, refresh the Active Agent heartbeat at least once every five minutes. Finish with one outcome declared by the Agent definition's transitions object. Report detected problems in Errors. If a run fails or becomes stale, stop its descendants and restart that failed subtree from the beginning; do not reconstruct conversation state.\n\n## Preserved role and project guidance\n\n${legacy}`;
 }
+/** Reports forbidden legacy terms only within the managed contract section. */
 export function auditManagedResourceContract(
   markdown: string,
 ): readonly string[] {
