@@ -16,7 +16,7 @@ import {
   MANAGEMENT_V2_PARENT,
   RETAINED_RESOURCE_KEYS,
   agentDefinitionMarkdown,
-  auditRewrittenResource,
+  auditManagedResourceContract,
   parseLegacyAgentManifest,
   planManagementV2Migration,
   relatedResourceKeys,
@@ -181,14 +181,14 @@ test("Agent definition conversion preserves content outside the managed section"
   assert.equal(body.match(/## Agent definition/gu)?.length, 1);
 });
 
-test("rewritten Resources explain the harness boundary and pass terminology audit", () => {
+test("managed Resource contracts explain the harness boundary", () => {
   const legacy =
     "# Coder\nAcquire a lease.\n\n```sh\n# Keep this exact\necho 'Operations database'\n```";
   const value = rewriteResource("prompt/coder", legacy);
   assert.match(value, /external harness owns conversation history/);
   assert.match(value, /heartbeat at least once every five minutes/);
   assert.equal(value.endsWith(legacy), true);
-  assert.deepEqual(auditRewrittenResource(value), []);
+  assert.deepEqual(auditManagedResourceContract(value), []);
 });
 
 test("planning after partial additive progress is safe and omits completed actions", () => {

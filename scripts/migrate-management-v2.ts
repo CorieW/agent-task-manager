@@ -10,7 +10,7 @@ import {
 } from "../src/domain/json.js";
 import {
   agentDefinitionMarkdown,
-  auditRewrittenResource,
+  auditManagedResourceContract,
   LEGACY_PROPERTIES_BY_TABLE,
   MANAGEMENT_V2_DATABASES,
   MANAGEMENT_V2_DATABASE_PAGES,
@@ -249,10 +249,10 @@ async function applyMigration(
       (entry) => entry.id === action.targetId,
     )!;
     const body = rewriteResource(row.title, row.body);
-    const forbidden = auditRewrittenResource(body);
+    const forbidden = auditManagedResourceContract(body);
     if (forbidden.length > 0)
       throw new Error(
-        `Resource rewrite audit failed for ${row.title}: ${forbidden.join(", ")}`,
+        `Managed Resource contract audit failed for ${row.title}: ${forbidden.join(", ")}`,
       );
     expectedBodies.set(compactId(row.id), body);
     await replaceMarkdown(transport, row.id, row.body, body);

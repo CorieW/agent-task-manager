@@ -559,7 +559,9 @@ function parseDefinitionObject(value: string): Record<string, unknown> {
 export function rewriteResource(key: string, legacy: string): string {
   return `## Simplified coordination contract\n\nThis Resource applies to **${key}**. Work from the current Task page and the current active Prompt and Policy Resources selected by the Agent definition.\n\nThe external harness owns conversation history, tool and command execution, browser and network access, Git and publication actions, repeat safety, and child-process spawning. Notion records only Tasks, Agent definitions, Resources, Active Agent metadata, and Errors.\n\nWhile running, refresh the Active Agent heartbeat at least once every five minutes. Finish with one outcome declared by the Agent definition's transitions object. Report detected problems in Errors. If a run fails or becomes stale, stop its descendants and restart that failed subtree from the beginning; do not reconstruct conversation state.\n\n## Preserved role and project guidance\n\n${legacy}`;
 }
-export function auditRewrittenResource(markdown: string): readonly string[] {
+export function auditManagedResourceContract(
+  markdown: string,
+): readonly string[] {
   const forbidden = [
     "operations database",
     "resource pin",
