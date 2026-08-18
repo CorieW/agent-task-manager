@@ -17,6 +17,16 @@ export class SingleHostMutex {
 
   /** Runs one callback under in-process ordering and the same-host lock file. */
   public async run<T>(operation: () => Promise<T>): Promise<T> {
+    const release = await this.lock();
+    try {
+      return await operation();
+    } finally {
+      await release();
+    }
+  }
+
+  /** Acquires the mutex until the returned release callback is awaited. */
+  public async lock(): Promise<() => Promise<void>> {
     /** Prior queue tail awaited before attempting the filesystem lock. */
     const previous = this.#tail;
     /** Callback that releases this caller's queue position. */
@@ -25,28 +35,32 @@ export class SingleHostMutex {
       releaseQueue = resolve;
     });
     await previous;
-    /** Holds the `handle` intermediate used by `run`. */
-    let handle: Awaited<ReturnType<typeof open>> | undefined;
+    /** Holds the exclusive lock-file handle owned by this caller. */
+    let handle: Awaited<ReturnType<typeof open>>;
     try {
-      handle = await this.acquire();
-      return await operation();
-    } finally {
+      handle = await this.acquireFile();
+    } catch (error) {
+      releaseQueue();
+      throw error;
+    }
+    let released = false;
+    return async () => {
+      if (released) return;
+      released = true;
       try {
-        if (handle !== undefined) {
-          try {
-            await handle.close();
-          } finally {
-            await rm(this.#path, { force: true });
-          }
+        try {
+          await handle.close();
+        } finally {
+          await rm(this.#path, { force: true });
         }
       } finally {
         releaseQueue();
       }
-    }
+    };
   }
 
   /** Acquires the lock, clearing one stale owner before a single retry. */
-  private async acquire() {
+  private async acquireFile() {
     try {
       return await this.createLock();
     } catch (error) {

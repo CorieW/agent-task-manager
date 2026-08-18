@@ -37,9 +37,51 @@ export type CommandExecutor = (
   request: BrokerCommandRequest,
 ) => Promise<ProxyCommandResult>;
 
-/** Exclusive-operation boundary shared with lifecycle mutations. */
-export interface CommandMutex {
+/** Two-phase gate that registers a run lease before broker execution. */
+export interface CommandExecutionGate {
+  execute<T>(
+    runId: string,
+    authorize: () => Promise<BrokerCommandRequest>,
+    execute: (request: BrokerCommandRequest) => Promise<T>,
+  ): Promise<T>;
+}
+
+/** Mutex capabilities needed to register a long-lived command lease. */
+export interface CommandLeaseMutex {
+  lock(): Promise<() => Promise<void>>;
   run<T>(operation: () => Promise<T>): Promise<T>;
+}
+
+/** Holds a run lease while releasing the global mutex before execution. */
+export function createCommandExecutionGate(
+  globalMutex: CommandLeaseMutex,
+  runMutex: (runId: string) => CommandLeaseMutex,
+): CommandExecutionGate {
+  return {
+    execute: async <T>(
+      runId: string,
+      authorize: () => Promise<BrokerCommandRequest>,
+      execute: (request: BrokerCommandRequest) => Promise<T>,
+    ): Promise<T> => {
+      let release: (() => Promise<void>) | undefined;
+      let request: BrokerCommandRequest | undefined;
+      await globalMutex.run(async () => {
+        release = await runMutex(runId).lock();
+        try {
+          request = await authorize();
+        } catch (error) {
+          await release();
+          release = undefined;
+          throw error;
+        }
+      });
+      try {
+        return await execute(request!);
+      } finally {
+        await release!();
+      }
+    },
+  };
 }
 
 /** Verifies run ownership and Agent policy before delegating one command. */
@@ -48,27 +90,31 @@ export class CommandProxy {
   public constructor(
     private readonly coordinator: AgentCoordinator,
     private readonly executor: CommandExecutor,
-    private readonly mutex: CommandMutex,
+    private readonly gate: CommandExecutionGate,
   ) {}
 
   /** Executes an allowed command for a running, harness-owned Agent. */
   public async execute(input: ProxyCommandInput): Promise<ProxyCommandResult> {
-    return this.mutex.run(async () => {
-      const command = normalizeCommandName(input.command);
-      const policy = await this.coordinator.commandPolicy(
-        input.runId,
-        input.harnessId,
-      );
-      if (!commandIsAllowed(policy, command))
-        throw new Error(`Agent command is not allowed: ${command}`);
-      return this.executor({
-        arguments: [...input.arguments],
-        command,
-        commands: policy,
-        runId: input.runId,
-        schema: "agent-command-broker-request-v1",
-      });
-    });
+    return this.gate.execute(
+      input.runId,
+      async () => {
+        const command = normalizeCommandName(input.command);
+        const policy = await this.coordinator.commandPolicy(
+          input.runId,
+          input.harnessId,
+        );
+        if (!commandIsAllowed(policy, command))
+          throw new Error(`Agent command is not allowed: ${command}`);
+        return {
+          arguments: [...input.arguments],
+          command,
+          commands: policy,
+          runId: input.runId,
+          schema: "agent-command-broker-request-v1",
+        };
+      },
+      (request) => this.executor(request),
+    );
   }
 }
 

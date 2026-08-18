@@ -12,9 +12,11 @@ import { AgentCoordinator } from "./core/coordinator.js";
 import {
   CommandProxy,
   createCommandBrokerExecutor,
+  createCommandExecutionGate,
 } from "./core/command-proxy.js";
 import { toJsonValue, type JsonValue } from "./domain/json.js";
 import {
+  type ActiveAgentRecord,
   parseReportErrorInput,
   type ReportErrorInput,
 } from "./domain/records.js";
@@ -137,6 +139,16 @@ export async function runCli(
   const provider = providerFor(configuration, env);
   const coordinator = new AgentCoordinator(provider);
   const mutex = new SingleHostMutex(configuration.environmentId);
+  const runMutexes = new Map<string, SingleHostMutex>();
+  const runMutex = (runId: string): SingleHostMutex => {
+    const existing = runMutexes.get(runId);
+    if (existing !== undefined) return existing;
+    const created = new SingleHostMutex(
+      `${configuration.environmentId}.command.${runId}`,
+    );
+    runMutexes.set(runId, created);
+    return created;
+  };
 
   if (family === "command" && action === "proxy") {
     const [executable, ...arguments_] = parsed.commandArguments;
@@ -146,7 +158,7 @@ export async function runCli(
       await new CommandProxy(
         coordinator,
         commandBrokerExecutor(env),
-        mutex,
+        createCommandExecutionGate(mutex, runMutex),
       ).execute({
         arguments: arguments_,
         command: executable,
@@ -235,34 +247,53 @@ export async function runCli(
       );
     if (action === "complete")
       return toJsonValue(
-        await mutex.run(() =>
-          coordinator.complete(
-            requiredFlag(parsed.flags, "run-id"),
-            requiredFlag(parsed.flags, "harness-id"),
-            requiredFlag(parsed.flags, "outcome"),
-          ),
+        await withRunLeases(
+          mutex,
+          runMutex,
+          provider,
+          [requiredFlag(parsed.flags, "run-id")],
+          () =>
+            coordinator.complete(
+              requiredFlag(parsed.flags, "run-id"),
+              requiredFlag(parsed.flags, "harness-id"),
+              requiredFlag(parsed.flags, "outcome"),
+            ),
         ),
       );
     if (action === "fail")
       return toJsonValue(
-        await mutex.run(() =>
-          coordinator.fail(
-            requiredFlag(parsed.flags, "run-id"),
-            requiredFlag(parsed.flags, "harness-id"),
-            requiredFlag(parsed.flags, "summary"),
-          ),
+        await withRunLeases(
+          mutex,
+          runMutex,
+          provider,
+          [requiredFlag(parsed.flags, "run-id")],
+          () =>
+            coordinator.fail(
+              requiredFlag(parsed.flags, "run-id"),
+              requiredFlag(parsed.flags, "harness-id"),
+              requiredFlag(parsed.flags, "summary"),
+            ),
         ),
       );
     if (action === "sweep")
-      return toJsonValue(await mutex.run(() => coordinator.sweep()));
+      return toJsonValue(
+        await withRunLeases(mutex, runMutex, provider, null, () =>
+          coordinator.sweep(),
+        ),
+      );
     if (action === "restart")
       return toJsonValue(
-        await mutex.run(() =>
-          coordinator.restart({
-            restartOfRunId: requiredFlag(parsed.flags, "restart-of-run-id"),
-            harnessId: requiredFlag(parsed.flags, "harness-id"),
-            runId: requiredFlag(parsed.flags, "run-id"),
-          }),
+        await withRunLeases(
+          mutex,
+          runMutex,
+          provider,
+          [requiredFlag(parsed.flags, "restart-of-run-id")],
+          () =>
+            coordinator.restart({
+              restartOfRunId: requiredFlag(parsed.flags, "restart-of-run-id"),
+              harnessId: requiredFlag(parsed.flags, "harness-id"),
+              runId: requiredFlag(parsed.flags, "run-id"),
+            }),
         ),
       );
   }
@@ -383,6 +414,51 @@ function commandBrokerExecutor(env: NodeJS.ProcessEnv) {
       "AGENT_TASK_MANAGER_COMMAND_BROKER must name an absolute sandbox broker executable",
     );
   return createCommandBrokerExecutor(executable);
+}
+
+/** Serializes a terminal lifecycle mutation against commands in its subtree. */
+async function withRunLeases<T>(
+  globalMutex: SingleHostMutex,
+  runMutex: (runId: string) => SingleHostMutex,
+  provider: AgentTaskProvider,
+  roots: readonly string[] | null,
+  operation: () => Promise<T>,
+): Promise<T> {
+  return globalMutex.run(async () => {
+    const active = await provider.listActiveAgents();
+    const runIds = affectedRunIds(active, roots);
+    const releases: Array<() => Promise<void>> = [];
+    try {
+      for (const runId of runIds) releases.push(await runMutex(runId).lock());
+      return await operation();
+    } finally {
+      for (const release of releases.reverse()) await release();
+    }
+  });
+}
+
+/** Returns sorted roots and descendants whose terminal state may be mutated. */
+function affectedRunIds(
+  active: readonly ActiveAgentRecord[],
+  roots: readonly string[] | null,
+): readonly string[] {
+  if (roots === null)
+    return [...new Set(active.map((run) => run.runId))].sort();
+  const result = new Set(roots);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const run of active)
+      if (
+        run.parentRunId !== null &&
+        result.has(run.parentRunId) &&
+        !result.has(run.runId)
+      ) {
+        result.add(run.runId);
+        changed = true;
+      }
+  }
+  return [...result].sort();
 }
 async function readErrorInput(path: string): Promise<ReportErrorInput> {
   const raw = path === "-" ? await readStdin() : await readFile(path, "utf8");

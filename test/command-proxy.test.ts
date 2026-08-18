@@ -6,8 +6,9 @@ import {
   type BrokerCommandRequest,
   CommandProxy,
   createCommandBrokerExecutor,
+  createCommandExecutionGate,
+  type CommandExecutionGate,
   type CommandExecutor,
-  type CommandMutex,
 } from "../src/core/command-proxy.js";
 import { AgentCoordinator } from "../src/core/coordinator.js";
 import type { AgentCommandPolicy } from "../src/domain/commands.js";
@@ -75,8 +76,12 @@ async function setup(policy: AgentCommandPolicy) {
   return { context, coordinator };
 }
 
-const immediateMutex: CommandMutex = {
-  run: async <T>(operation: () => Promise<T>) => operation(),
+const immediateGate: CommandExecutionGate = {
+  execute: async <T>(
+    _runId: string,
+    authorize: () => Promise<BrokerCommandRequest>,
+    execute: (request: BrokerCommandRequest) => Promise<T>,
+  ) => execute(await authorize()),
 };
 
 test("Agent command policies require exactly one normalized list", () => {
@@ -102,12 +107,16 @@ test("command proxy enforces inclusion, ownership, and path-free names", async (
   const { context, coordinator } = await setup({ inclusion: ["git"] });
   const calls: BrokerCommandRequest[] = [];
   let locked = false;
-  const mutex: CommandMutex = {
-    run: async <T>(operation: () => Promise<T>) => {
+  const gate: CommandExecutionGate = {
+    execute: async <T>(
+      _runId: string,
+      authorize: () => Promise<BrokerCommandRequest>,
+      execute: (request: BrokerCommandRequest) => Promise<T>,
+    ) => {
       assert.equal(locked, false);
       locked = true;
       try {
-        return await operation();
+        return await execute(await authorize());
       } finally {
         locked = false;
       }
@@ -124,7 +133,7 @@ test("command proxy enforces inclusion, ownership, and path-free names", async (
       stdout: "clean",
     };
   };
-  const proxy = new CommandProxy(coordinator, executor, mutex);
+  const proxy = new CommandProxy(coordinator, executor, gate);
   assert.match(context.systemPrompt, /exclusively through/u);
   assert.match(context.systemPrompt, /Never invoke a shell/u);
   assert.match(context.systemPrompt, /--run-id "run-1"/u);
@@ -188,7 +197,7 @@ test("command proxy exclusion denies only configured commands", async () => {
     stderr: "",
     stdout: request.command,
   });
-  const proxy = new CommandProxy(coordinator, executor, immediateMutex);
+  const proxy = new CommandProxy(coordinator, executor, immediateGate);
   assert.equal(
     (
       await proxy.execute({
@@ -266,4 +275,52 @@ test("sandbox broker path must be absolute", () => {
     () => createCommandBrokerExecutor("broker"),
     /must be an absolute path/u,
   );
+});
+
+test("command gate releases the global mutex while retaining the run lease", async () => {
+  let globallyLocked = false;
+  let runLocked = false;
+  const globalMutex = {
+    lock: async () => async () => undefined,
+    run: async <T>(operation: () => Promise<T>) => {
+      globallyLocked = true;
+      try {
+        return await operation();
+      } finally {
+        globallyLocked = false;
+      }
+    },
+  };
+  const runMutex = {
+    lock: async () => {
+      assert.equal(globallyLocked, true);
+      runLocked = true;
+      return async () => {
+        runLocked = false;
+      };
+    },
+    run: async <T>(operation: () => Promise<T>) => operation(),
+  };
+  const gate = createCommandExecutionGate(globalMutex, () => runMutex);
+  const result = await gate.execute(
+    "run-1",
+    async () => {
+      assert.equal(globallyLocked, true);
+      assert.equal(runLocked, true);
+      return {
+        arguments: [],
+        command: "git",
+        commands: { inclusion: ["git"] },
+        runId: "run-1",
+        schema: "agent-command-broker-request-v1",
+      };
+    },
+    async () => {
+      assert.equal(globallyLocked, false);
+      assert.equal(runLocked, true);
+      return "complete";
+    },
+  );
+  assert.equal(result, "complete");
+  assert.equal(runLocked, false);
 });
