@@ -9,7 +9,7 @@ import type {
 } from "../domain/records.js";
 import type { AgentCommandPolicy } from "../domain/commands.js";
 import type { AgentTaskProvider } from "../provider/agent-task-provider.js";
-import { COMMAND_PROXY_SYSTEM_PROMPT } from "./agent-system-prompt.js";
+import { commandProxySystemPrompt } from "./agent-system-prompt.js";
 
 /** Maximum time a running Agent may go without a heartbeat. */
 export const STALE_AFTER_MILLISECONDS = 5 * 60 * 1000;
@@ -90,7 +90,7 @@ export class AgentCoordinator {
       agent,
       resources,
       run,
-      systemPrompt: COMMAND_PROXY_SYSTEM_PROMPT,
+      systemPrompt: commandProxySystemPrompt(run.runId, run.harnessId),
       task,
     };
   }
@@ -240,7 +240,7 @@ export class AgentCoordinator {
       agent,
       resources,
       run,
-      systemPrompt: COMMAND_PROXY_SYSTEM_PROMPT,
+      systemPrompt: commandProxySystemPrompt(run.runId, run.harnessId),
       task,
     };
   }
@@ -315,7 +315,7 @@ export class AgentCoordinator {
       agent,
       resources,
       run,
-      systemPrompt: COMMAND_PROXY_SYSTEM_PROMPT,
+      systemPrompt: commandProxySystemPrompt(run.runId, run.harnessId),
       task,
     };
   }

@@ -108,6 +108,8 @@ test("command proxy enforces inclusion, ownership, and path-free names", async (
   const proxy = new CommandProxy(coordinator, executor);
   assert.match(context.systemPrompt, /exclusively through/u);
   assert.match(context.systemPrompt, /Never invoke a shell/u);
+  assert.match(context.systemPrompt, /--run-id "run-1"/u);
+  assert.match(context.systemPrompt, /--harness-id "harness-1"/u);
   assert.equal(
     (
       await proxy.execute({
