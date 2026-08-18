@@ -13,7 +13,9 @@ import {
 import { commandProxySystemPrompt } from "../src/core/agent-system-prompt.js";
 import { AgentCoordinator } from "../src/core/coordinator.js";
 import {
+  commandIsAllowed,
   type AgentCommandPolicy,
+  normalizeCommandName,
   parseAgentCommandPolicy,
 } from "../src/domain/commands.js";
 import type {
@@ -118,6 +120,26 @@ test("Agent command policies require exactly one normalized list", () => {
       }),
     /contains duplicates/u,
   );
+});
+
+test("command identities follow host-platform executable semantics", () => {
+  assert.equal(normalizeCommandName("Tool.EXE...", "win32"), "tool");
+  assert.deepEqual(
+    parseAgentCommandPolicy(
+      { inclusion: ["Tool", "tool.exe", "tool."] },
+      "linux",
+    ),
+    { inclusion: ["Tool", "tool.exe", "tool."] },
+  );
+  const upper = parseAgentCommandPolicy({ inclusion: ["Safe"] }, "linux");
+  assert.equal(commandIsAllowed(upper, "Safe", "linux"), true);
+  assert.equal(commandIsAllowed(upper, "safe", "linux"), false);
+  const suffixed = parseAgentCommandPolicy(
+    { inclusion: ["safe.exe"] },
+    "linux",
+  );
+  assert.equal(commandIsAllowed(suffixed, "safe.exe", "linux"), true);
+  assert.equal(commandIsAllowed(suffixed, "safe", "linux"), false);
 });
 
 test("command proxy enforces inclusion, ownership, and path-free names", async () => {
@@ -311,6 +333,44 @@ test("sandbox broker path must be absolute", () => {
   assert.throws(
     () => createCommandBrokerExecutor("broker"),
     /must be an absolute path/u,
+  );
+});
+
+test("POSIX proxy preserves the exact authorized executable name", async () => {
+  const policy = parseAgentCommandPolicy({ inclusion: ["Safe.exe"] }, "linux");
+  const { coordinator } = await setup(policy);
+  const requests: BrokerCommandRequest[] = [];
+  const proxy = new CommandProxy(
+    coordinator,
+    async (request) => {
+      requests.push(request);
+      return {
+        command: request.command,
+        exitCode: 0,
+        signal: null,
+        stderr: "",
+        stdout: "",
+      };
+    },
+    immediateGate,
+    "linux",
+  );
+  await proxy.execute({
+    arguments: [],
+    command: "Safe.exe",
+    harnessId: "harness-1",
+    runId: "run-1",
+  });
+  assert.equal(requests[0]?.command, "Safe.exe");
+  assert.deepEqual(requests[0]?.commands, { inclusion: ["Safe.exe"] });
+  await assert.rejects(
+    proxy.execute({
+      arguments: [],
+      command: "safe",
+      harnessId: "harness-1",
+      runId: "run-1",
+    }),
+    /command is not allowed: safe/u,
   );
 });
 

@@ -102,6 +102,7 @@ export class CommandProxy {
     private readonly coordinator: AgentCoordinator,
     private readonly executor: CommandExecutor,
     private readonly gate: CommandExecutionGate,
+    private readonly platform: NodeJS.Platform = process.platform,
   ) {}
 
   /** Executes an allowed command for a running, harness-owned Agent. */
@@ -109,12 +110,12 @@ export class CommandProxy {
     return this.gate.execute(
       input.runId,
       async () => {
-        const command = normalizeCommandName(input.command);
+        const command = normalizeCommandName(input.command, this.platform);
         const policy = await this.coordinator.commandPolicy(
           input.runId,
           input.harnessId,
         );
-        if (!commandIsAllowed(policy, command))
+        if (!commandIsAllowed(policy, command, this.platform))
           throw new Error(`Agent command is not allowed: ${command}`);
         return {
           arguments: [...input.arguments],

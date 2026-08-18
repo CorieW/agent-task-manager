@@ -6,18 +6,27 @@ export type AgentCommandPolicy =
   | { readonly exclusion: readonly string[] };
 
 /** Normalizes one path-free executable name for deterministic policy matching. */
-export function normalizeCommandName(value: string): string {
-  const normalized = value.normalize("NFC").toLowerCase();
-  if (!/^[a-z0-9][a-z0-9._+-]{0,127}$/u.test(normalized))
+export function normalizeCommandName(
+  value: string,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  const normalized = value.normalize("NFC");
+  if (!/^[a-z0-9][a-z0-9._+-]{0,127}$/iu.test(normalized))
     throw new TypeError(`Invalid command name: ${value}`);
-  const command = normalized.replace(/(?:\.(?:bat|cmd|com|exe)|\.)+$/u, "");
+  if (platform !== "win32") return normalized;
+  const command = normalized
+    .toLowerCase()
+    .replace(/(?:\.(?:bat|cmd|com|exe)|\.)+$/u, "");
   if (command.length === 0)
     throw new TypeError(`Invalid command name: ${value}`);
   return command;
 }
 
 /** Strictly parses a mutually exclusive inclusion or exclusion policy. */
-export function parseAgentCommandPolicy(value: unknown): AgentCommandPolicy {
+export function parseAgentCommandPolicy(
+  value: unknown,
+  platform: NodeJS.Platform = process.platform,
+): AgentCommandPolicy {
   if (value === null || typeof value !== "object" || Array.isArray(value))
     throw new TypeError("Agent definition commands must be an object");
   const policy = value as Record<string, unknown>;
@@ -35,7 +44,9 @@ export function parseAgentCommandPolicy(value: unknown): AgentCommandPolicy {
     throw new TypeError(
       `Agent definition commands.${key} must be a string array`,
     );
-  const commands = entries.map((entry) => normalizeCommandName(entry));
+  const commands = entries.map((entry) =>
+    normalizeCommandName(entry, platform),
+  );
   if (new Set(commands).size !== commands.length)
     throw new TypeError(`Agent definition commands.${key} contains duplicates`);
   return key === "inclusion"
@@ -47,8 +58,9 @@ export function parseAgentCommandPolicy(value: unknown): AgentCommandPolicy {
 export function commandIsAllowed(
   policy: AgentCommandPolicy,
   command: string,
+  platform: NodeJS.Platform = process.platform,
 ): boolean {
-  const normalized = normalizeCommandName(command);
+  const normalized = normalizeCommandName(command, platform);
   return "inclusion" in policy
     ? policy.inclusion.includes(normalized)
     : !policy.exclusion.includes(normalized);
