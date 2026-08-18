@@ -10,7 +10,7 @@ export function normalizeCommandName(value: string): string {
   const normalized = value.normalize("NFC").toLowerCase();
   if (!/^[a-z0-9][a-z0-9._+-]{0,127}$/u.test(normalized))
     throw new TypeError(`Invalid command name: ${value}`);
-  return normalized.replace(/\.(?:bat|cmd|exe)$/u, "");
+  return normalized.replace(/\.(?:bat|cmd|com|exe)$/u, "");
 }
 
 /** Strictly parses a mutually exclusive inclusion or exclusion policy. */

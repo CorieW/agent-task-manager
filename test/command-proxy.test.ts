@@ -12,7 +12,10 @@ import {
 } from "../src/core/command-proxy.js";
 import { commandProxySystemPrompt } from "../src/core/agent-system-prompt.js";
 import { AgentCoordinator } from "../src/core/coordinator.js";
-import type { AgentCommandPolicy } from "../src/domain/commands.js";
+import {
+  type AgentCommandPolicy,
+  parseAgentCommandPolicy,
+} from "../src/domain/commands.js";
 import type {
   AgentRecord,
   ResourceRecord,
@@ -102,6 +105,13 @@ test("Agent command policies require exactly one normalized list", () => {
     () => parseAgentDefinition(markdown({ inclusion: ["git"], exclusion: [] })),
     /commands must define exactly one/u,
   );
+  assert.deepEqual(parseAgentCommandPolicy({ inclusion: ["git.com"] }), {
+    inclusion: ["git"],
+  });
+  assert.throws(
+    () => parseAgentCommandPolicy({ inclusion: ["git", "git.com"] }),
+    /contains duplicates/u,
+  );
 });
 
 test("command proxy enforces inclusion, ownership, and path-free names", async () => {
@@ -143,7 +153,7 @@ test("command proxy enforces inclusion, ownership, and path-free names", async (
     (
       await proxy.execute({
         arguments: ["status"],
-        command: "git.exe",
+        command: "git.com",
         harnessId: "harness-1",
         runId: "run-1",
       })
@@ -219,7 +229,7 @@ test("command proxy exclusion denies only configured commands", async () => {
   await assert.rejects(
     proxy.execute({
       arguments: [],
-      command: "rm",
+      command: "rm.com",
       harnessId: "harness-1",
       runId: "run-1",
     }),
