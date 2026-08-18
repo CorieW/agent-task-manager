@@ -9,6 +9,7 @@ import { toJsonValue } from "../src/domain/json.js";
 import {
   parseAgentDefinition,
   parseReportErrorInput,
+  validateAgentTransitions,
 } from "../src/domain/records.js";
 import { normalizeNotionId } from "../src/provider/notion/notion-id.js";
 import { NOTION_TABLES } from "../src/provider/notion/notion-schema.js";
@@ -29,6 +30,17 @@ test("Notion identifiers share one strict normalization boundary", () => {
   assert.throws(
     () => normalizeNotionId("agent-0"),
     /Invalid Notion identifier/u,
+  );
+});
+
+test("decoded Agent transitions validate without a JSON round trip", () => {
+  assert.deepEqual(
+    validateAgentTransitions({ blocked: "Blocked", succeeded: "Completed" }),
+    { blocked: "Blocked", succeeded: "Completed" },
+  );
+  assert.throws(
+    () => validateAgentTransitions({ blocked: null }),
+    /Invalid Task status/u,
   );
 });
 

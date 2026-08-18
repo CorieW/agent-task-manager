@@ -5,6 +5,7 @@ import {
   agentDefinitionSection,
   parseAgentDefinition,
   parseAgentTransitions,
+  validateAgentTransitions,
   type AgentTransitions,
 } from "../domain/records.js";
 import { normalizeNotionId as compactId } from "../provider/notion/notion-id.js";
@@ -477,7 +478,7 @@ export function parseLegacyAgentManifest(
     ),
     promptResources: stringArray(manifest.promptResources, "promptResources"),
     reasoning: requiredText(manifest.reasoning, "Agent manifest reasoning"),
-    transitions: parseAgentTransitions(JSON.stringify(manifest.transitions)),
+    transitions: validateAgentTransitions(manifest.transitions),
   };
 }
 export function relatedResourceKeys(
@@ -534,8 +535,9 @@ function definitionFromProperties(
   row: MigrationRow,
   resourceKeys: readonly string[],
 ): Record<string, unknown> {
-  const transitions = requiredText(row.properties.Transitions, "Transitions");
-  parseAgentTransitions(transitions);
+  const transitions = parseAgentTransitions(
+    requiredText(row.properties.Transitions, "Transitions"),
+  );
   return {
     id: requiredText(row.properties["Agent Key"], "Agent Key"),
     inputResourceSelectors: resourceKeys.filter((key) =>
@@ -543,7 +545,7 @@ function definitionFromProperties(
     ),
     promptResources: resourceKeys.filter((key) => key.startsWith("prompt/")),
     reasoning: requiredText(row.properties.Reasoning, "Reasoning"),
-    transitions: JSON.parse(transitions) as unknown,
+    transitions,
   };
 }
 

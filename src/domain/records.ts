@@ -195,9 +195,14 @@ export function parseAgentTransitions(value: string): AgentTransitions {
   } catch {
     throw new TypeError("Agent Transitions must be valid JSON");
   }
-  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed))
+  return validateAgentTransitions(parsed);
+}
+
+/** Validates and normalizes an already-decoded Agent transition map. */
+export function validateAgentTransitions(value: unknown): AgentTransitions {
+  if (value === null || typeof value !== "object" || Array.isArray(value))
     throw new TypeError("Agent Transitions must be an object");
-  const entries = Object.entries(parsed);
+  const entries = Object.entries(value);
   if (entries.length === 0)
     throw new TypeError("Agent Transitions must not be empty");
   const result: Record<string, string> = {};
@@ -289,7 +294,7 @@ export function parseAgentDefinition(markdown: string): AgentDefinition {
     notes: optionalDefinitionText(definition.notes, "notes"),
     reasoning: definitionText(definition.reasoning, "reasoning"),
     resourceKeys: [...new Set([...promptResources, ...policyResources])],
-    transitions: parseAgentTransitions(JSON.stringify(definition.transitions)),
+    transitions: validateAgentTransitions(definition.transitions),
   };
 }
 
