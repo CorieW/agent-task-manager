@@ -23,6 +23,12 @@ export interface SweepResult {
   readonly run: ActiveAgentRecord;
 }
 
+/** One stale root and every running run its termination may mutate. */
+export interface SweepPlan {
+  readonly rootRunId: string;
+  readonly runIds: readonly string[];
+}
+
 /** Enforces provider-neutral lifecycle, ownership, and hierarchy invariants. */
 export class AgentCoordinator {
   /** Creates a coordinator with an injectable clock for deterministic hosts/tests. */
@@ -147,8 +153,46 @@ export class AgentCoordinator {
     return this.terminate(run, "failed", summary);
   }
 
-  /** Terminates stale root runs and reports whether each may be retried. */
-  public async sweep(): Promise<readonly SweepResult[]> {
+  /** Plans independently leaseable stale subtrees from one provider snapshot. */
+  public async planSweep(): Promise<readonly SweepPlan[]> {
+    const { live, roots } = await this.sweepState();
+    return roots.map((root) => ({
+      rootRunId: root.runId,
+      runIds: [root, ...this.descendants(root.runId, live)]
+        .map((run) => run.runId)
+        .sort(),
+    }));
+  }
+
+  /** Terminates stale roots, optionally restricted to an already leased plan. */
+  public async sweep(
+    rootRunIds?: readonly string[],
+  ): Promise<readonly SweepResult[]> {
+    const { roots } = await this.sweepState();
+    const selected =
+      rootRunIds === undefined
+        ? roots
+        : roots.filter((run) => rootRunIds.includes(run.runId));
+    const results: SweepResult[] = [];
+    for (const run of selected) {
+      const terminated = await this.terminate(
+        run,
+        "stale",
+        "Heartbeat expired",
+      );
+      results.push({
+        retryBudgetRemaining: terminated.attempt < MAX_ATTEMPTS,
+        run: terminated,
+      });
+    }
+    return results;
+  }
+
+  /** Returns running records and their outermost heartbeat-expired roots. */
+  private async sweepState(): Promise<{
+    readonly live: readonly ActiveAgentRecord[];
+    readonly roots: readonly ActiveAgentRecord[];
+  }> {
     const now = this.now().getTime();
     const live = (await this.provider.listActiveAgents()).filter(
       (entry) => entry.status === "running",
@@ -161,19 +205,7 @@ export class AgentCoordinator {
       (candidate) =>
         !stale.some((other) => this.isDescendant(candidate, other.runId, live)),
     );
-    const results: SweepResult[] = [];
-    for (const run of roots) {
-      const terminated = await this.terminate(
-        run,
-        "stale",
-        "Heartbeat expired",
-      );
-      results.push({
-        retryBudgetRemaining: terminated.attempt < MAX_ATTEMPTS,
-        run: terminated,
-      });
-    }
-    return results;
+    return { live, roots };
   }
 
   /** Creates a replacement attempt for a failed or stale run. */

@@ -8,7 +8,7 @@ import {
   parseEnvironmentConfig,
   type EnvironmentConfig,
 } from "./config/environment.js";
-import { AgentCoordinator } from "./core/coordinator.js";
+import { AgentCoordinator, type SweepResult } from "./core/coordinator.js";
 import {
   CommandProxy,
   createCommandBrokerExecutor,
@@ -277,9 +277,7 @@ export async function runCli(
       );
     if (action === "sweep")
       return toJsonValue(
-        await withRunLeases(mutex, runMutex, provider, null, () =>
-          coordinator.sweep(),
-        ),
+        await sweepWithRunLeases(mutex, runMutex, coordinator),
       );
     if (action === "restart")
       return toJsonValue(
@@ -462,6 +460,47 @@ async function withRunLeases<T>(
       for (const release of releases.reverse()) await release();
     }
   });
+}
+
+/** Structured sweep result that reports independently fenced stale subtrees. */
+export interface SweepBatchResult {
+  readonly blockedRunIds: readonly string[];
+  readonly swept: readonly SweepResult[];
+}
+
+/** Sweeps each planned stale subtree without leasing unrelated healthy runs. */
+export async function sweepWithRunLeases(
+  globalMutex: SingleHostMutex,
+  runMutex: (runId: string) => SingleHostMutex,
+  coordinator: AgentCoordinator,
+): Promise<SweepBatchResult> {
+  return globalMutex.run(async () => {
+    const plans = await coordinator.planSweep();
+    const blockedRunIds: string[] = [];
+    const swept: SweepResult[] = [];
+    for (const plan of plans) {
+      const releases: Array<() => Promise<void>> = [];
+      try {
+        try {
+          for (const runId of plan.runIds)
+            releases.push(await runMutex(runId).lock());
+        } catch (error) {
+          if (!isLockContention(error)) throw error;
+          blockedRunIds.push(plan.rootRunId);
+          continue;
+        }
+        swept.push(...(await coordinator.sweep([plan.rootRunId])));
+      } finally {
+        for (const release of releases.reverse()) await release();
+      }
+    }
+    return { blockedRunIds, swept };
+  });
+}
+
+/** Identifies a live or quarantined same-host run lease. */
+function isLockContention(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "EEXIST";
 }
 
 /** Returns sorted roots and descendants whose terminal state may be mutated. */

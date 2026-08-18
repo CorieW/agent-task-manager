@@ -1,8 +1,15 @@
 /** CLI parsing and command-registry regression coverage. */
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
-import { proxyExitCode, runCli } from "../src/cli.js";
+import { proxyExitCode, runCli, sweepWithRunLeases } from "../src/cli.js";
+import { AgentCoordinator } from "../src/core/coordinator.js";
+import type { ActiveAgentRecord } from "../src/domain/records.js";
+import { InMemoryProvider } from "../src/provider/in-memory-provider.js";
+import { SingleHostMutex } from "../src/provider/notion/single-host-mutex.js";
 
 test("CLI rejects unknown and command-irrelevant flags", async () => {
   await assert.rejects(
@@ -64,4 +71,111 @@ test("CLI reports signalled proxy commands as failures", () => {
   assert.equal(proxyExitCode({ exitCode: 7 }), 7);
   assert.equal(proxyExitCode({ exitCode: 0, signal: "SIGTERM" }), 1);
   assert.equal(proxyExitCode({ result: "not a command" }), null);
+});
+
+/** Creates one Active Agent fixture for scoped sweep orchestration. */
+function activeRun(
+  runId: string,
+  lastHeartbeat: string,
+  parentRunId: string | null = null,
+): ActiveAgentRecord {
+  return {
+    agentId: "agent",
+    agentVersion: "1",
+    archived: false,
+    attempt: 1,
+    failureSummary: "",
+    finishedAt: null,
+    harnessId: "harness",
+    id: runId,
+    lastHeartbeat,
+    outcome: "",
+    parentRunId,
+    restartOfRunId: null,
+    retryKey: runId,
+    runId,
+    startedAt: lastHeartbeat,
+    status: "running",
+    taskId: `task-${runId}`,
+    version: "1",
+  };
+}
+
+test("sweep ignores an unrelated healthy command lease", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-task-manager-sweep-"));
+  try {
+    const provider = new InMemoryProvider({
+      activeAgents: [
+        activeRun("stale", "2026-08-17T12:00:00.000Z"),
+        activeRun("healthy", "2026-08-17T12:09:00.000Z"),
+      ],
+    });
+    const coordinator = new AgentCoordinator(
+      provider,
+      () => new Date("2026-08-17T12:10:00.000Z"),
+    );
+    const runMutex = (runId: string) =>
+      new SingleHostMutex(`environment.command.${runId}`, root);
+    const releaseHealthy = await runMutex("healthy").lock({
+      reclaimable: false,
+    });
+    try {
+      const result = await sweepWithRunLeases(
+        new SingleHostMutex("environment", root),
+        runMutex,
+        coordinator,
+      );
+      assert.deepEqual(result.blockedRunIds, []);
+      assert.deepEqual(
+        result.swept.map((entry) => entry.run.runId),
+        ["stale"],
+      );
+    } finally {
+      await releaseHealthy();
+    }
+  } finally {
+    await rm(root, { force: true, recursive: true });
+  }
+});
+
+test("sweep isolates a fenced stale subtree and releases partial leases", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-task-manager-sweep-"));
+  try {
+    const provider = new InMemoryProvider({
+      activeAgents: [
+        activeRun("stale-a", "2026-08-17T12:00:00.000Z"),
+        activeRun("child-a", "2026-08-17T12:09:00.000Z", "stale-a"),
+        activeRun("stale-b", "2026-08-17T12:00:00.000Z"),
+      ],
+    });
+    const coordinator = new AgentCoordinator(
+      provider,
+      () => new Date("2026-08-17T12:10:00.000Z"),
+    );
+    const runMutex = (runId: string) =>
+      new SingleHostMutex(`environment.command.${runId}`, root);
+    const releaseChild = await runMutex("child-a").lock({ reclaimable: false });
+    try {
+      const result = await sweepWithRunLeases(
+        new SingleHostMutex("environment", root),
+        runMutex,
+        coordinator,
+      );
+      assert.deepEqual(result.blockedRunIds, ["stale-a"]);
+      assert.deepEqual(
+        result.swept.map((entry) => entry.run.runId),
+        ["stale-b"],
+      );
+      assert.equal(
+        (await provider.getActiveAgent("stale-a"))?.status,
+        "running",
+      );
+      const releaseRoot = await runMutex("stale-a").lock();
+      await releaseRoot();
+    } finally {
+      await releaseChild();
+    }
+  } finally {
+    await rm(root, { force: true, recursive: true });
+  }
 });
