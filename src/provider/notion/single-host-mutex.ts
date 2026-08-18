@@ -25,12 +25,15 @@ export type SingleHostMutexIdentity =
 export class SingleHostMutex {
   /** Provider-relative request path. */
   readonly #path: string;
+  /** Fail-closed sidecar that serializes stale-primary recovery. */
+  readonly #recoveryPath: string;
   /** Per-key promise tail that serializes mutex callers. */
   #tail: Promise<void> = Promise.resolve();
 
   /** Initializes single-host mutex. */
   public constructor(identity: SingleHostMutexIdentity, root = tmpdir()) {
     this.#path = join(root, `agent-task-manager-${safeName(identity)}.lock`);
+    this.#recoveryPath = `${this.#path}.recovery`;
   }
 
   /** Runs one callback under in-process ordering and the same-host lock file. */
@@ -84,9 +87,30 @@ export class SingleHostMutex {
     try {
       return await this.createLock(reclaimable);
     } catch (error) {
-      if (!isAlreadyExists(error) || !(await this.clearStaleOwner()))
-        throw error;
-      return this.createLock(reclaimable);
+      if (!isAlreadyExists(error)) throw error;
+      return this.recoverStaleOwner(error, reclaimable);
+    }
+  }
+
+  /** Revalidates and replaces one stale primary under an exclusive sidecar. */
+  private async recoverStaleOwner(contention: unknown, reclaimable: boolean) {
+    /** Exclusive recovery sidecar; abandoned sidecars are never auto-reclaimed. */
+    let recoveryHandle: Awaited<ReturnType<typeof open>>;
+    try {
+      recoveryHandle = await open(this.#recoveryPath, "wx", 0o600);
+    } catch {
+      throw contention;
+    }
+    try {
+      if (!(await this.staleOwnerIsReclaimable())) throw contention;
+      await rm(this.#path, { force: true });
+      return await this.createLock(reclaimable);
+    } finally {
+      try {
+        await recoveryHandle.close();
+      } finally {
+        await rm(this.#recoveryPath, { force: true });
+      }
     }
   }
 
@@ -119,12 +143,12 @@ export class SingleHostMutex {
     }
   }
 
-  /** Clears stale owner. */
-  private async clearStaleOwner(): Promise<boolean> {
-    /** Holds the `pid` intermediate used by `clearStaleOwner`. */
+  /** Reports whether the current primary explicitly permits dead-owner recovery. */
+  private async staleOwnerIsReclaimable(): Promise<boolean> {
+    /** Process identifier recorded by the primary lock. */
     let pid: number;
     try {
-      /** Holds the `parsed` intermediate used by `clearStaleOwner`. */
+      /** Parsed primary-lock record re-read while holding the recovery sidecar. */
       const parsed: unknown = JSON.parse(await readFile(this.#path, "utf8"));
       if (
         parsed === null ||
@@ -139,9 +163,7 @@ export class SingleHostMutex {
     } catch {
       return false;
     }
-    if (isProcessAlive(pid)) return false;
-    await rm(this.#path, { force: true });
-    return true;
+    return !isProcessAlive(pid);
   }
 }
 

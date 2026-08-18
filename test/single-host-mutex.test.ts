@@ -105,6 +105,96 @@ test("dead reclaimable owners are recovered", async () => {
   }
 });
 
+test("concurrent stale recovery admits exactly one mutex owner", async () => {
+  /** Isolated directory containing the shared stale primary. */
+  const root = await mkdtemp(join(tmpdir(), "agent-task-manager-mutex-"));
+  try {
+    const identity = {
+      environmentId: "environment",
+      scope: "environment",
+    } as const;
+    /** Mutex used to discover its primary lock path. */
+    const seed = new SingleHostMutex(identity, root);
+    const releaseSeed = await seed.lock();
+    /** Exact primary path shared by every contender. */
+    const path = join(root, (await readdir(root))[0]!);
+    await releaseSeed();
+    await writeFile(
+      path,
+      JSON.stringify({
+        pid: Number.MAX_SAFE_INTEGER,
+        reclaimable: true,
+        startedAt: new Date(0).toISOString(),
+      }),
+      "utf8",
+    );
+
+    const attempts = await Promise.allSettled(
+      Array.from({ length: 8 }, () =>
+        new SingleHostMutex(identity, root).lock(),
+      ),
+    );
+    const acquired = attempts.filter(
+      (result): result is PromiseFulfilledResult<() => Promise<void>> =>
+        result.status === "fulfilled",
+    );
+    assert.equal(acquired.length, 1);
+    assert.equal(
+      attempts.filter((result) => result.status === "rejected").length,
+      7,
+    );
+    assert.deepEqual(await readdir(root), [path.split(/[\\/]/u).at(-1)]);
+    await acquired[0]!.value();
+  } finally {
+    await rm(root, { force: true, recursive: true });
+  }
+});
+
+test("an abandoned recovery guard fails closed", async () => {
+  /** Isolated directory containing the primary and recovery guard. */
+  const root = await mkdtemp(join(tmpdir(), "agent-task-manager-mutex-"));
+  try {
+    const identity = {
+      environmentId: "environment",
+      scope: "environment",
+    } as const;
+    const mutex = new SingleHostMutex(identity, root);
+    const release = await mutex.lock();
+    /** Exact primary path used to derive its sidecar guard path. */
+    const path = join(root, (await readdir(root))[0]!);
+    await release();
+    await writeFile(
+      path,
+      JSON.stringify({
+        pid: Number.MAX_SAFE_INTEGER,
+        reclaimable: true,
+        startedAt: new Date(0).toISOString(),
+      }),
+      "utf8",
+    );
+    await writeFile(
+      `${path}.recovery`,
+      "operator verification required",
+      "utf8",
+    );
+
+    await assert.rejects(
+      mutex.lock(),
+      (error: unknown) =>
+        error instanceof Error && "code" in error && error.code === "EEXIST",
+    );
+    assert.deepEqual(
+      (await readdir(root)).sort(),
+      [
+        path.split(/[\\/]/u).at(-1)!,
+        `${path.split(/[\\/]/u).at(-1)!}.recovery`,
+      ].sort(),
+    );
+  } finally {
+    await rm(root, { force: true, recursive: true });
+  }
+});
+
 test("dead command owners remain fenced until verified recovery", async () => {
   /** Isolated directory containing the artificial orphaned lease. */
   const root = await mkdtemp(join(tmpdir(), "agent-task-manager-mutex-"));
