@@ -407,14 +407,12 @@ if (
   );
 }
 
-/** Returns the child exit status when the CLI result came from the proxy. */
-function proxyExitCode(result: JsonValue): number | null {
-  if (
-    result === null ||
-    Array.isArray(result) ||
-    typeof result !== "object" ||
-    typeof result.exitCode !== "number"
-  )
+/** Returns a nonzero status for failed or signalled proxied commands. */
+export function proxyExitCode(result: JsonValue): number | null {
+  if (result === null || Array.isArray(result) || typeof result !== "object")
     return null;
-  return result.exitCode;
+  if (typeof result.exitCode === "number") return result.exitCode;
+  return result.exitCode === null && typeof result.signal === "string"
+    ? 1
+    : null;
 }

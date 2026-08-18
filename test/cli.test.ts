@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { runCli } from "../src/cli.js";
+import { proxyExitCode, runCli } from "../src/cli.js";
 
 test("CLI rejects unknown and command-irrelevant flags", async () => {
   await assert.rejects(
@@ -48,4 +48,19 @@ test("CLI rejects unknown command shapes before loading configuration", async ()
       help.help.includes("active-agent restart"),
     true,
   );
+});
+
+test("CLI reports signalled proxy commands as failures", () => {
+  assert.equal(
+    proxyExitCode({
+      command: "git",
+      exitCode: null,
+      signal: "SIGTERM",
+      stderr: "",
+      stdout: "",
+    }),
+    1,
+  );
+  assert.equal(proxyExitCode({ exitCode: 7 }), 7);
+  assert.equal(proxyExitCode({ result: "not a command" }), null);
 });
