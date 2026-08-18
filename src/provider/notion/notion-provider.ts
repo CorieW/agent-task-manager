@@ -283,6 +283,16 @@ export class NotionProvider implements AgentTaskProvider {
     return Promise.all(pages.map((page) => this.agent(page, resourceIdByKey)));
   }
   /** @inheritdoc */
+  public async getAgent(agentId: string): Promise<AgentRecord | null> {
+    const normalized = normalizeId(agentId);
+    const page = (await this.query("agents")).find(
+      (candidate) => normalizeId(id(candidate)) === normalized,
+    );
+    return page === undefined
+      ? null
+      : this.agent(page, await this.resourceIdByKey());
+  }
+  /** @inheritdoc */
   public async getAgentByKey(key: string): Promise<AgentRecord | null> {
     const matches: Array<{
       body: string;

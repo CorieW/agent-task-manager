@@ -102,6 +102,10 @@ export class InMemoryProvider implements AgentTaskProvider {
       .map(clone);
   }
   /** @inheritdoc */
+  public async getAgent(id: string): Promise<AgentRecord | null> {
+    return nullable(this.#agents.get(id));
+  }
+  /** @inheritdoc */
   public async getAgentByKey(key: string): Promise<AgentRecord | null> {
     return nullable(
       [...this.#agents.values()].find((entry) => entry.key === key),

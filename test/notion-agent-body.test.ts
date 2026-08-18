@@ -56,6 +56,31 @@ test("Notion Agent records derive configuration and Resources from the page body
   assert.deepEqual(Object.keys(agent.properties), ["Name"]);
 });
 
+test("Notion Agent record lookup isolates unrelated malformed bodies", async () => {
+  const provider = new NotionProvider(
+    {
+      bootstrapParent: "ffffffffffffffffffffffffffffffff",
+      connection: {},
+      tables: {
+        activeAgents: ids.activeAgents,
+        agents: ids.agents,
+        errors: ids.errors,
+        resources: ids.resources,
+        tasks: ids.tasks,
+      },
+      type: "notion",
+    },
+    new AgentBodyTransport(),
+  );
+
+  assert.equal((await provider.getAgent(ids.agent))?.key, "code-reviewer");
+  await assert.rejects(provider.getAgent(ids.badAgent), TypeError);
+  assert.equal(
+    await provider.getAgent("88888888888888888888888888888888"),
+    null,
+  );
+});
+
 test("Notion Agent loading retries a body and metadata torn read", async () => {
   const provider = new NotionProvider(
     {

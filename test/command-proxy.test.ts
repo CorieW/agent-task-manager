@@ -77,7 +77,7 @@ async function setup(policy: AgentCommandPolicy) {
     runId: "run-1",
     taskId: "task-1",
   });
-  return { context, coordinator };
+  return { context, coordinator, provider };
 }
 
 const immediateGate: CommandExecutionGate = {
@@ -243,6 +243,16 @@ test("command proxy exclusion denies only configured commands", async () => {
     }),
     /command is not allowed: rm/u,
   );
+});
+
+test("command policy lookup does not enumerate unrelated Agents", async () => {
+  const { coordinator, provider } = await setup({ inclusion: ["git"] });
+  provider.listAgents = async () => {
+    throw new Error("unrelated Agent body is malformed");
+  };
+  assert.deepEqual(await coordinator.commandPolicy("run-1", "harness-1"), {
+    inclusion: ["git"],
+  });
 });
 
 test("sandbox broker receives literal arguments without manager secrets", async () => {

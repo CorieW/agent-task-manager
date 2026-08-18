@@ -51,6 +51,8 @@ export interface AgentTaskProvider {
   setTaskStatus(id: string, status: string): Promise<TaskRecord>;
   /** Lists live, non-archived Agents. */
   listAgents(): Promise<readonly AgentRecord[]>;
+  /** Returns an Agent by provider record ID without loading unrelated Agents. */
+  getAgent(id: string): Promise<AgentRecord | null>;
   /** Returns the Agent with the stable definition key, or null. */
   getAgentByKey(key: string): Promise<AgentRecord | null>;
   /** Lists live, non-archived Resources. */

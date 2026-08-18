@@ -384,10 +384,9 @@ export class AgentCoordinator {
     return agent;
   }
   private async agentById(id: string): Promise<AgentRecord> {
-    const agent = (await this.provider.listAgents()).find(
-      (entry) => entry.id === id,
-    );
-    if (agent === undefined) throw new Error(`Agent is unavailable: ${id}`);
+    const agent = await this.provider.getAgent(id);
+    if (agent === null || agent.archived)
+      throw new Error(`Agent is unavailable: ${id}`);
     return agent;
   }
   private assertAgentVersion(run: ActiveAgentRecord, agent: AgentRecord): void {
