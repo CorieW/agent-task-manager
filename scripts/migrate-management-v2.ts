@@ -22,7 +22,7 @@ import {
   type MigrationRow,
   type MigrationTable,
 } from "../src/migration/management-v2.js";
-import { normalizeNotionId as compactId } from "../src/provider/notion/notion-id.js";
+import { normalizeNotionId } from "../src/provider/notion/notion-id.js";
 import { NotionProvider } from "../src/provider/notion/notion-provider.js";
 import {
   NOTION_SCHEMA_DIGEST,
@@ -108,7 +108,7 @@ export async function resolveActiveAgentsId(
 ): Promise<string | null> {
   if (suppliedId !== null) {
     await assertActiveAgentsIdentity(transport, suppliedId);
-    return compactId(suppliedId);
+    return normalizeNotionId(suppliedId);
   }
   const children = await collectNotionPages((cursor) =>
     transport.request({
@@ -128,7 +128,7 @@ export async function resolveActiveAgentsId(
       );
       return text(value.title) === "Active Agents";
     })
-    .map((child) => compactId(text(child.id)));
+    .map((child) => normalizeNotionId(text(child.id)));
   if (databaseIds.length > 1)
     throw new Error(
       "Multiple Active Agents databases exist under Management v2",
@@ -138,7 +138,9 @@ export async function resolveActiveAgentsId(
   const database = await activeAgentsDatabase(transport, databaseId);
   const sources = Array.isArray(database.data_sources)
     ? database.data_sources.map((value) =>
-        compactId(text(asObject(value, "Active Agents data source").id)),
+        normalizeNotionId(
+          text(asObject(value, "Active Agents data source").id),
+        ),
       )
     : [];
   if (sources.length !== 1)
@@ -155,20 +157,22 @@ async function assertActiveAgentsIdentity(
 ): Promise<void> {
   const source = await transport.request({
     method: "GET",
-    path: `/v1/data_sources/${compactId(dataSourceId)}`,
+    path: `/v1/data_sources/${normalizeNotionId(dataSourceId)}`,
   });
   const parent = asObject(
     required(source.parent, "Active Agents data source parent is missing"),
     "Active Agents data source parent",
   );
-  const databaseId = compactId(text(parent.database_id));
+  const databaseId = normalizeNotionId(text(parent.database_id));
   const database = await activeAgentsDatabase(transport, databaseId);
   const sources = Array.isArray(database.data_sources)
     ? database.data_sources.map((value) =>
-        compactId(text(asObject(value, "Active Agents data source").id)),
+        normalizeNotionId(
+          text(asObject(value, "Active Agents data source").id),
+        ),
       )
     : [];
-  if (!sources.includes(compactId(dataSourceId)))
+  if (!sources.includes(normalizeNotionId(dataSourceId)))
     throw new Error(
       "Active Agents data source does not belong to its database",
     );
@@ -180,7 +184,7 @@ async function activeAgentsDatabase(
 ): Promise<JsonObject> {
   const database = await transport.request({
     method: "GET",
-    path: `/v1/databases/${compactId(databaseId)}`,
+    path: `/v1/databases/${normalizeNotionId(databaseId)}`,
   });
   const parent = asObject(
     required(database.parent, "Active Agents database parent is missing"),
@@ -193,7 +197,7 @@ async function activeAgentsDatabase(
     : "";
   if (
     parent.type !== "page_id" ||
-    compactId(text(parent.page_id)) !== MANAGEMENT_V2_PARENT ||
+    normalizeNotionId(text(parent.page_id)) !== MANAGEMENT_V2_PARENT ||
     title !== "Active Agents"
   )
     throw new Error(
@@ -240,7 +244,10 @@ async function applyMigration(
     throw new Error("Active Agents was not created or discovered");
 
   const resourceKeyById = new Map(
-    inventory.resources.rows.map((row) => [compactId(row.id), row.title]),
+    inventory.resources.rows.map((row) => [
+      normalizeNotionId(row.id),
+      row.title,
+    ]),
   );
   const expectedBodies = new Map<string, string>();
 
@@ -256,7 +263,7 @@ async function applyMigration(
       throw new Error(
         `Managed Resource contract audit failed for ${row.title}: ${forbidden.join(", ")}`,
       );
-    expectedBodies.set(compactId(row.id), body);
+    expectedBodies.set(normalizeNotionId(row.id), body);
     await replaceMarkdown(transport, row.id, row.body, body);
   }
   for (const action of authorizedPlan.actions.filter(
@@ -269,13 +276,13 @@ async function applyMigration(
     const resourceKeys = Array.isArray(relationValue)
       ? relationValue.map((value) =>
           required(
-            resourceKeyById.get(compactId(text(value))),
+            resourceKeyById.get(normalizeNotionId(text(value))),
             `Missing related Resource ${text(value)}`,
           ),
         )
       : [];
     const body = agentDefinitionMarkdown(row, resourceKeys);
-    expectedBodies.set(compactId(row.id), body);
+    expectedBodies.set(normalizeNotionId(row.id), body);
     await replaceMarkdown(transport, row.id, row.body, body);
   }
 
@@ -294,7 +301,7 @@ async function applyMigration(
         (entry) =>
           entry.kind === "archive_error" || entry.kind === "archive_resource",
       )
-      .map((entry) => compactId(entry.targetId)),
+      .map((entry) => normalizeNotionId(entry.targetId)),
   );
   for (const action of authorizedPlan.actions.filter(
     (entry) =>
@@ -373,7 +380,7 @@ async function readTable(
 ): Promise<MigrationTable> {
   const source = await transport.request({
     method: "GET",
-    path: `/v1/data_sources/${compactId(id)}`,
+    path: `/v1/data_sources/${normalizeNotionId(id)}`,
   });
   const schema = asObject(
     required(source.properties, "Data source properties are missing"),
@@ -392,13 +399,13 @@ async function readTable(
         ...(cursor === null ? {} : { start_cursor: cursor }),
       },
       method: "POST",
-      path: `/v1/data_sources/${compactId(id)}/query`,
+      path: `/v1/data_sources/${normalizeNotionId(id)}/query`,
     }),
   );
   const rows = await Promise.all(
     pages.map(async (page) => pageToRow(transport, page)),
   );
-  return { id: compactId(id), properties, rows };
+  return { id: normalizeNotionId(id), properties, rows };
 }
 async function readOptionalTable(
   transport: NotionTransport,
@@ -430,7 +437,7 @@ async function pageToRow(
   );
   const bodyResult = await transport.request({
     method: "GET",
-    path: `/v1/pages/${compactId(text(page.id))}/markdown`,
+    path: `/v1/pages/${normalizeNotionId(text(page.id))}/markdown`,
   });
   return {
     body: text(bodyResult.markdown).replace(/\r\n?/gu, "\n").normalize("NFC"),
@@ -496,7 +503,7 @@ async function dropLegacyProperties(transport: NotionTransport): Promise<void> {
       MANAGEMENT_V2_DATABASES[kind as keyof typeof LEGACY_PROPERTIES_BY_TABLE];
     const source = await transport.request({
       method: "GET",
-      path: `/v1/data_sources/${compactId(sourceId)}`,
+      path: `/v1/data_sources/${normalizeNotionId(sourceId)}`,
     });
     const observed = asObject(
       required(source.properties, "Data source properties are missing"),
@@ -519,7 +526,7 @@ async function patchProperties(
   await transport.request({
     body: { properties },
     method: "PATCH",
-    path: `/v1/data_sources/${compactId(sourceId)}`,
+    path: `/v1/data_sources/${normalizeNotionId(sourceId)}`,
   });
 }
 /** Atomically replaces the exact inventoried page Markdown. */
@@ -535,7 +542,7 @@ export async function replaceMarkdown(
       update_content: { new_str: markdown, old_str: expectedMarkdown },
     },
     method: "PATCH",
-    path: `/v1/pages/${compactId(pageId)}/markdown`,
+    path: `/v1/pages/${normalizeNotionId(pageId)}/markdown`,
   });
 }
 
@@ -557,17 +564,17 @@ async function assertInventoryState(
           `Migration drift detected before destructive cleanup: ${kind}.${name}`,
         );
     const expectedRows = before.rows.filter(
-      (row) => !archivedIds.has(compactId(row.id)),
+      (row) => !archivedIds.has(normalizeNotionId(row.id)),
     );
     if (after.rows.length !== expectedRows.length)
       throw new Error(
         `Migration drift detected before destructive cleanup: ${kind} row set`,
       );
     const byId = new Map(
-      after.rows.map((row) => [compactId(row.id), row] as const),
+      after.rows.map((row) => [normalizeNotionId(row.id), row] as const),
     );
     for (const expected of expectedRows) {
-      const id = compactId(expected.id);
+      const id = normalizeNotionId(expected.id);
       const observed = byId.get(id);
       if (observed === undefined || observed.title !== expected.title)
         throw new Error(
@@ -594,10 +601,10 @@ async function assertInventoryState(
         "Migration drift detected before destructive cleanup: operations row set",
       );
     const byId = new Map(
-      observed.rows.map((row) => [compactId(row.id), row] as const),
+      observed.rows.map((row) => [normalizeNotionId(row.id), row] as const),
     );
     for (const expected of original.operations.rows) {
-      const row = byId.get(compactId(expected.id));
+      const row = byId.get(normalizeNotionId(expected.id));
       if (
         row === undefined ||
         row.title !== expected.title ||
@@ -617,7 +624,7 @@ async function archivePage(
   await transport.request({
     body: { in_trash: true },
     method: "PATCH",
-    path: `/v1/pages/${compactId(pageId)}`,
+    path: `/v1/pages/${normalizeNotionId(pageId)}`,
   });
 }
 

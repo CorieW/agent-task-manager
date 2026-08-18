@@ -8,7 +8,7 @@ import {
   validateAgentTransitions,
   type AgentTransitions,
 } from "../domain/records.js";
-import { normalizeNotionId as compactId } from "../provider/notion/notion-id.js";
+import { normalizeNotionId } from "../provider/notion/notion-id.js";
 import { notionTable } from "../provider/notion/notion-schema.js";
 
 /** Exact Notion page that owns the legacy Management v2 databases. */
@@ -254,7 +254,7 @@ function orderedInventory(inventory: ManagementInventory): ManagementInventory {
   const table = (value: MigrationTable): MigrationTable => ({
     ...value,
     rows: [...value.rows].sort((left, right) =>
-      compactId(left.id).localeCompare(compactId(right.id)),
+      normalizeNotionId(left.id).localeCompare(normalizeNotionId(right.id)),
     ),
   });
   return {
@@ -275,7 +275,7 @@ export function assertManagementV2Inventory(
   inventory: ManagementInventory,
 ): void {
   const failures: string[] = [];
-  if (compactId(inventory.parentId) !== MANAGEMENT_V2_PARENT)
+  if (normalizeNotionId(inventory.parentId) !== MANAGEMENT_V2_PARENT)
     failures.push("parent is not the exact Management v2 page");
   for (const [kind, id] of Object.entries(MANAGEMENT_V2_DATABASES)) {
     const table =
@@ -285,7 +285,7 @@ export function assertManagementV2Inventory(
           "agents" | "errors" | "operations" | "resources" | "tasks"
         >
       ];
-    if (table !== null && compactId(table.id) !== compactId(id))
+    if (table !== null && normalizeNotionId(table.id) !== normalizeNotionId(id))
       failures.push(`${kind} data-source ID drifted`);
   }
   if (inventory.tasks.rows.length !== 0)
@@ -407,7 +407,10 @@ function assertAgentDefinitionParity(
   failures: string[],
 ): void {
   const resourceKeyById = new Map(
-    inventory.resources.rows.map((row) => [compactId(row.id), row.title]),
+    inventory.resources.rows.map((row) => [
+      normalizeNotionId(row.id),
+      row.title,
+    ]),
   );
   for (const row of inventory.agents.rows) {
     let definition;
@@ -451,7 +454,7 @@ function assertAgentDefinitionParity(
     const relation = row.properties.Resources;
     if (Array.isArray(relation) && relation.length > 0) {
       const keys = relation.map((value) =>
-        resourceKeyById.get(compactId(String(value))),
+        resourceKeyById.get(normalizeNotionId(String(value))),
       );
       if (keys.some((key) => key === undefined)) conflict("Resources");
       else {
@@ -605,11 +608,11 @@ function digestInventory(inventory: ManagementInventory): string {
     value === null
       ? null
       : {
-          id: compactId(value.id),
+          id: normalizeNotionId(value.id),
           properties: value.properties,
           rows: value.rows.map((row) => ({
             bodyDigest: digestJson(row.body),
-            id: compactId(row.id),
+            id: normalizeNotionId(row.id),
             properties: row.properties,
             title: row.title,
           })),
@@ -620,7 +623,7 @@ function digestInventory(inventory: ManagementInventory): string {
       agents: table(inventory.agents),
       errors: table(inventory.errors),
       operations: table(inventory.operations),
-      parentId: compactId(inventory.parentId),
+      parentId: normalizeNotionId(inventory.parentId),
       resources: table(inventory.resources),
       tasks: table(inventory.tasks),
     }),
