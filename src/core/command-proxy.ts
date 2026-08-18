@@ -28,6 +28,7 @@ export interface ProxyCommandResult {
 export interface CommandBrokerOptions {
   readonly environment?: NodeJS.ProcessEnv;
   readonly maxOutputBytes?: number;
+  readonly terminationGraceMilliseconds?: number;
   readonly timeoutMilliseconds?: number;
 }
 
@@ -142,6 +143,10 @@ export function createCommandBrokerExecutor(
     options.timeoutMilliseconds ?? 5 * 60 * 1000,
     "Command broker timeoutMilliseconds",
   );
+  const terminationGraceMilliseconds = positiveInteger(
+    options.terminationGraceMilliseconds ?? 1000,
+    "Command broker terminationGraceMilliseconds",
+  );
   return async (request) =>
     new Promise((resolve, reject) => {
       const child = spawn(brokerExecutable, brokerArguments, {
@@ -154,16 +159,18 @@ export function createCommandBrokerExecutor(
       const stderr: Buffer[] = [];
       let outputBytes = 0;
       let settled = false;
+      let terminationError: Error | undefined;
+      let forceTimer: NodeJS.Timeout | undefined;
       const timer = setTimeout(() => {
-        fail(
+        terminate(
           new Error(
             `Command broker timed out after ${timeoutMilliseconds} milliseconds`,
           ),
         );
       }, timeoutMilliseconds);
-      const fail = (error: Error): void => {
-        if (settled) return;
-        settled = true;
+      const terminate = (error: Error): void => {
+        if (settled || terminationError !== undefined) return;
+        terminationError = error;
         clearTimeout(timer);
         child.stdout.destroy();
         child.stderr.destroy();
@@ -172,12 +179,18 @@ export function createCommandBrokerExecutor(
         } catch {
           // Preserve the protocol failure that required broker termination.
         }
-        reject(error);
+        forceTimer = setTimeout(() => {
+          try {
+            child.kill("SIGKILL");
+          } catch {
+            // Keep the run lease when forced broker shutdown cannot be sent.
+          }
+        }, terminationGraceMilliseconds);
       };
       const collect = (chunks: Buffer[]) => (chunk: Buffer) => {
         outputBytes += chunk.length;
         if (outputBytes > maxOutputBytes) {
-          fail(
+          terminate(
             new Error(`Command broker output exceeded ${maxOutputBytes} bytes`),
           );
           return;
@@ -186,11 +199,17 @@ export function createCommandBrokerExecutor(
       };
       child.stdout.on("data", collect(stdout));
       child.stderr.on("data", collect(stderr));
-      child.once("error", (error) => fail(error));
+      child.stdin.once("error", (error) => terminate(error));
+      child.once("error", (error) => terminate(error));
       child.once("close", (exitCode, signal) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
+        if (forceTimer !== undefined) clearTimeout(forceTimer);
+        if (terminationError !== undefined) {
+          reject(terminationError);
+          return;
+        }
         if (exitCode !== 0 || signal !== null) {
           reject(
             new Error(

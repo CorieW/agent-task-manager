@@ -290,7 +290,7 @@ test("sandbox broker exchange enforces timeout and output bounds", async () => {
   const hanging = createCommandBrokerExecutor(
     process.execPath,
     ["-e", "setInterval(() => undefined, 1000)"],
-    { timeoutMilliseconds: 25 },
+    { terminationGraceMilliseconds: 25, timeoutMilliseconds: 25 },
   );
   await assert.rejects(
     hanging(brokerRequest()),
@@ -308,6 +308,30 @@ test("sandbox broker exchange enforces timeout and output bounds", async () => {
       /output exceeded 64 bytes/u,
     );
   }
+});
+
+test("sandbox broker confirms forced shutdown and handles early stdin closure", async () => {
+  if (process.platform !== "win32") {
+    const resistant = createCommandBrokerExecutor(
+      process.execPath,
+      [
+        "-e",
+        'process.on("SIGTERM", () => undefined); setInterval(() => undefined, 1000)',
+      ],
+      { terminationGraceMilliseconds: 40, timeoutMilliseconds: 20 },
+    );
+    const started = Date.now();
+    await assert.rejects(
+      resistant(brokerRequest()),
+      /timed out after 20 milliseconds/u,
+    );
+    assert.ok(Date.now() - started >= 40);
+  }
+  const earlyExit = createCommandBrokerExecutor(process.execPath, [
+    "-e",
+    "process.exit(0)",
+  ]);
+  await assert.rejects(earlyExit(brokerRequest()));
 });
 
 test("sandbox broker rejects ambiguous terminal results", async () => {

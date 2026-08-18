@@ -421,9 +421,16 @@ function commandBrokerExecutor(env: NodeJS.ProcessEnv) {
     env.AGENT_TASK_MANAGER_COMMAND_TIMEOUT_MS,
     "AGENT_TASK_MANAGER_COMMAND_TIMEOUT_MS",
   );
+  const terminationGraceMilliseconds = optionalPositiveInteger(
+    env.AGENT_TASK_MANAGER_COMMAND_TERMINATION_GRACE_MS,
+    "AGENT_TASK_MANAGER_COMMAND_TERMINATION_GRACE_MS",
+  );
   return createCommandBrokerExecutor(executable, [], {
     environment: env,
     ...(maxOutputBytes === undefined ? {} : { maxOutputBytes }),
+    ...(terminationGraceMilliseconds === undefined
+      ? {}
+      : { terminationGraceMilliseconds }),
     ...(timeoutMilliseconds === undefined ? {} : { timeoutMilliseconds }),
   });
 }
