@@ -115,13 +115,19 @@ test("sweep ignores an unrelated healthy command lease", async () => {
       () => new Date("2026-08-17T12:10:00.000Z"),
     );
     const runMutex = (runId: string) =>
-      new SingleHostMutex(`environment.command.${runId}`, root);
+      new SingleHostMutex(
+        { environmentId: "environment", runId, scope: "command" },
+        root,
+      );
     const releaseHealthy = await runMutex("healthy").lock({
       reclaimable: false,
     });
     try {
       const result = await sweepWithRunLeases(
-        new SingleHostMutex("environment", root),
+        new SingleHostMutex(
+          { environmentId: "environment", scope: "environment" },
+          root,
+        ),
         runMutex,
         coordinator,
       );
@@ -153,11 +159,17 @@ test("sweep isolates a fenced stale subtree and releases partial leases", async 
       () => new Date("2026-08-17T12:10:00.000Z"),
     );
     const runMutex = (runId: string) =>
-      new SingleHostMutex(`environment.command.${runId}`, root);
+      new SingleHostMutex(
+        { environmentId: "environment", runId, scope: "command" },
+        root,
+      );
     const releaseChild = await runMutex("child-a").lock({ reclaimable: false });
     try {
       const result = await sweepWithRunLeases(
-        new SingleHostMutex("environment", root),
+        new SingleHostMutex(
+          { environmentId: "environment", scope: "environment" },
+          root,
+        ),
         runMutex,
         coordinator,
       );

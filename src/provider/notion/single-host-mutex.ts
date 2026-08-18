@@ -9,6 +9,18 @@ export interface SingleHostMutexLockOptions {
   readonly reclaimable?: boolean;
 }
 
+/** Domain-separated identity used to coordinate one environment or command run. */
+export type SingleHostMutexIdentity =
+  | {
+      readonly environmentId: string;
+      readonly scope: "environment";
+    }
+  | {
+      readonly environmentId: string;
+      readonly runId: string;
+      readonly scope: "command";
+    };
+
 /** Implements single-host mutex. */
 export class SingleHostMutex {
   /** Provider-relative request path. */
@@ -17,7 +29,7 @@ export class SingleHostMutex {
   #tail: Promise<void> = Promise.resolve();
 
   /** Initializes single-host mutex. */
-  public constructor(identity: string, root = tmpdir()) {
+  public constructor(identity: SingleHostMutexIdentity, root = tmpdir()) {
     this.#path = join(root, `agent-task-manager-${safeName(identity)}.lock`);
   }
 
@@ -134,14 +146,25 @@ export class SingleHostMutex {
 }
 
 /** Converts a full normalized identity into a bounded, collision-resistant lock-file name. */
-function safeName(value: string): string {
-  /** Canonical identity whose complete value is bound into the filename digest. */
-  const normalized = value.normalize("NFC");
+function safeName(identity: SingleHostMutexIdentity): string {
+  /** Injective tuple encoding whose exact bytes bind the identity and its domain. */
+  const encoded =
+    identity.scope === "environment"
+      ? JSON.stringify(["environment", identity.environmentId])
+      : JSON.stringify(["command", identity.environmentId, identity.runId]);
+  /** Human-readable source whose normalization is cosmetic only. */
+  const display =
+    identity.scope === "environment"
+      ? `environment-${identity.environmentId}`
+      : `command-${identity.environmentId}-${identity.runId}`;
   /** Human-readable prefix retained for local lock-file diagnostics. */
   const prefix =
-    normalized.replace(/[^a-z0-9_.-]+/giu, "-").slice(0, 48) || "lock";
-  /** Prevents truncation and sanitization from aliasing distinct lock identities. */
-  const digest = createHash("sha256").update(normalized, "utf8").digest("hex");
+    display
+      .normalize("NFC")
+      .replace(/[^a-z0-9_.-]+/giu, "-")
+      .slice(0, 48) || "lock";
+  /** Prevents domains, delimiters, Unicode, and truncation from aliasing identities. */
+  const digest = createHash("sha256").update(encoded, "utf8").digest("hex");
   return `${prefix}-${digest}`;
 }
 

@@ -5,10 +5,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { SingleHostMutex } from "../src/provider/notion/single-host-mutex.js";
+import {
+  SingleHostMutex,
+  type SingleHostMutexIdentity,
+} from "../src/provider/notion/single-host-mutex.js";
 
 /** Proves two identities can hold distinct lock files at the same time. */
-async function assertDistinctLockIdentities(first: string, second: string) {
+async function assertDistinctLockIdentities(
+  first: SingleHostMutexIdentity,
+  second: SingleHostMutexIdentity,
+) {
   /** Isolated directory containing only this test's lock files. */
   const root = await mkdtemp(join(tmpdir(), "agent-task-manager-mutex-"));
   try {
@@ -30,13 +36,42 @@ test("long environment and run identities use distinct mutex files", async () =>
   /** Environment identity long enough to consume the former filename limit. */
   const environmentId = "a".repeat(120);
   await assertDistinctLockIdentities(
-    environmentId,
-    `${environmentId}.command.run-1`,
+    { environmentId, scope: "environment" },
+    { environmentId, runId: "run-1", scope: "command" },
   );
 });
 
 test("sanitization-equivalent identities use distinct mutex files", async () => {
-  await assertDistinctLockIdentities("environment/x", "environment?x");
+  await assertDistinctLockIdentities(
+    { environmentId: "environment/x", scope: "environment" },
+    { environmentId: "environment?x", scope: "environment" },
+  );
+});
+
+test("environment and command lock domains cannot alias", async () => {
+  await assertDistinctLockIdentities(
+    { environmentId: "alpha.command.run-1", scope: "environment" },
+    { environmentId: "alpha", runId: "run-1", scope: "command" },
+  );
+  await assertDistinctLockIdentities(
+    {
+      environmentId: "alpha",
+      runId: "beta.command.gamma",
+      scope: "command",
+    },
+    {
+      environmentId: "alpha.command.beta",
+      runId: "gamma",
+      scope: "command",
+    },
+  );
+});
+
+test("byte-distinct Unicode identities use distinct mutex files", async () => {
+  await assertDistinctLockIdentities(
+    { environmentId: "\u00e9", scope: "environment" },
+    { environmentId: "e\u0301", scope: "environment" },
+  );
 });
 
 test("dead reclaimable owners are recovered", async () => {
@@ -44,7 +79,10 @@ test("dead reclaimable owners are recovered", async () => {
   const root = await mkdtemp(join(tmpdir(), "agent-task-manager-mutex-"));
   try {
     /** Mutex used to discover its collision-resistant lock path. */
-    const mutex = new SingleHostMutex("environment", root);
+    const mutex = new SingleHostMutex(
+      { environmentId: "environment", scope: "environment" },
+      root,
+    );
     /** Release callback for the temporary path-discovery acquisition. */
     const release = await mutex.lock();
     /** Exact lock path created for this identity. */
@@ -72,7 +110,12 @@ test("dead command owners remain fenced until verified recovery", async () => {
   const root = await mkdtemp(join(tmpdir(), "agent-task-manager-mutex-"));
   try {
     /** Command mutex whose lock path is populated with an orphaned lease. */
-    const mutex = new SingleHostMutex("environment.command.run-1", root);
+    const identity = {
+      environmentId: "environment",
+      runId: "run-1",
+      scope: "command",
+    } as const;
+    const mutex = new SingleHostMutex(identity, root);
     /** Release callback for the temporary path-discovery acquisition. */
     const release = await mutex.lock({ reclaimable: false });
     /** Exact lock path created for this command identity. */
@@ -88,7 +131,7 @@ test("dead command owners remain fenced until verified recovery", async () => {
       "utf8",
     );
     await assert.rejects(
-      new SingleHostMutex("environment.command.run-1", root).lock(),
+      new SingleHostMutex(identity, root).lock(),
       (error: unknown) =>
         error instanceof Error && "code" in error && error.code === "EEXIST",
     );

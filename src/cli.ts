@@ -138,14 +138,19 @@ export async function runCli(
   const configuration = await loadEnvironment(parsed.flags.environment, env);
   const provider = providerFor(configuration, env);
   const coordinator = new AgentCoordinator(provider);
-  const mutex = new SingleHostMutex(configuration.environmentId);
+  const mutex = new SingleHostMutex({
+    environmentId: configuration.environmentId,
+    scope: "environment",
+  });
   const runMutexes = new Map<string, SingleHostMutex>();
   const runMutex = (runId: string): SingleHostMutex => {
     const existing = runMutexes.get(runId);
     if (existing !== undefined) return existing;
-    const created = new SingleHostMutex(
-      `${configuration.environmentId}.command.${runId}`,
-    );
+    const created = new SingleHostMutex({
+      environmentId: configuration.environmentId,
+      runId,
+      scope: "command",
+    });
     runMutexes.set(runId, created);
     return created;
   };
