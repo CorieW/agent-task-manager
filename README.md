@@ -1,21 +1,29 @@
 # Agent Task Manager
 
-Provider-neutral infrastructure for task-driven AI agents. An external harness,
-such as a ChatGPT Scheduled Task, owns model interaction and child-agent
-creation. The CLI narrows its provider access to selection, leases, immutable
-context, validated completion, and recovery.
+Single-host coordination for disposable, task-driven AI agents. Notion stores project Tasks, Agent definitions, reusable Prompt and Policy Resources, Active Agent metadata, and Errors. The external harness owns conversations, tools, commands, publications, effects, repeat safety, and child processes.
 
-Authoritative workflow data is restricted to five provider table types:
-Tasks, Agents, Errors, Resources, and Operations. Resources contain prompts,
-policies, schemas, and context; the Operations table contains manager-owned
-execution state. Configuration describes only the
-environment, and local runtime artifacts are disposable. Notion is the first
-concrete provider.
+If a run fails, its failed subtree is restarted from the beginning. The manager deliberately stores no transcript, command history, lease, checkpoint, effect receipt, or resumable conversation state.
 
 ## Requirements
 
 - Node.js 22 or newer
 - pnpm 11
+- A Notion integration token when using the Notion provider
+
+## Commands
+
+```text
+task list|get
+agent list|get
+resource list|get
+active-agent list|get|start|heartbeat|complete|fail|sweep|restart
+error list|get|report|resolve
+validate
+init --plan|--apply
+providers
+```
+
+Every command emits JSON. Set `AGENT_TASK_MANAGER_ENVIRONMENT` or pass `--environment`; the default is `agent-task-manager.environment.json`. For Notion, place the token in the environment variable named by `provider.connection.tokenEnv` (default `NOTION_TOKEN`).
 
 ## Development
 
@@ -23,19 +31,16 @@ concrete provider.
 pnpm install
 pnpm check
 pnpm build
-node dist/src/cli.js --help
+node dist/src/cli.js help
 ```
 
-## Documentation
+The tracked Management v2 migration is digest-authorized:
 
-- [Getting started and CLI](docs/getting-started.md)
-- [External harness workflow](docs/external-harness.md)
-- [Notion provider](docs/notion-provider.md)
-- [Agent definitions](docs/agent-definitions.md)
-- [Runtime security](docs/runtime-security.md)
-- [External-effect brokers](docs/external-effects.md)
-- [Human interaction and recovery](docs/human-recovery.md)
-- [Provider conformance and identification trials](docs/provider-conformance.md)
-- [Public API](docs/public-api.md)
+```powershell
+pnpm migrate:management-v2 -- --plan
+pnpm migrate:management-v2 -- --apply --expected-plan-digest <sha256>
+```
 
-See the [documentation index](docs/README.md) for the complete guide set.
+The migration targets only [Management v2](https://app.notion.com/p/Management-v2-3bf9a6efcd5880eeaf0edef3125a1534) and aborts on inventory or schema drift. It intentionally creates no backup.
+
+See [the documentation index](docs/README.md) for lifecycle and provider details.

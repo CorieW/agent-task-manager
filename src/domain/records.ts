@@ -1,355 +1,262 @@
-/** Defines provider-neutral Task, Agent, Resource, Error, activity, and lease records. */
+/** Provider-neutral records for the simplified coordination model. */
 import type { JsonObject } from "./json.js";
 
-/** Compact projection used while selecting task. */
-export interface TaskSummary {
-  /** Whether the Task is archived. */
-  readonly archived: boolean;
-  /** Stable identifier for task summary. */
-  readonly id: string;
-  /** Priority for task summary. */
-  readonly priority: number | null;
-  /** Current workflow status. */
-  readonly status: string;
-  /** Title for task summary. */
-  readonly title: string;
-  /** Opaque version token used for compatibility or concurrency checks. */
-  readonly version: string;
-}
+export type ResourceState = "active" | "draft" | "retired";
+export type ActiveAgentStatus =
+  "running" | "failed" | "stale" | "completed" | "stopped";
+export type ErrorSource = "human" | "ai" | "system";
+export type ErrorStatus = "open" | "resolved";
+export type ErrorSeverity = "critical" | "high" | "medium" | "low";
+export type AgentTransitions = Readonly<Record<string, string>>;
 
-/** Immutable snapshot of task. */
-export interface TaskSnapshot extends TaskSummary {
-  /** Provider-managed page body. */
-  readonly body: string;
-  /** Dependencies included in task snapshot. */
-  readonly dependencies: readonly string[];
-  /** Provider-visible structured properties. */
-  readonly properties: JsonObject;
-}
-
-/** Canonical fields for task query. */
-export interface TaskQuery {
-  /** Opaque cursor after which the next page begins. */
-  readonly cursor: string | null;
-  /** Statuses that satisfy a candidate Task's dependencies. */
-  readonly dependencySatisfiedStatuses: readonly string[];
-  /** Limit for task query. */
-  readonly limit: number;
-  /** Predicate for task query. */
-  readonly predicate: JsonObject;
-}
-
-/** Policy governing selection. */
-export interface SelectionPolicy {
-  /** Assignment modes accepted by the definition. */
-  readonly acceptsAssignmentsFrom: readonly (
-    "coordinator" | "explicit" | "self"
-  )[];
-  /** Max candidate summaries for selection policy. */
-  readonly maxCandidateSummaries: number;
-  /** Mode for selection policy. */
-  readonly mode: "coordinator" | "explicit" | "self";
-  /** Result schema for selection policy. */
-  readonly resultSchema: string;
-  /** Task query resource for selection policy. */
-  readonly taskQueryResource: string | null;
-}
-
-/** Policy governing invocation. */
-export interface InvocationPolicy {
-  /** Mode for invocation policy. */
-  readonly mode: "event" | "manual" | "scheduled";
-  /** Schedule resource for invocation policy. */
-  readonly scheduleResource: string | null;
-}
-
-/** Policy governing retry. */
-export interface RetryPolicy {
-  /** Max attempts for retry policy. */
-  readonly maxAttempts: number;
-  /** No verdict for retry policy. */
-  readonly noVerdict: "block" | "retry";
-}
-
-/** Canonical fields for agent definition. */
 export interface AgentDefinition {
-  /** Effect intents the definition may invoke. */
-  readonly allowedIntents: readonly string[];
-  /** Capabilities included in agent definition. */
-  readonly capabilities: readonly string[];
-  /** Max concurrency for agent definition. */
-  readonly maxConcurrency: number;
-  /** Max assignments per run for agent definition. */
-  readonly maxAssignmentsPerRun: number;
-  /** Context budget bytes for agent definition. */
-  readonly contextBudgetBytes: number;
-  /** Deadline duration in seconds. */
-  readonly deadlineSeconds: number;
-  /** Whether the definition is eligible for activation. */
+  readonly calledBy: string;
   readonly enabled: boolean;
-  /** Stable identifier for agent definition. */
   readonly id: string;
-  /** Human resolution outcomes included in agent definition. */
-  readonly humanResolutionOutcomes: readonly string[];
-  /** Input resource selectors included in agent definition. */
-  readonly inputResourceSelectors: readonly string[];
-  /** Invocation for agent definition. */
-  readonly invocation: InvocationPolicy;
-  /** Priority for agent definition. */
-  readonly priority: number;
-  /** Max assignment depth for agent definition. */
-  readonly maxAssignmentDepth: number;
-  /** Model for agent definition. */
   readonly model: string;
-  /** Name for agent definition. */
-  readonly name: string;
-  /** Prompt resources included in agent definition. */
-  readonly promptResources: readonly string[];
-  /** Prohibited capabilities included in agent definition. */
-  readonly prohibitedCapabilities: readonly string[];
-  /** Reasoning for agent definition. */
+  readonly notes: string;
   readonly reasoning: string;
-  /** Provider capabilities required to activate the definition. */
-  readonly requiredProviderCapabilities: readonly string[];
-  /** Ordered effect-intent subsequences required for selected outcomes. */
-  readonly requiredIntentSequenceByOutcome?: Readonly<
-    Record<string, readonly string[]>
-  >;
-  /** Revision for agent definition. */
-  readonly revision: number;
-  /** Retry for agent definition. */
-  readonly retry: RetryPolicy;
-  /** Runner profile for agent definition. */
-  readonly runnerProfile: string;
-  /** Schema discriminator for the serialized representation. */
-  readonly schema: "agent-definition-v1";
-  /** Selection for agent definition. */
-  readonly selection: SelectionPolicy;
-  /** Transitions for agent definition. */
-  readonly transitions: Readonly<Record<string, string>>;
-  /** Output schema for agent definition. */
-  readonly outputSchema: string;
+  readonly resourceKeys: readonly string[];
+  readonly transitions: AgentTransitions;
 }
 
-/** Canonical fields for agent activity. */
-export interface AgentActivity {
-  /** Current workflow status. */
-  readonly status: "Offline" | "Online";
-  /** Task IDs. */
-  readonly taskIds: readonly string[];
-  /** Opaque version token used for compatibility or concurrency checks. */
+export interface TaskRecord {
+  readonly archived: boolean;
+  readonly body: string;
+  readonly dependencies: readonly string[];
+  readonly id: string;
+  readonly priority: number | null;
+  readonly properties: JsonObject;
+  readonly status: string;
+  readonly title: string;
   readonly version: string;
 }
 
-/** Canonical fields for lease projection. */
-export interface LeaseProjection {
-  /** Run lease IDs. */
-  readonly runLeaseIds: readonly string[];
-  /** Task IDs. */
-  readonly taskIds: readonly string[];
-  /** Task lease IDs. */
-  readonly taskLeaseIds: readonly string[];
+export interface ResourceRecord {
+  readonly archived: boolean;
+  readonly body: string;
+  readonly id: string;
+  readonly key: string;
+  readonly kind: string;
+  readonly properties: JsonObject;
+  readonly state: ResourceState;
+  readonly version: string;
 }
 
-/** Requested state change for activity. */
-export interface ActivityMutation {
-  /** Expected run lease IDs. */
-  readonly expectedRunLeaseIds: readonly string[];
-  /** Expected task IDs. */
-  readonly expectedTaskIds: readonly string[];
-  /** Key that identifies retries of the same logical operation. */
-  readonly idempotencyKey: string;
-  /** Next run lease IDs. */
-  readonly nextRunLeaseIds: readonly string[];
-  /** Next task IDs. */
-  readonly nextTaskIds: readonly string[];
-  /** Stable identifier for agent. */
+export interface AgentRecord {
+  readonly archived: boolean;
+  readonly body: string;
+  readonly calledBy: string;
+  readonly enabled: boolean;
+  readonly id: string;
+  readonly key: string;
+  readonly model: string;
+  readonly name: string;
+  readonly notes: string;
+  readonly properties: JsonObject;
+  readonly reasoning: string;
+  readonly resourceIds: readonly string[];
+  readonly transitions: AgentTransitions;
+  readonly version: string;
+}
+
+export interface ActiveAgentRecord {
   readonly agentId: string;
+  readonly agentVersion: string;
+  readonly archived: boolean;
+  readonly attempt: number;
+  readonly failureSummary: string;
+  readonly finishedAt: string | null;
+  readonly harnessId: string;
+  readonly id: string;
+  readonly lastHeartbeat: string;
+  readonly outcome: string;
+  readonly parentRunId: string | null;
+  readonly restartOfRunId: string | null;
+  readonly retryKey: string;
+  readonly runId: string;
+  readonly startedAt: string;
+  readonly status: ActiveAgentStatus;
+  readonly taskId: string;
+  readonly version: string;
 }
 
-/** Requested state change for conditional task. */
-export interface ConditionalTaskMutation {
-  /** Version token expected for expected. */
-  readonly expectedVersion: string;
-  /** Key that identifies retries of the same logical operation. */
-  readonly idempotencyKey: string;
-  /** Next body for conditional task mutation. */
-  readonly nextBody: string | null;
-  /** Next properties for conditional task mutation. */
-  readonly nextProperties: JsonObject;
-  /** Replacement Task status, or null to preserve the current status. */
-  readonly nextStatus: string | null;
-  /** Stable identifier for task. */
+export interface ErrorRecord {
+  readonly activeAgentId: string | null;
+  readonly agentId: string | null;
+  readonly archived: boolean;
+  readonly description: string;
+  readonly errorKey: string;
+  readonly id: string;
+  readonly resolution: string;
+  readonly severity: ErrorSeverity;
+  readonly source: ErrorSource;
+  readonly status: ErrorStatus;
+  readonly taskId: string | null;
+  readonly title: string;
+  readonly version: string;
+}
+
+export interface ActiveAgentContext {
+  readonly agent: AgentRecord;
+  readonly resources: readonly ResourceRecord[];
+  readonly run: ActiveAgentRecord;
+  readonly task: TaskRecord;
+}
+
+export interface StartActiveAgentInput {
+  readonly agentKey: string;
+  readonly harnessId: string;
+  readonly parentRunId: string | null;
+  readonly runId: string;
   readonly taskId: string;
 }
 
-/** Stable reference to resource. */
-export interface ResourceRef {
-  /** Optional SHA-256 digest pin for the referenced Resource. */
-  readonly digest: string | null;
-  /** Key for resource ref. */
-  readonly key: string;
-  /** Opaque version token used for compatibility or concurrency checks. */
-  readonly version: string | null;
+export interface RestartActiveAgentInput {
+  readonly failedRunId: string;
+  readonly harnessId: string;
+  readonly runId: string;
 }
 
-/** Content categories accepted by the Resources table. */
-export const RESOURCE_KINDS = [
-  "prompt",
-  "policy",
-  "task-query",
-  "json-schema",
-  "invocation-schedule",
-  "agent/context",
-] as const;
-
-/** Allowed Resource kind literals. */
-export type ResourceKind = (typeof RESOURCE_KINDS)[number];
-
-/** Persisted representation of resource. */
-export interface ResourceRecord {
-  /** Provider-managed page body. */
-  readonly body: string;
-  /** Dependencies included in resource record. */
-  readonly dependencies: readonly ResourceRef[];
-  /** SHA-256 digest of the canonical Resource body only. */
-  readonly digest: string;
-  /** Key for resource record. */
-  readonly key: string;
-  /** Kind for resource record. */
-  readonly kind: string;
-  /** Current state of resource record. */
-  readonly state: "active" | "draft" | "retired";
-  /** Opaque version token used for compatibility or concurrency checks. */
-  readonly version: string;
-}
-
-/** Requested state change for resource. */
-export interface ResourceMutation extends ResourceRecord {
-  /** Key that identifies retries of the same logical operation. */
-  readonly idempotencyKey: string;
-}
-
-/** Persisted manager-owned operational state. */
-export interface OperationRecord {
-  /** Canonical operation body. */
-  readonly body: string;
-  /** Content Resources pinned by this operation. */
-  readonly dependencies: readonly ResourceRef[];
-  /** SHA-256 digest of the canonical operation body. */
-  readonly digest: string;
-  /** Stable operation key. */
-  readonly key: string;
-  /** Manager-owned operation category. */
-  readonly kind: string;
-  /** Lifecycle state of the operation envelope. */
-  readonly state: ResourceRecord["state"];
-  /** Operation representation version. */
-  readonly version: string;
-}
-
-/** Requested state change for manager-owned operational state. */
-export interface OperationMutation extends OperationRecord {
-  /** Key that identifies retries of the same logical operation. */
-  readonly idempotencyKey: string;
-}
-
-/** Human-visible workflow states for recorded Errors. */
-export const ERROR_STATUSES = ["Not Fixed", "Fixing", "Fixed"] as const;
-
-/** Allowed error status literals. */
-export type ErrorStatus = (typeof ERROR_STATUSES)[number];
-
-/** Requested state change for error. */
-export interface ErrorMutation {
-  /** Description for error mutation. */
+export interface ReportErrorInput {
+  readonly activeAgentId: string | null;
+  readonly agentId: string | null;
   readonly description: string;
-  /** Stable key for error. */
   readonly errorKey: string;
-  /** Key that identifies retries of the same logical operation. */
-  readonly idempotencyKey: string;
-  /** Stable identifier for related run. */
-  readonly relatedRunId: string | null;
-  /** Stable identifier for related agent. */
-  readonly relatedAgentId: string | null;
-  /** Stable identifier for related task. */
-  readonly relatedTaskId: string | null;
-  /** Resolution for error mutation. */
   readonly resolution: string;
-  /** Severity for error mutation. */
-  readonly severity: "critical" | "high" | "low" | "medium";
-  /** Current workflow status. */
-  readonly status: ErrorStatus;
-  /** Title for error mutation. */
+  readonly severity: ErrorSeverity;
+  readonly source: ErrorSource;
+  readonly taskId: string | null;
   readonly title: string;
 }
 
-/** Inputs required to perform lease. */
-export interface LeaseRequest {
-  /** Timestamp at which the lease expires. */
-  readonly expiresAt: string;
-  /** Key that identifies retries of the same logical operation. */
-  readonly idempotencyKey: string;
-  /** Stable identifier for owner. */
-  readonly ownerId: string;
-  /** Scope for lease request. */
-  readonly scope: "agent_run" | "task_assignment";
-  /** Stable identifier for agent. */
-  readonly agentId: string;
-  /** Stable identifier for task. */
-  readonly taskId: string | null;
+/** Parses a compact arbitrary outcome-to-Task-status map. */
+export function parseAgentTransitions(value: string): AgentTransitions {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value) as unknown;
+  } catch {
+    throw new TypeError("Agent Transitions must be valid JSON");
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed))
+    throw new TypeError("Agent Transitions must be an object");
+  const entries = Object.entries(parsed);
+  if (entries.length === 0)
+    throw new TypeError("Agent Transitions must not be empty");
+  const result: Record<string, string> = {};
+  for (const [outcome, status] of entries) {
+    const normalized = outcome.normalize("NFC");
+    if (!/^[a-z][a-z0-9_]{0,63}$/u.test(normalized))
+      throw new TypeError(`Invalid Agent outcome: ${outcome}`);
+    if (typeof status !== "string" || status.trim() === "")
+      throw new TypeError(`Invalid Task status for outcome ${outcome}`);
+    if (Object.hasOwn(result, normalized))
+      throw new TypeError(`Duplicate normalized Agent outcome: ${outcome}`);
+    result[normalized] = status.normalize("NFC");
+  }
+  return result;
 }
 
-/** Canonical fields for lease renewal. */
-export interface LeaseRenewal {
-  /** Existing lease expiry that must match before renewal. */
-  readonly expectedExpiresAt: string;
-  /** Key that identifies retries of the same logical operation. */
-  readonly idempotencyKey: string;
-  /** Stable identifier for lease. */
-  readonly leaseId: string;
-  /** Replacement expiry timestamp requested by a lease renewal. */
-  readonly nextExpiresAt: string;
-  /** Stable identifier for owner. */
-  readonly ownerId: string;
+/** Parses the authoritative JSON configuration from an Agent page body. */
+export function parseAgentDefinition(markdown: string): AgentDefinition {
+  const match =
+    /(?:^|\n)## Agent definition\s*\n+```json\s*\n?([\s\S]*?)```/u.exec(
+      markdown,
+    );
+  if (match?.[1] === undefined)
+    throw new TypeError(
+      "Agent page body must contain an '## Agent definition' JSON block",
+    );
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(match[1]) as unknown;
+  } catch {
+    throw new TypeError("Agent definition must be valid JSON");
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed))
+    throw new TypeError("Agent definition must be an object");
+
+  const definition = parsed as Record<string, unknown>;
+  rejectUnknownDefinitionFields(definition);
+  if (definition.schema !== "agent-definition-v1")
+    throw new TypeError(
+      "Agent definition schema must equal agent-definition-v1",
+    );
+  const promptResources = definitionStrings(
+    definition.promptResources,
+    "promptResources",
+  );
+  const inputResourceSelectors = definitionStrings(
+    definition.inputResourceSelectors,
+    "inputResourceSelectors",
+  );
+  if (
+    promptResources.length === 0 ||
+    promptResources.some((key) => !key.startsWith("prompt/"))
+  )
+    throw new TypeError(
+      "Agent definition promptResources must contain prompt/* keys",
+    );
+  const policyResources = inputResourceSelectors.filter((key) =>
+    key.startsWith("policy/"),
+  );
+  if (policyResources.length === 0)
+    throw new TypeError(
+      "Agent definition inputResourceSelectors must contain a policy/* key",
+    );
+  if (typeof definition.enabled !== "boolean")
+    throw new TypeError("Agent definition enabled must be a boolean");
+
+  return {
+    calledBy: optionalDefinitionText(definition.calledBy, "calledBy"),
+    enabled: definition.enabled,
+    id: definitionText(definition.id, "id"),
+    model: definitionText(definition.model, "model"),
+    notes: optionalDefinitionText(definition.notes, "notes"),
+    reasoning: definitionText(definition.reasoning, "reasoning"),
+    resourceKeys: [...new Set([...promptResources, ...policyResources])],
+    transitions: parseAgentTransitions(JSON.stringify(definition.transitions)),
+  };
 }
 
-/** Canonical fields for lease release. */
-export interface LeaseRelease {
-  /** Version token expected for expected. */
-  readonly expectedVersion: string | null;
-  /** Stable identifier for lease. */
-  readonly leaseId: string;
-  /** Stable identifier for owner. */
-  readonly ownerId: string;
+function rejectUnknownDefinitionFields(
+  definition: Readonly<Record<string, unknown>>,
+): void {
+  const supported = new Set([
+    "calledBy",
+    "enabled",
+    "id",
+    "inputResourceSelectors",
+    "model",
+    "notes",
+    "promptResources",
+    "reasoning",
+    "schema",
+    "transitions",
+  ]);
+  const unknown = Object.keys(definition).filter((key) => !supported.has(key));
+  if (unknown.length !== 0)
+    throw new TypeError(
+      `Agent definition contains unsupported fields: ${unknown.join(", ")}`,
+    );
 }
 
-/** Immutable snapshot of lease. */
-export interface LeaseSnapshot {
-  /** Timestamp at which the lease expires. */
-  readonly expiresAt: string;
-  /** Stable identifier for lease. */
-  readonly leaseId: string;
-  /** Stable identifier for owner. */
-  readonly ownerId: string;
-  /** Whether the lease has been released. */
-  readonly released: boolean;
-  /** Scope for lease snapshot. */
-  readonly scope: LeaseRequest["scope"];
-  /** Stable identifier for agent. */
-  readonly agentId: string;
-  /** Stable identifier for task. */
-  readonly taskId: string | null;
-  /** Opaque version token used for compatibility or concurrency checks. */
-  readonly version: string;
+function definitionText(value: unknown, name: string): string {
+  if (typeof value !== "string" || value.trim() === "")
+    throw new TypeError(`Agent definition ${name} must be a non-empty string`);
+  return value.normalize("NFC");
 }
 
-/** Result of lease. */
-export interface LeaseResult {
-  /** Whether the requested lease was acquired. */
-  readonly acquired: boolean;
-  /** Stable identifier for conflicting lease. */
-  readonly conflictingLeaseId: string | null;
-  /** Stable identifier for lease. */
-  readonly leaseId: string | null;
+function optionalDefinitionText(value: unknown, name: string): string {
+  if (value === undefined) return "";
+  if (typeof value !== "string")
+    throw new TypeError(`Agent definition ${name} must be a string`);
+  return value.normalize("NFC");
+}
+
+function definitionStrings(value: unknown, name: string): readonly string[] {
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string"))
+    throw new TypeError(`Agent definition ${name} must be a string array`);
+  return value.map((entry) => entry.normalize("NFC"));
 }
