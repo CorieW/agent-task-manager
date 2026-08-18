@@ -505,8 +505,8 @@ export function parseLegacyAgentManifest(
     transitions: validateAgentTransitions(manifest.transitions),
   };
 }
-/** Returns retained Prompt and Policy keys selected by a legacy manifest. */
-export function relatedResourceKeys(
+/** Returns sorted, unique manifest keys present in the retained baseline. */
+export function retainedManifestResourceKeys(
   manifest: LegacyAgentManifest,
 ): readonly string[] {
   const retained = new Set<string>(RETAINED_RESOURCE_KEYS);

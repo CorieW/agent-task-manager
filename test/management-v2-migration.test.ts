@@ -20,7 +20,7 @@ import {
   auditManagedResourceContract,
   parseLegacyAgentManifest,
   planManagementV2Migration,
-  relatedResourceKeys,
+  retainedManifestResourceKeys,
   rewriteResource,
   type ManagementInventory,
   type MigrationRow,
@@ -127,7 +127,7 @@ test("legacy manifests retain exact outcome maps and only active Prompt/Policy R
       canonicalize(outcomes[row.title]!),
     );
     assert.ok(
-      relatedResourceKeys(manifest).every(
+      retainedManifestResourceKeys(manifest).every(
         (key) => key.startsWith("prompt/") || key.startsWith("policy/"),
       ),
     );
