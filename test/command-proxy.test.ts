@@ -192,3 +192,22 @@ test("default proxy executor passes metacharacters without a shell", async () =>
   assert.equal(result.exitCode, 0);
   assert.equal(result.stdout.trim(), "value && echo bypass");
 });
+
+test("default proxy executor does not inherit manager secrets", async () => {
+  const secretName = "AGENT_TASK_MANAGER_PROXY_TEST_SECRET";
+  const previous = process.env[secretName];
+  process.env[secretName] = "must-not-leak";
+  try {
+    const { coordinator } = await setup({ inclusion: ["node"] });
+    const result = await new CommandProxy(coordinator).execute({
+      arguments: ["-p", `process.env.${secretName} ?? "not inherited"`],
+      command: "node",
+      harnessId: "harness-1",
+      runId: "run-1",
+    });
+    assert.equal(result.stdout.trim(), "not inherited");
+  } finally {
+    if (previous === undefined) delete process.env[secretName];
+    else process.env[secretName] = previous;
+  }
+});

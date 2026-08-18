@@ -55,6 +55,7 @@ async function executeCommand(
 ): Promise<ProxyCommandResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, arguments_, {
+      env: commandEnvironment(process.env),
       shell: false,
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
@@ -74,4 +75,26 @@ async function executeCommand(
       }),
     );
   });
+}
+
+/** Copies only non-secret variables required for process lookup and runtime basics. */
+function commandEnvironment(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const keys = [
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "PATH",
+    "PATHEXT",
+    "SystemRoot",
+    "TEMP",
+    "TMP",
+    "TMPDIR",
+    "WINDIR",
+  ];
+  return Object.fromEntries(
+    keys.flatMap((key) => {
+      const value = source[key];
+      return value === undefined ? [] : [[key, value]];
+    }),
+  );
 }
