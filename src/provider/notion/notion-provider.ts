@@ -37,12 +37,24 @@ import {
   NOTION_TABLES,
   notionTable,
   type NotionPropertyDescriptor,
+  type NotionTableDescriptor,
 } from "./notion-schema.js";
 import {
   asObject,
   collectNotionPages,
   type NotionTransport,
 } from "./notion-transport.js";
+
+interface WorkspacePropertyMismatch {
+  readonly actual: string;
+  readonly property: NotionPropertyDescriptor;
+}
+interface WorkspaceSchemaInspection {
+  readonly configured: boolean;
+  readonly mismatched: readonly WorkspacePropertyMismatch[];
+  readonly missing: readonly NotionPropertyDescriptor[];
+  readonly table: NotionTableDescriptor;
+}
 
 export class NotionProvider implements AgentTaskProvider {
   readonly #tables: Record<TableKind, string | null>;
@@ -72,9 +84,9 @@ export class NotionProvider implements AgentTaskProvider {
 
   public async validateWorkspace(): Promise<ValidationReport> {
     const issues: ValidationIssue[] = [];
-    for (const table of NOTION_TABLES) {
-      const id = this.#tables[table.kind];
-      if (id === null) {
+    for (const inspection of await this.inspectWorkspaceSchema()) {
+      const { table } = inspection;
+      if (!inspection.configured) {
         issues.push(
           issue(
             "missing_table",
@@ -84,37 +96,23 @@ export class NotionProvider implements AgentTaskProvider {
         );
         continue;
       }
-      const source = await this.transport.request({
-        method: "GET",
-        path: `/v1/data_sources/${normalizeId(id)}`,
-      });
-      const properties = object(source.properties, `${table.title} properties`);
-      for (const property of table.properties) {
-        const observed = properties[property.name];
-        if (observed === undefined) {
-          if (property.required)
-            issues.push(
-              issue(
-                "missing_property",
-                `${table.title}.${property.name}`,
-                "Required property is missing",
-              ),
-            );
-          continue;
-        }
-        const actual = requiredString(
-          object(observed, property.name).type,
-          `${property.name} type`,
-        );
-        if (actual !== property.type)
+      for (const property of inspection.missing)
+        if (property.required)
           issues.push(
             issue(
-              "property_type",
+              "missing_property",
               `${table.title}.${property.name}`,
-              `Expected ${property.type}, received ${actual}`,
+              "Required property is missing",
             ),
           );
-      }
+      for (const { actual, property } of inspection.mismatched)
+        issues.push(
+          issue(
+            "property_type",
+            `${table.title}.${property.name}`,
+            `Expected ${property.type}, received ${actual}`,
+          ),
+        );
     }
     await this.validateAgentSemantics(issues);
     return { issues, valid: issues.length === 0 };
@@ -122,9 +120,9 @@ export class NotionProvider implements AgentTaskProvider {
 
   public async planWorkspace(environmentId: string): Promise<WorkspacePlan> {
     const steps: WorkspaceStep[] = [];
-    for (const table of NOTION_TABLES) {
-      const id = this.#tables[table.kind];
-      if (id === null) {
+    for (const inspection of await this.inspectWorkspaceSchema()) {
+      const { table } = inspection;
+      if (!inspection.configured) {
         steps.push({
           id: `create:${table.kind}`,
           kind: "create_table",
@@ -142,19 +140,19 @@ export class NotionProvider implements AgentTaskProvider {
           });
         continue;
       }
-      const source = await this.transport.request({
-        method: "GET",
-        path: `/v1/data_sources/${normalizeId(id)}`,
-      });
-      const observed = object(source.properties, `${table.title} properties`);
-      for (const property of table.properties)
-        if (observed[property.name] === undefined)
-          steps.push({
-            id: `property:${table.kind}:${property.name}`,
-            kind: "add_property",
-            payload: { name: property.name },
-            table: table.kind,
-          });
+      if (inspection.mismatched.length > 0) {
+        const mismatch = inspection.mismatched[0]!;
+        throw new Error(
+          `Cannot plan incompatible property ${table.title}.${mismatch.property.name}: expected ${mismatch.property.type}, received ${mismatch.actual}`,
+        );
+      }
+      for (const property of inspection.missing)
+        steps.push({
+          id: `property:${table.kind}:${property.name}`,
+          kind: "add_property",
+          payload: { name: property.name },
+          table: table.kind,
+        });
     }
     const core = {
       environmentId,
@@ -163,6 +161,50 @@ export class NotionProvider implements AgentTaskProvider {
       targetSchemaDigest: NOTION_SCHEMA_DIGEST,
     };
     return { ...core, digest: digestJson(toJsonValue(core)) };
+  }
+
+  private async inspectWorkspaceSchema(): Promise<
+    readonly WorkspaceSchemaInspection[]
+  > {
+    const inspections: WorkspaceSchemaInspection[] = [];
+    for (const table of NOTION_TABLES) {
+      const id = this.#tables[table.kind];
+      if (id === null) {
+        inspections.push({
+          configured: false,
+          mismatched: [],
+          missing: table.properties,
+          table,
+        });
+        continue;
+      }
+      const source = await this.transport.request({
+        method: "GET",
+        path: `/v1/data_sources/${normalizeId(id)}`,
+      });
+      const properties = object(source.properties, `${table.title} properties`);
+      const missing: NotionPropertyDescriptor[] = [];
+      const mismatched: WorkspacePropertyMismatch[] = [];
+      for (const property of table.properties) {
+        const observed = properties[property.name];
+        if (observed === undefined) {
+          missing.push(property);
+          continue;
+        }
+        const actual = requiredString(
+          object(observed, property.name).type,
+          `${property.name} type`,
+        );
+        if (actual !== property.type) mismatched.push({ actual, property });
+      }
+      inspections.push({
+        configured: true,
+        mismatched,
+        missing,
+        table,
+      });
+    }
+    return inspections;
   }
 
   public async applyWorkspacePlan(

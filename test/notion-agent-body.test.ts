@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { JsonObject } from "../src/domain/json.js";
+import type { TableKind } from "../src/domain/provider.js";
 import { NotionProvider } from "../src/provider/notion/notion-provider.js";
 import { NOTION_TABLES } from "../src/provider/notion/notion-schema.js";
 import type {
@@ -82,6 +83,40 @@ test("Notion workspace validation reports malformed Agent bodies", async () => {
   );
 });
 
+test("workspace planning rejects property types found invalid by validation", async () => {
+  const provider = new NotionProvider(
+    {
+      bootstrapParent: "ffffffffffffffffffffffffffffffff",
+      connection: {},
+      tables: {
+        activeAgents: ids.activeAgents,
+        agents: ids.agents,
+        errors: ids.errors,
+        resources: ids.resources,
+        tasks: ids.tasks,
+      },
+      type: "notion",
+    },
+    new AgentBodyTransport({
+      name: "Status",
+      table: "tasks",
+      type: "rich_text",
+    }),
+  );
+
+  const report = await provider.validateWorkspace();
+  assert.ok(
+    report.issues.some(
+      (entry) =>
+        entry.code === "property_type" && entry.path === "Tasks.Status",
+    ),
+  );
+  await assert.rejects(
+    provider.planWorkspace("management-v2"),
+    /Cannot plan incompatible property Tasks\.Status/u,
+  );
+});
+
 test("Notion Active Agent lookup preserves parent and restart Run IDs", async () => {
   const provider = new NotionProvider(
     {
@@ -105,6 +140,14 @@ test("Notion Active Agent lookup preserves parent and restart Run IDs", async ()
 });
 
 class AgentBodyTransport implements NotionTransport {
+  public constructor(
+    private readonly propertyOverride?: {
+      readonly name: string;
+      readonly table: TableKind;
+      readonly type: string;
+    },
+  ) {}
+
   public async request(request: NotionRequest): Promise<JsonObject> {
     if (
       request.method === "GET" &&
@@ -112,15 +155,19 @@ class AgentBodyTransport implements NotionTransport {
     ) {
       const sourceId = request.path.split("/").at(-1);
       const table = NOTION_TABLES.find((entry) => ids[entry.kind] === sourceId);
-      if (table !== undefined)
-        return {
-          properties: Object.fromEntries(
-            table.properties.map((property) => [
-              property.name,
-              { type: property.type },
-            ]),
-          ),
-        };
+      if (table !== undefined) {
+        const properties: JsonObject = Object.fromEntries(
+          table.properties.map((property) => [
+            property.name,
+            { type: property.type },
+          ]),
+        );
+        if (this.propertyOverride?.table === table.kind)
+          properties[this.propertyOverride.name] = {
+            type: this.propertyOverride.type,
+          };
+        return { properties };
+      }
     }
     if (request.path === `/v1/data_sources/${ids.agents}/query`)
       return pageResults([
