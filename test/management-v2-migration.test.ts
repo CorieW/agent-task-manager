@@ -21,7 +21,7 @@ import {
   parseLegacyAgentManifest,
   planManagementV2Migration,
   retainedManifestResourceKeys,
-  rewriteResource,
+  renderManagedResourceMarkdown,
   type ManagementInventory,
   type MigrationRow,
   type MigrationTable,
@@ -185,7 +185,7 @@ test("Agent definition conversion preserves content outside the managed section"
 test("managed Resource contracts explain the harness boundary", () => {
   const legacy =
     "# Coder\nAcquire a lease.\n\n```sh\n# Keep this exact\necho 'Operations database'\n```";
-  const value = rewriteResource("prompt/coder", legacy);
+  const value = renderManagedResourceMarkdown("prompt/coder", legacy);
   assert.match(value, /external harness owns conversation history/);
   assert.match(value, /heartbeat at least once every five minutes/);
   assert.equal(value.endsWith(legacy), true);
@@ -196,7 +196,10 @@ test("planning after partial additive progress is safe and omits completed actio
   const original = expectedLegacyInventory();
   const retained = original.resources.rows
     .filter((row) => RETAINED_RESOURCE_KEYS.includes(row.title as never))
-    .map((row) => ({ ...row, body: rewriteResource(row.title, row.body) }));
+    .map((row) => ({
+      ...row,
+      body: renderManagedResourceMarkdown(row.title, row.body),
+    }));
   const agents = original.agents.rows.map((row) => ({
     ...row,
     body: agentDefinitionMarkdown({

@@ -16,7 +16,7 @@ import {
   MANAGEMENT_V2_DATABASE_PAGES,
   MANAGEMENT_V2_PARENT,
   planManagementV2Migration,
-  rewriteResource,
+  renderManagedResourceMarkdown,
   type ManagementInventory,
   type ManagementMigrationPlan,
   type MigrationRow,
@@ -257,7 +257,7 @@ async function applyMigration(
     const row = inventory.resources.rows.find(
       (entry) => entry.id === action.targetId,
     )!;
-    const body = rewriteResource(row.title, row.body);
+    const body = renderManagedResourceMarkdown(row.title, row.body);
     const forbidden = auditManagedResourceContract(body);
     if (forbidden.length > 0)
       throw new Error(
