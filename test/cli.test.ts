@@ -32,3 +32,19 @@ test("boolean flags do not consume command positionals", async () => {
     /Boolean flag --json does not accept a value/u,
   );
 });
+
+test("CLI rejects unknown command shapes before loading configuration", async () => {
+  await assert.rejects(
+    runCli(["providers", "bogus", "--json"]),
+    /Unknown command: providers bogus/u,
+  );
+  const help = await runCli(["help"]);
+  assert.equal(
+    typeof help === "object" &&
+      help !== null &&
+      "help" in help &&
+      typeof help.help === "string" &&
+      help.help.includes("active-agent restart"),
+    true,
+  );
+});

@@ -18,62 +18,92 @@ import type { AgentTaskProvider } from "./provider/agent-task-provider.js";
 import { NotionProvider } from "./provider/notion/notion-provider.js";
 import { NotionHttpTransport } from "./provider/notion/notion-transport.js";
 
+const GLOBAL_FLAGS = ["environment", "help", "json"] as const;
+const BOOLEAN_FLAGS = new Set(["apply", "help", "json", "plan"]);
+interface CommandSpec {
+  readonly flags: readonly string[];
+  readonly name: string;
+  readonly usage: string;
+}
+const COMMAND_SPECS: readonly CommandSpec[] = [
+  { flags: [], name: "help", usage: "help" },
+  {
+    flags: ["status"],
+    name: "task list",
+    usage: "task list [--status STATUS]",
+  },
+  { flags: ["id"], name: "task get", usage: "task get --id ID" },
+  { flags: [], name: "agent list", usage: "agent list" },
+  { flags: ["key"], name: "agent get", usage: "agent get --key KEY" },
+  { flags: [], name: "resource list", usage: "resource list" },
+  { flags: ["key"], name: "resource get", usage: "resource get --key KEY" },
+  { flags: [], name: "active-agent list", usage: "active-agent list" },
+  {
+    flags: ["run-id"],
+    name: "active-agent get",
+    usage: "active-agent get --run-id ID",
+  },
+  {
+    flags: ["agent-key", "harness-id", "parent-run-id", "run-id", "task-id"],
+    name: "active-agent start",
+    usage:
+      "active-agent start --run-id ID --agent-key KEY --task-id ID --harness-id ID [--parent-run-id ID]",
+  },
+  {
+    flags: ["harness-id", "run-id"],
+    name: "active-agent heartbeat",
+    usage: "active-agent heartbeat --run-id ID --harness-id ID",
+  },
+  {
+    flags: ["harness-id", "outcome", "run-id"],
+    name: "active-agent complete",
+    usage:
+      "active-agent complete --run-id ID --harness-id ID --outcome OUTCOME",
+  },
+  {
+    flags: ["harness-id", "run-id", "summary"],
+    name: "active-agent fail",
+    usage: "active-agent fail --run-id ID --harness-id ID --summary TEXT",
+  },
+  { flags: [], name: "active-agent sweep", usage: "active-agent sweep" },
+  {
+    flags: ["failed-run-id", "harness-id", "run-id"],
+    name: "active-agent restart",
+    usage:
+      "active-agent restart --failed-run-id ID --run-id ID --harness-id ID",
+  },
+  { flags: [], name: "error list", usage: "error list" },
+  { flags: ["key"], name: "error get", usage: "error get --key KEY" },
+  {
+    flags: ["input"],
+    name: "error report",
+    usage: "error report --input FILE|-",
+  },
+  {
+    flags: ["key", "resolution"],
+    name: "error resolve",
+    usage: "error resolve --key KEY --resolution TEXT",
+  },
+  { flags: [], name: "validate", usage: "validate" },
+  {
+    flags: ["apply", "expected-plan-digest", "plan"],
+    name: "init",
+    usage: "init --plan | init --apply --expected-plan-digest SHA256",
+  },
+  { flags: [], name: "providers", usage: "providers" },
+];
+const COMMAND_SPEC_BY_NAME = new Map(
+  COMMAND_SPECS.map((spec) => [spec.name, spec] as const),
+);
 const HELP = `agent-task-manager
 
 Commands:
-  task list [--status STATUS] | task get --id ID
-  agent list | agent get --key KEY
-  resource list | resource get --key KEY
-  active-agent list | get --run-id ID
-  active-agent start --run-id ID --agent-key KEY --task-id ID --harness-id ID [--parent-run-id ID]
-  active-agent heartbeat --run-id ID --harness-id ID
-  active-agent complete --run-id ID --harness-id ID --outcome OUTCOME
-  active-agent fail --run-id ID --harness-id ID --summary TEXT
-  active-agent sweep
-  active-agent restart --failed-run-id ID --run-id ID --harness-id ID
-  error list | get --key KEY
-  error report --input FILE|- | resolve --key KEY --resolution TEXT
-  validate
-  init --plan | init --apply --expected-plan-digest SHA256
-  providers
+${COMMAND_SPECS.map((spec) => `  ${spec.usage}`).join("\n")}
 
 Global flags:
   --environment FILE   Configuration file (default: AGENT_TASK_MANAGER_ENVIRONMENT or agent-task-manager.environment.json)
   --json               Accepted for compatibility; output is always JSON.
 `;
-
-const GLOBAL_FLAGS = ["environment", "help", "json"] as const;
-const BOOLEAN_FLAGS = new Set(["apply", "help", "json", "plan"]);
-const COMMAND_FLAGS: Readonly<Record<string, readonly string[]>> = {
-  "active-agent complete": ["harness-id", "outcome", "run-id"],
-  "active-agent fail": ["harness-id", "run-id", "summary"],
-  "active-agent get": ["run-id"],
-  "active-agent heartbeat": ["harness-id", "run-id"],
-  "active-agent list": [],
-  "active-agent restart": ["failed-run-id", "harness-id", "run-id"],
-  "active-agent start": [
-    "agent-key",
-    "harness-id",
-    "parent-run-id",
-    "run-id",
-    "task-id",
-  ],
-  "active-agent sweep": [],
-  "agent get": ["key"],
-  "agent list": [],
-  "error get": ["key"],
-  "error list": [],
-  "error report": ["input"],
-  "error resolve": ["key", "resolution"],
-  help: [],
-  init: ["apply", "expected-plan-digest", "plan"],
-  providers: [],
-  "resource get": ["key"],
-  "resource list": [],
-  "task get": ["id"],
-  "task list": ["status"],
-  validate: [],
-};
 
 export async function runCli(
   argv: readonly string[],
@@ -81,14 +111,10 @@ export async function runCli(
 ): Promise<JsonValue> {
   const parsed = parseArguments(argv);
   const [family, action] = parsed.positionals;
-  validateFlags(
-    family === undefined || family === "help" || parsed.flags.help === true
-      ? "help"
-      : [family, action].filter((value) => value !== undefined).join(" "),
-    parsed.flags,
-  );
-  if (family === undefined || family === "help" || parsed.flags.help === true)
-    return { help: HELP };
+  const helpRequested = family === undefined || parsed.flags.help === true;
+  const command = helpRequested ? "help" : parsed.positionals.join(" ");
+  validateFlags(command, parsed.flags);
+  if (helpRequested || command === "help") return { help: HELP };
   if (family === "providers")
     return {
       providers: [{ connectionSecret: "NOTION_TOKEN", type: "notion" }],
@@ -228,9 +254,9 @@ function validateFlags(
   command: string,
   flags: Readonly<Record<string, boolean | string>>,
 ): void {
-  const commandFlags = COMMAND_FLAGS[command];
-  if (commandFlags === undefined) return;
-  const allowed = new Set([...GLOBAL_FLAGS, ...commandFlags]);
+  const spec = COMMAND_SPEC_BY_NAME.get(command);
+  if (spec === undefined) throw new Error(`Unknown command: ${command}`);
+  const allowed = new Set([...GLOBAL_FLAGS, ...spec.flags]);
   for (const name of Object.keys(flags))
     if (!allowed.has(name))
       throw new Error(`Flag --${name} is not allowed for ${command}`);
