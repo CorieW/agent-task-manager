@@ -67,10 +67,10 @@ const COMMAND_SPECS: readonly CommandSpec[] = [
   },
   { flags: [], name: "active-agent sweep", usage: "active-agent sweep" },
   {
-    flags: ["failed-run-id", "harness-id", "run-id"],
+    flags: ["harness-id", "restart-of-run-id", "run-id"],
     name: "active-agent restart",
     usage:
-      "active-agent restart --failed-run-id ID --run-id ID --harness-id ID",
+      "active-agent restart --restart-of-run-id ID --run-id ID --harness-id ID",
   },
   { flags: [], name: "error list", usage: "error list" },
   { flags: ["key"], name: "error get", usage: "error get --key KEY" },
@@ -218,7 +218,7 @@ export async function runCli(
     if (action === "restart")
       return toJsonValue(
         await coordinator.restart({
-          failedRunId: requiredFlag(parsed.flags, "failed-run-id"),
+          restartOfRunId: requiredFlag(parsed.flags, "restart-of-run-id"),
           harnessId: requiredFlag(parsed.flags, "harness-id"),
           runId: requiredFlag(parsed.flags, "run-id"),
         }),

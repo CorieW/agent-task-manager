@@ -186,7 +186,7 @@ test("third infrastructure failure blocks retry until its Error is resolved, the
   for (let attempt = 2; attempt <= MAX_ATTEMPTS; attempt += 1) {
     const id = `attempt-${attempt}`;
     await coordinator.restart({
-      failedRunId: run.runId,
+      restartOfRunId: run.runId,
       harnessId: "h",
       runId: id,
     });
@@ -196,7 +196,7 @@ test("third infrastructure failure blocks retry until its Error is resolved, the
   assert.equal((await provider.getErrorByKey(errorKey))?.status, "open");
   await assert.rejects(
     coordinator.restart({
-      failedRunId: run.runId,
+      restartOfRunId: run.runId,
       harnessId: "h",
       runId: "attempt-4",
     }),
@@ -204,7 +204,7 @@ test("third infrastructure failure blocks retry until its Error is resolved, the
   );
   await coordinator.resolveError(errorKey, "Human approved a clean retry");
   const restarted = await coordinator.restart({
-    failedRunId: run.runId,
+    restartOfRunId: run.runId,
     harnessId: "h",
     runId: "fresh-chain",
   });

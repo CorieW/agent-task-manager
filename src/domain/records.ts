@@ -138,7 +138,8 @@ export interface StartActiveAgentInput {
 
 /** Replacement run and harness identity for restarting a terminated run. */
 export interface RestartActiveAgentInput {
-  readonly failedRunId: string;
+  /** Run ID of the failed or stale attempt being replaced. */
+  readonly restartOfRunId: string;
   readonly harnessId: string;
   readonly runId: string;
 }

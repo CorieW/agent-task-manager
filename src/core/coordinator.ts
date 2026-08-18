@@ -174,25 +174,29 @@ export class AgentCoordinator {
   ): Promise<ActiveAgentContext> {
     if ((await this.provider.getActiveAgent(input.runId)) !== null)
       throw new Error(`Run ID already exists: ${input.runId}`);
-    const failed = await this.provider.getActiveAgent(input.failedRunId);
+    const restartSource = await this.provider.getActiveAgent(
+      input.restartOfRunId,
+    );
     if (
-      failed === null ||
-      (failed.status !== "failed" && failed.status !== "stale")
+      restartSource === null ||
+      (restartSource.status !== "failed" && restartSource.status !== "stale")
     )
       throw new Error("Only a failed or stale Active Agent can restart");
-    let attempt = failed.attempt + 1;
-    let retryKey = failed.retryKey;
+    let attempt = restartSource.attempt + 1;
+    let retryKey = restartSource.retryKey;
     if (attempt > MAX_ATTEMPTS) {
       const error = await this.provider.getErrorByKey(
-        retryErrorKey(failed.retryKey),
+        retryErrorKey(restartSource.retryKey),
       );
       if (error === null || error.status !== "resolved")
         throw new Error("Retry chain is blocked until its Error is resolved");
       attempt = 1;
       retryKey = input.runId;
     }
-    if (failed.parentRunId !== null) {
-      const parent = await this.provider.getActiveAgent(failed.parentRunId);
+    if (restartSource.parentRunId !== null) {
+      const parent = await this.provider.getActiveAgent(
+        restartSource.parentRunId,
+      );
       if (parent === null || parent.status !== "running")
         throw new Error("Parent Active Agent is no longer running");
     } else {
@@ -200,29 +204,29 @@ export class AgentCoordinator {
         (entry) =>
           entry.status === "running" &&
           entry.parentRunId === null &&
-          entry.taskId === failed.taskId,
+          entry.taskId === restartSource.taskId,
       );
       if (collision)
         throw new Error("Task already has a running root Active Agent");
     }
     const startedAt = this.now().toISOString();
-    const agent = await this.agentById(failed.agentId);
-    this.assertAgentVersion(failed, agent);
-    const task = await this.provider.getTask(failed.taskId);
+    const agent = await this.agentById(restartSource.agentId);
+    this.assertAgentVersion(restartSource, agent);
+    const task = await this.provider.getTask(restartSource.taskId);
     if (task === null || task.archived)
       throw new Error("Active Agent Task is unavailable");
     const resources = await this.resourcesFor(agent);
     const run = await this.provider.createActiveAgent({
-      agentId: failed.agentId,
-      agentVersion: failed.agentVersion,
+      agentId: restartSource.agentId,
+      agentVersion: restartSource.agentVersion,
       attempt,
       harnessId: input.harnessId,
-      parentRunId: failed.parentRunId,
-      restartOfRunId: failed.runId,
+      parentRunId: restartSource.parentRunId,
+      restartOfRunId: restartSource.runId,
       retryKey,
       runId: input.runId,
       startedAt,
-      taskId: failed.taskId,
+      taskId: restartSource.taskId,
     });
     return { agent, resources, run, task };
   }
