@@ -31,6 +31,7 @@ import type {
   AgentTaskProvider,
   CreateActiveAgentRecord,
 } from "../agent-task-provider.js";
+import { normalizeNotionId as normalizeId } from "./notion-id.js";
 import {
   NOTION_SCHEMA_DIGEST,
   NOTION_TABLES,
@@ -952,13 +953,6 @@ function required<T>(value: T | null | undefined, message: string): T {
 }
 function issue(code: string, path: string, message: string): ValidationIssue {
   return { code, message, path };
-}
-function normalizeId(value: string): string {
-  const compact = value.replace(/[^a-fA-F0-9]/gu, "");
-  const match = compact.match(/[a-fA-F0-9]{32}$/u);
-  if (match === null)
-    throw new TypeError(`Invalid Notion identifier: ${value}`);
-  return match[0]!.toLowerCase();
 }
 function normalizeOptionalId(value: string | null): string {
   return value === null ? "" : normalizeId(value);

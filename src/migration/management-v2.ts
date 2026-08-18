@@ -6,6 +6,7 @@ import {
   parseAgentTransitions,
   type AgentTransitions,
 } from "../domain/records.js";
+import { normalizeNotionId as compactId } from "../provider/notion/notion-id.js";
 import { notionTable } from "../provider/notion/notion-schema.js";
 
 export const MANAGEMENT_V2_PARENT = "3bf9a6efcd5880eeaf0edef3125a1534";
@@ -653,9 +654,6 @@ function compareExact(
     JSON.stringify([...actual].sort()) !== JSON.stringify([...expected].sort())
   )
     failures.push(`${label} inventory differs from the captured fixture`);
-}
-function compactId(value: string): string {
-  return value.replace(/-/gu, "").toLowerCase();
 }
 function requiredText(value: unknown, label: string): string {
   if (typeof value !== "string" || value === "")

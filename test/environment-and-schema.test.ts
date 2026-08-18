@@ -10,7 +10,27 @@ import {
   parseAgentDefinition,
   parseReportErrorInput,
 } from "../src/domain/records.js";
+import { normalizeNotionId } from "../src/provider/notion/notion-id.js";
 import { NOTION_TABLES } from "../src/provider/notion/notion-schema.js";
+
+test("Notion identifiers share one strict normalization boundary", () => {
+  const compact = "6269a6efcd5882168fb5016fb99ff102";
+  assert.equal(normalizeNotionId(compact.toUpperCase()), compact);
+  assert.equal(
+    normalizeNotionId("6269a6ef-cd58-8216-8fb5-016fb99ff102"),
+    compact,
+  );
+  assert.equal(
+    normalizeNotionId(
+      "https://app.notion.com/p/Code-Reviewer-6269a6efcd5882168fb5016fb99ff102",
+    ),
+    compact,
+  );
+  assert.throws(
+    () => normalizeNotionId("agent-0"),
+    /Invalid Notion identifier/u,
+  );
+});
 
 test("v2 environment accepts only the five simplified tables", () => {
   const value = parseEnvironmentConfig(

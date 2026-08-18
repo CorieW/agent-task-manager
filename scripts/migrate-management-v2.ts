@@ -22,6 +22,7 @@ import {
   type MigrationRow,
   type MigrationTable,
 } from "../src/migration/management-v2.js";
+import { normalizeNotionId as compactId } from "../src/provider/notion/notion-id.js";
 import { NotionProvider } from "../src/provider/notion/notion-provider.js";
 import {
   NOTION_SCHEMA_DIGEST,
@@ -646,11 +647,6 @@ function parseArguments(argv: readonly string[]): Arguments {
 }
 function options(names: readonly string[]): JsonObject[] {
   return names.map((name) => ({ name }));
-}
-function compactId(value: string): string {
-  const match = value.replace(/[^a-fA-F0-9]/gu, "").match(/[a-fA-F0-9]{32}$/u);
-  if (match === null) throw new TypeError(`Invalid Notion ID: ${value}`);
-  return match[0]!.toLowerCase();
 }
 function text(value: JsonValue | undefined): string {
   return typeof value === "string" ? value : "";

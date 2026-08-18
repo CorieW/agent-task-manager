@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 
 import { canonicalize } from "../src/core/canonical-json.js";
@@ -197,7 +198,7 @@ test("planning after partial additive progress is safe and omits completed actio
   const partial: ManagementInventory = {
     ...original,
     activeAgents: table(
-      "active",
+      testNotionId("active"),
       { "Run ID": "title", Agent: "relation", Task: "relation" },
       [],
     ),
@@ -261,7 +262,7 @@ test("migration preflight rejects duplicate Resource keys", () => {
   const original = fixture();
   const duplicate = {
     ...original.resources.rows[0]!,
-    id: "duplicate-resource",
+    id: testNotionId("duplicate-resource"),
   };
 
   assert.throws(
@@ -502,5 +503,14 @@ function row(
   properties: MigrationRow["properties"],
   body: string,
 ): MigrationRow {
-  return { body, id, properties, title };
+  return {
+    body,
+    id: testNotionId(id),
+    properties,
+    title,
+  };
+}
+
+function testNotionId(seed: string): string {
+  return createHash("sha256").update(seed).digest("hex").slice(0, 32);
 }
