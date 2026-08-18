@@ -120,8 +120,9 @@ test("Agent configuration is parsed from the page body", () => {
 
 \`\`\`json
 {
-  "schema": "agent-definition-v1",
+  "schema": "agent-definition-v2",
   "enabled": true,
+  "commands": {"inclusion": ["git", "pnpm.cmd"]},
   "id": "code-reviewer",
   "model": "gpt-5.6-sol",
   "reasoning": "high",
@@ -133,6 +134,7 @@ test("Agent configuration is parsed from the page body", () => {
 `);
   assert.equal(definition.id, "code-reviewer");
   assert.equal(definition.model, "gpt-5.6-sol");
+  assert.deepEqual(definition.commands, { inclusion: ["git", "pnpm"] });
   assert.deepEqual(definition.resourceKeys, [
     "prompt/code-reviewer",
     "policy/review",
@@ -145,13 +147,14 @@ test("Agent configuration is parsed from the page body", () => {
 
 test("Agent definitions reject unsupported schemas and fields", () => {
   const valid = {
+    commands: { exclusion: [] },
     enabled: true,
     id: "code-reviewer",
     inputResourceSelectors: ["policy/review"],
     model: "gpt-5.6-sol",
     promptResources: ["prompt/code-reviewer"],
     reasoning: "high",
-    schema: "agent-definition-v1",
+    schema: "agent-definition-v2",
     transitions: { succeeded: "In progress" },
   };
   const markdown = (definition: object): string =>
@@ -160,9 +163,9 @@ test("Agent definitions reject unsupported schemas and fields", () => {
   assert.throws(
     () =>
       parseAgentDefinition(
-        markdown({ ...valid, schema: "agent-definition-v2" }),
+        markdown({ ...valid, schema: "agent-definition-v1" }),
       ),
-    /schema must equal agent-definition-v1/u,
+    /schema must equal agent-definition-v2/u,
   );
   assert.throws(
     () => parseAgentDefinition(markdown({ ...valid, prohibitedCommand: "rm" })),
@@ -172,13 +175,14 @@ test("Agent definitions reject unsupported schemas and fields", () => {
 
 test("Agent definitions require explicit Prompt and Policy resources", () => {
   const valid = {
+    commands: { exclusion: [] },
     enabled: true,
     id: "code-reviewer",
     inputResourceSelectors: ["policy/review", "schema/result-v1"],
     model: "gpt-5.6-sol",
     promptResources: ["prompt/code-reviewer"],
     reasoning: "high",
-    schema: "agent-definition-v1",
+    schema: "agent-definition-v2",
     transitions: { succeeded: "In progress" },
   };
   const markdown = (definition: object): string =>

@@ -155,6 +155,7 @@ test("column-backed Agent descriptions migrate into body definitions", () => {
   const definition = parseAgentDefinition(body);
   assert.equal(definition.id, "code-reviewer");
   assert.equal(definition.enabled, true);
+  assert.deepEqual(definition.commands, { exclusion: [] });
   assert.deepEqual(definition.resourceKeys, [
     "prompt/code-reviewer",
     "policy/review/code-cleanliness",

@@ -1,5 +1,9 @@
 /** Provider-neutral Task, Agent, Resource, run, and Error records. */
 import type { JsonObject } from "./json.js";
+import {
+  parseAgentCommandPolicy,
+  type AgentCommandPolicy,
+} from "./commands.js";
 
 /** Lifecycle state of a Resource. */
 export type ResourceState = "active" | "draft" | "retired";
@@ -18,6 +22,7 @@ export type AgentTransitions = Readonly<Record<string, string>>;
 /** Validated authoritative configuration parsed from an Agent page body. */
 export interface AgentDefinition {
   readonly calledBy: string;
+  readonly commands: AgentCommandPolicy;
   readonly enabled: boolean;
   readonly id: string;
   readonly model: string;
@@ -57,6 +62,7 @@ export interface AgentRecord {
   readonly archived: boolean;
   readonly body: string;
   readonly calledBy: string;
+  readonly commands: AgentCommandPolicy;
   readonly enabled: boolean;
   /** Provider-owned record identifier. */
   readonly id: string;
@@ -124,6 +130,8 @@ export interface ActiveAgentContext {
   readonly agent: AgentRecord;
   readonly resources: readonly ResourceRecord[];
   readonly run: ActiveAgentRecord;
+  /** Mandatory run-bound instructions supplied as a system prompt. */
+  readonly systemPrompt: string;
   readonly task: TaskRecord;
 }
 
@@ -290,9 +298,9 @@ export function parseAgentDefinition(markdown: string): AgentDefinition {
 
   const definition = parsed as Record<string, unknown>;
   rejectUnknownDefinitionFields(definition);
-  if (definition.schema !== "agent-definition-v1")
+  if (definition.schema !== "agent-definition-v2")
     throw new TypeError(
-      "Agent definition schema must equal agent-definition-v1",
+      "Agent definition schema must equal agent-definition-v2",
     );
   const promptResources = definitionStrings(
     definition.promptResources,
@@ -321,6 +329,7 @@ export function parseAgentDefinition(markdown: string): AgentDefinition {
 
   return {
     calledBy: optionalDefinitionText(definition.calledBy, "calledBy"),
+    commands: parseAgentCommandPolicy(definition.commands),
     enabled: definition.enabled,
     id: definitionText(definition.id, "id"),
     model: definitionText(definition.model, "model"),
@@ -336,6 +345,7 @@ function rejectUnknownDefinitionFields(
 ): void {
   const supported = new Set([
     "calledBy",
+    "commands",
     "enabled",
     "id",
     "inputResourceSelectors",

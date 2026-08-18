@@ -49,6 +49,7 @@ function agent(): AgentRecord {
     archived: false,
     body: "Agent",
     calledBy: "harness",
+    commands: { exclusion: [] },
     enabled: true,
     id: "agent-1",
     key: "coder",

@@ -193,7 +193,7 @@ class AgentBodyTransport implements NotionTransport {
         markdown: `## Agent definition
 
 \`\`\`json
-{"schema":"agent-definition-v1","enabled":true,"id":"code-reviewer","model":"gpt-5.6-sol","reasoning":"high","inputResourceSelectors":["policy/review","schema/result-v1"],"promptResources":["prompt/code-reviewer"],"transitions":{"succeeded":"In progress","blocked":"Blocked"}}
+{"schema":"agent-definition-v2","enabled":true,"commands":{"exclusion":[]},"id":"code-reviewer","model":"gpt-5.6-sol","reasoning":"high","inputResourceSelectors":["policy/review","schema/result-v1"],"promptResources":["prompt/code-reviewer"],"transitions":{"succeeded":"In progress","blocked":"Blocked"}}
 \`\`\`
 `,
       };

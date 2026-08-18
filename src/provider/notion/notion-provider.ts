@@ -554,6 +554,7 @@ export class NotionProvider implements AgentTaskProvider {
       archived: archived(page),
       body,
       calledBy: definition.calledBy,
+      commands: definition.commands,
       enabled: definition.enabled,
       id: id(page),
       key: definition.id,

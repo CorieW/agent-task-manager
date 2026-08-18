@@ -7,7 +7,9 @@ import type {
   RestartActiveAgentInput,
   StartActiveAgentInput,
 } from "../domain/records.js";
+import type { AgentCommandPolicy } from "../domain/commands.js";
 import type { AgentTaskProvider } from "../provider/agent-task-provider.js";
+import { COMMAND_PROXY_SYSTEM_PROMPT } from "./agent-system-prompt.js";
 
 /** Maximum time a running Agent may go without a heartbeat. */
 export const STALE_AFTER_MILLISECONDS = 5 * 60 * 1000;
@@ -84,7 +86,13 @@ export class AgentCoordinator {
       startedAt,
       taskId: input.taskId,
     });
-    return { agent, resources, run, task };
+    return {
+      agent,
+      resources,
+      run,
+      systemPrompt: COMMAND_PROXY_SYSTEM_PROMPT,
+      task,
+    };
   }
 
   /** Records a heartbeat after verifying the run is running and harness-owned. */
@@ -228,7 +236,24 @@ export class AgentCoordinator {
       startedAt,
       taskId: restartSource.taskId,
     });
-    return { agent, resources, run, task };
+    return {
+      agent,
+      resources,
+      run,
+      systemPrompt: COMMAND_PROXY_SYSTEM_PROMPT,
+      task,
+    };
+  }
+
+  /** Returns the pinned command policy after checking run ownership. */
+  public async commandPolicy(
+    runId: string,
+    harnessId: string,
+  ): Promise<AgentCommandPolicy> {
+    const run = await this.runningOwned(runId, harnessId);
+    const agent = await this.agentById(run.agentId);
+    this.assertAgentVersion(run, agent);
+    return agent.commands;
   }
 
   /** Creates or reopens a keyed Error through the configured provider. */
@@ -286,7 +311,13 @@ export class AgentCoordinator {
     if (task === null || task.archived)
       throw new Error("Active Agent Task is unavailable");
     const resources = await this.resourcesFor(agent);
-    return { agent, resources, run, task };
+    return {
+      agent,
+      resources,
+      run,
+      systemPrompt: COMMAND_PROXY_SYSTEM_PROMPT,
+      task,
+    };
   }
 
   private async resourcesFor(

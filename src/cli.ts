@@ -9,6 +9,7 @@ import {
   type EnvironmentConfig,
 } from "./config/environment.js";
 import { AgentCoordinator } from "./core/coordinator.js";
+import { CommandProxy } from "./core/command-proxy.js";
 import { toJsonValue, type JsonValue } from "./domain/json.js";
 import {
   parseReportErrorInput,
@@ -72,6 +73,11 @@ const COMMAND_SPECS: readonly CommandSpec[] = [
     usage:
       "active-agent restart --restart-of-run-id ID --run-id ID --harness-id ID",
   },
+  {
+    flags: ["harness-id", "run-id"],
+    name: "command proxy",
+    usage: "command proxy --run-id ID --harness-id ID -- COMMAND [ARGUMENT...]",
+  },
   { flags: [], name: "error list", usage: "error list" },
   { flags: ["key"], name: "error get", usage: "error get --key KEY" },
   {
@@ -115,6 +121,8 @@ export async function runCli(
   const helpRequested = family === undefined || parsed.flags.help === true;
   const command = helpRequested ? "help" : parsed.positionals.join(" ");
   validateFlags(command, parsed.flags);
+  if (parsed.commandArguments.length !== 0 && command !== "command proxy")
+    throw new Error(`Command arguments are not allowed for ${command}`);
   if (helpRequested || command === "help") return { help: HELP };
   if (family === "providers")
     return {
@@ -124,6 +132,20 @@ export async function runCli(
   const configuration = await loadEnvironment(parsed.flags.environment, env);
   const provider = providerFor(configuration, env);
   const coordinator = new AgentCoordinator(provider);
+
+  if (family === "command" && action === "proxy") {
+    const [executable, ...arguments_] = parsed.commandArguments;
+    if (executable === undefined)
+      throw new Error("command proxy requires a command after --");
+    return toJsonValue(
+      await new CommandProxy(coordinator).execute({
+        arguments: arguments_,
+        command: executable,
+        harnessId: requiredFlag(parsed.flags, "harness-id"),
+        runId: requiredFlag(parsed.flags, "run-id"),
+      }),
+    );
+  }
 
   if (family === "validate") {
     const environment = await provider.validateEnvironment();
@@ -248,6 +270,7 @@ export async function runCli(
 }
 
 interface ParsedArguments {
+  readonly commandArguments: readonly string[];
   readonly flags: Readonly<Record<string, boolean | string>>;
   readonly positionals: readonly string[];
 }
@@ -265,8 +288,13 @@ function validateFlags(
 function parseArguments(argv: readonly string[]): ParsedArguments {
   const flags: Record<string, boolean | string> = {};
   const positionals: string[] = [];
+  let commandArguments: readonly string[] = [];
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index]!;
+    if (value === "--") {
+      commandArguments = argv.slice(index + 1);
+      break;
+    }
     if (!value.startsWith("--")) {
       positionals.push(value);
       continue;
@@ -290,7 +318,7 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
       index += 1;
     } else flags[name] = true;
   }
-  return { flags, positionals };
+  return { commandArguments, flags, positionals };
 }
 async function loadEnvironment(
   flag: boolean | string | undefined,
@@ -354,6 +382,8 @@ if (
   runCli(process.argv.slice(2)).then(
     (result) => {
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      const exitCode = proxyExitCode(result);
+      if (exitCode !== null) process.exitCode = exitCode;
     },
     (error: unknown) => {
       process.stderr.write(
@@ -362,4 +392,16 @@ if (
       process.exitCode = 1;
     },
   );
+}
+
+/** Returns the child exit status when the CLI result came from the proxy. */
+function proxyExitCode(result: JsonValue): number | null {
+  if (
+    result === null ||
+    Array.isArray(result) ||
+    typeof result !== "object" ||
+    typeof result.exitCode !== "number"
+  )
+    return null;
+  return result.exitCode;
 }

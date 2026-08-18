@@ -17,6 +17,7 @@ task list|get
 agent list|get
 resource list|get
 active-agent list|get|start|heartbeat|complete|fail|sweep|restart
+command proxy --run-id ID --harness-id ID -- COMMAND [ARGUMENT...]
 error list|get|report|resolve
 validate
 init --plan|--apply

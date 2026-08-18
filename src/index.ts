@@ -1,6 +1,9 @@
 /** Public package surface for configuration, coordination, and providers. */
 export * from "./config/environment.js";
+export * from "./core/agent-system-prompt.js";
+export * from "./core/command-proxy.js";
 export * from "./core/coordinator.js";
+export * from "./domain/commands.js";
 export * from "./domain/json.js";
 export * from "./domain/provider.js";
 export * from "./domain/records.js";

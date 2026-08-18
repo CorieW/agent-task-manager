@@ -534,8 +534,9 @@ export function agentDefinitionMarkdown(
   const notes = stringProperty(row.properties.Notes, "Notes");
   const definition = {
     ...legacy,
-    schema:
-      typeof legacy.schema === "string" ? legacy.schema : "agent-definition-v1",
+    schema: "agent-definition-v2",
+    commands:
+      legacy.commands === undefined ? { exclusion: [] } : legacy.commands,
     enabled:
       typeof legacy.enabled === "boolean"
         ? legacy.enabled
