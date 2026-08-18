@@ -290,10 +290,9 @@ export class NotionProvider implements AgentTaskProvider {
       page: JsonObject;
     }> = [];
     for (const page of await this.query("agents")) {
-      const body = await this.markdown(id(page));
       try {
-        const definition = parseAgentDefinition(body);
-        if (definition.id === key) matches.push({ body, definition, page });
+        const stable = await this.stableAgentDefinition(page);
+        if (stable.definition.id === key) matches.push(stable);
       } catch (error) {
         if (!(error instanceof TypeError)) throw error;
       }
@@ -531,6 +530,19 @@ export class NotionProvider implements AgentTaskProvider {
     page: JsonObject,
     resourceIdByKey: ReadonlyMap<string, string>,
   ): Promise<AgentRecord> {
+    const stable = await this.stableAgentDefinition(page);
+    return this.agentRecord(
+      stable.page,
+      stable.body,
+      stable.definition,
+      resourceIdByKey,
+    );
+  }
+  private async stableAgentDefinition(page: JsonObject): Promise<{
+    readonly body: string;
+    readonly definition: AgentDefinition;
+    readonly page: JsonObject;
+  }> {
     let metadata = page;
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const body = await this.markdown(id(metadata));
@@ -539,7 +551,7 @@ export class NotionProvider implements AgentTaskProvider {
         throw new Error(`Agent page disappeared while loading: ${id(page)}`);
       if (version(current) === version(metadata)) {
         const definition = parseAgentDefinition(body);
-        return this.agentRecord(current, body, definition, resourceIdByKey);
+        return { body, definition, page: current };
       }
       metadata = current;
     }
