@@ -138,11 +138,8 @@ export class AgentCoordinator {
     if (!Object.hasOwn(agent.transitions, outcome))
       throw new Error(`Agent does not declare outcome: ${outcome}`);
     const target = agent.transitions[outcome]!;
-    if (target !== "$current") {
-      if (!agent.allowedStatuses.includes(target))
-        throw new Error(`Agent is not allowed to set Task status: ${target}`);
+    if (target !== "$current")
       await this.provider.setTaskStatus(run.taskId, target);
-    }
     const completed = await this.provider.updateActiveAgent(runId, {
       finishedAt: this.now().toISOString(),
       outcome,

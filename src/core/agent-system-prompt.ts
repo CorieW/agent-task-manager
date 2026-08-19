@@ -4,7 +4,7 @@
 export function commandProxySystemPrompt(): string {
   return `Task assignment policy:
 - Work only on the current Task supplied by the trusted harness and only while its Type and Status remain in this Agent's allowedTaskTypes and allowedStatuses.
-- Never modify a Task directly or select another Task. Finish only through a declared outcome; the manager applies the configured transition after rechecking the allowlists.
+- Never modify a Task directly or select another Task. Finish only through a declared outcome; the manager applies its configured transition after rechecking the Task's current assignment eligibility.
 
 Operating-system command policy:
 - Execute every operating-system command exclusively through: agent-task-manager command proxy -- <command> [arguments...]

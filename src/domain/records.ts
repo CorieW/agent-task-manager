@@ -21,7 +21,9 @@ export type AgentTransitions = Readonly<Record<string, string>>;
 
 /** Validated authoritative configuration parsed from an Agent page body. */
 export interface AgentDefinition {
+  /** Task statuses from which this Agent may be assigned work. */
   readonly allowedStatuses: readonly string[];
+  /** Task types on which this Agent may be assigned work. */
   readonly allowedTaskTypes: readonly string[];
   readonly calledBy: string;
   readonly commands: AgentCommandPolicy;
@@ -62,7 +64,9 @@ export interface ResourceRecord {
 
 /** Provider-neutral projection of one Agent record and resolved configuration. */
 export interface AgentRecord {
+  /** Task statuses from which this Agent may be assigned work. */
   readonly allowedStatuses: readonly string[];
+  /** Task types on which this Agent may be assigned work. */
   readonly allowedTaskTypes: readonly string[];
   readonly archived: boolean;
   readonly body: string;

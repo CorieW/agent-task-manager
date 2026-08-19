@@ -262,7 +262,7 @@ test("ordinary open Errors are informational and inactive Resources block start"
   assert.equal((await unavailable.listActiveAgents()).length, 0);
 });
 
-test("Agent Task type and status allowlists guard start and completion", async () => {
+test("Agent Task type and status allowlists guard assignment", async () => {
   const deniedType = new InMemoryProvider({
     agents: [agent()],
     resources: [resource("prompt"), resource("policy", "Policy")],
@@ -312,11 +312,11 @@ test("Agent Task type and status allowlists guard start and completion", async (
     runId: "transition",
     taskId: "task-1",
   });
-  await assert.rejects(
-    coordinator.complete("transition", "h", "succeeded"),
-    /not allowed to set Task status: In review/u,
+  await coordinator.complete("transition", "h", "succeeded");
+  assert.equal(
+    (await transitionProvider.getTask("task-1"))?.status,
+    "In review",
   );
-  assert.equal((await transitionProvider.getTask("task-1"))?.status, "Planned");
 });
 
 test("completion rejects Agent definition drift before mutating its Task", async () => {
