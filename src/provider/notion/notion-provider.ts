@@ -1,5 +1,5 @@
 /** Notion implementation of the simplified provider contract. */
-import { digestJson } from "../../core/digest.js";
+import { digestJson, sha256 } from "../../core/digest.js";
 import {
   toJsonValue,
   type JsonObject,
@@ -597,7 +597,7 @@ export class NotionProvider implements AgentTaskProvider {
       reasoning: definition.reasoning,
       resourceIds,
       transitions: definition.transitions,
-      version: version(page),
+      version: agentVersion(page, body),
     };
   }
   private async resourceIdByKey(): Promise<ReadonlyMap<string, string>> {
@@ -984,6 +984,12 @@ function id(page: JsonObject): string {
 }
 function version(page: JsonObject): string {
   return requiredString(page.last_edited_time, "Page version");
+}
+
+/** Binds a Notion Agent revision to both metadata and its authoritative body. */
+function agentVersion(page: JsonObject, body: string): string {
+  const metadataVersion = version(page);
+  return sha256(`${metadataVersion.length}:${metadataVersion}${body}`);
 }
 function archived(page: JsonObject): boolean {
   return page.archived === true || page.in_trash === true;

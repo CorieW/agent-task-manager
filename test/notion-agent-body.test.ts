@@ -99,7 +99,34 @@ test("Notion Agent loading retries a body and metadata torn read", async () => {
   );
 
   const agent = await provider.getAgentByKey("code-reviewer");
-  assert.equal(agent?.version, "2026-08-17T13:00:00.000Z");
+  assert.match(agent?.version ?? "", /^[0-9a-f]{64}$/u);
+});
+
+test("Notion Agent versions bind same-timestamp command policy changes", async () => {
+  const transport = new SameTimestampAgentBodyTransport();
+  const provider = new NotionProvider(
+    {
+      bootstrapParent: "ffffffffffffffffffffffffffffffff",
+      connection: {},
+      tables: {
+        activeAgents: ids.activeAgents,
+        agents: ids.agents,
+        errors: ids.errors,
+        resources: ids.resources,
+        tasks: ids.tasks,
+      },
+      type: "notion",
+    },
+    transport,
+  );
+
+  const restricted = await provider.getAgentByKey("code-reviewer");
+  transport.permissive = true;
+  const permissive = await provider.getAgentByKey("code-reviewer");
+
+  assert.notEqual(restricted?.version, permissive?.version);
+  assert.deepEqual(restricted?.commands, { inclusion: ["git"] });
+  assert.deepEqual(permissive?.commands, { exclusion: [] });
 });
 
 test("Notion workspace validation reports malformed Agent bodies", async () => {
@@ -235,14 +262,7 @@ class AgentBodyTransport implements NotionTransport {
         resourcePage(ids.policy, "policy/review", "Policy"),
       ]);
     if (request.path === `/v1/pages/${ids.agent}/markdown`)
-      return {
-        markdown: `## Agent definition
-
-\`\`\`json
-{"schema":"agent-definition-v2","enabled":true,"commands":{"exclusion":[]},"id":"code-reviewer","model":"gpt-5.6-sol","reasoning":"high","inputResourceSelectors":["policy/review","schema/result-v1"],"promptResources":["prompt/code-reviewer"],"transitions":{"succeeded":"In progress","blocked":"Blocked"}}
-\`\`\`
-`,
-      };
+      return { markdown: agentMarkdown('{"exclusion":[]}') };
     if (request.path === `/v1/pages/${ids.agent}`)
       return page(ids.agent, {
         Name: richTextProperty("title", "Code Reviewer"),
@@ -278,6 +298,29 @@ class TornAgentBodyTransport extends AgentBodyTransport {
       };
     return super.request(request);
   }
+}
+
+class SameTimestampAgentBodyTransport extends AgentBodyTransport {
+  public permissive = false;
+
+  public override async request(request: NotionRequest): Promise<JsonObject> {
+    if (request.path === `/v1/pages/${ids.agent}/markdown`)
+      return {
+        markdown: agentMarkdown(
+          this.permissive ? '{"exclusion":[]}' : '{"inclusion":["git"]}',
+        ),
+      };
+    return super.request(request);
+  }
+}
+
+function agentMarkdown(commands: string): string {
+  return `## Agent definition
+
+\`\`\`json
+{"schema":"agent-definition-v2","enabled":true,"commands":${commands},"id":"code-reviewer","model":"gpt-5.6-sol","reasoning":"high","inputResourceSelectors":["policy/review","schema/result-v1"],"promptResources":["prompt/code-reviewer"],"transitions":{"succeeded":"In progress","blocked":"Blocked"}}
+\`\`\`
+`;
 }
 
 function activeAgentPage(
