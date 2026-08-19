@@ -587,6 +587,7 @@ export class NotionProvider implements AgentTaskProvider {
       body,
       calledBy: definition.calledBy,
       commands: definition.commands,
+      compatibleVersions: [version(page)],
       enabled: definition.enabled,
       id: id(page),
       key: definition.id,

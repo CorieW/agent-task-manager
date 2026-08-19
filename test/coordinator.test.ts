@@ -294,6 +294,61 @@ test("completion rejects Agent definition drift before mutating its Task", async
   assert.equal((await provider.getTask("task-1"))?.status, "Planned");
 });
 
+test("legacy Agent versions replay and restart with the canonical version", async () => {
+  const canonicalAgent = {
+    ...agent(),
+    compatibleVersions: ["legacy-timestamp"],
+    version: "body-digest",
+  };
+  const legacyRun = {
+    agentId: canonicalAgent.id,
+    agentVersion: "legacy-timestamp",
+    archived: false,
+    attempt: 1,
+    failureSummary: "",
+    finishedAt: null,
+    harnessId: "h",
+    id: "active-legacy",
+    lastHeartbeat: "2026-08-17T12:00:00.000Z",
+    outcome: "",
+    parentRunId: null,
+    restartOfRunId: null,
+    retryKey: "legacy-run",
+    runId: "legacy-run",
+    startedAt: "2026-08-17T12:00:00.000Z",
+    status: "running" as const,
+    taskId: "task-1",
+    version: "run-version",
+  };
+  const provider = new InMemoryProvider({
+    activeAgents: [legacyRun],
+    agents: [canonicalAgent],
+    resources: [resource("prompt"), resource("policy", "Policy")],
+    tasks: [task()],
+  });
+  const coordinator = new AgentCoordinator(provider);
+
+  const replay = await coordinator.start({
+    agentKey: canonicalAgent.key,
+    harnessId: "h",
+    parentRunId: null,
+    runId: legacyRun.runId,
+    taskId: legacyRun.taskId,
+  });
+  assert.equal(replay.run.agentVersion, "legacy-timestamp");
+  assert.deepEqual(await coordinator.commandPolicy(legacyRun.runId, "h"), {
+    exclusion: [],
+  });
+  await coordinator.fail(legacyRun.runId, "h", "infra");
+  const restarted = await coordinator.restart({
+    harnessId: "h",
+    restartOfRunId: legacyRun.runId,
+    runId: "digest-run",
+  });
+
+  assert.equal(restarted.run.agentVersion, "body-digest");
+});
+
 test("completion rejects inherited transition property names", async () => {
   const { coordinator, provider } = setup();
   await coordinator.start({

@@ -46,7 +46,7 @@ export class AgentCoordinator {
       const agent = await this.requiredAgent(input.agentKey);
       if (
         replay.agentId !== agent.id ||
-        replay.agentVersion !== agent.version ||
+        !this.agentVersionMatches(replay.agentVersion, agent) ||
         replay.taskId !== input.taskId ||
         replay.parentRunId !== input.parentRunId ||
         replay.harnessId !== input.harnessId
@@ -258,7 +258,7 @@ export class AgentCoordinator {
     const resources = await this.resourcesFor(agent);
     const run = await this.provider.createActiveAgent({
       agentId: restartSource.agentId,
-      agentVersion: restartSource.agentVersion,
+      agentVersion: agent.version,
       attempt,
       harnessId: input.harnessId,
       parentRunId: restartSource.parentRunId,
@@ -390,8 +390,14 @@ export class AgentCoordinator {
     return agent;
   }
   private assertAgentVersion(run: ActiveAgentRecord, agent: AgentRecord): void {
-    if (run.agentVersion !== agent.version)
+    if (!this.agentVersionMatches(run.agentVersion, agent))
       throw new Error("Agent definition changed after the run started");
+  }
+  private agentVersionMatches(version: string, agent: AgentRecord): boolean {
+    return (
+      version === agent.version ||
+      (agent.compatibleVersions?.includes(version) ?? false)
+    );
   }
   private async runningOwned(
     runId: string,

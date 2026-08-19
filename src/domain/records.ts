@@ -63,6 +63,8 @@ export interface AgentRecord {
   readonly body: string;
   readonly calledBy: string;
   readonly commands: AgentCommandPolicy;
+  /** Provider-supplied prior versions accepted during a bounded rolling upgrade. */
+  readonly compatibleVersions?: readonly string[];
   readonly enabled: boolean;
   /** Provider-owned record identifier. */
   readonly id: string;
