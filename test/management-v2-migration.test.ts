@@ -93,6 +93,51 @@ test("expected Management v2 baseline produces a deterministic complete plan", (
   );
 });
 
+test("v1-compatible Agent bodies still schedule persisted v2 conversion", () => {
+  const original = expectedLegacyInventory();
+  const first = original.agents.rows[0]!;
+  const manifest = parseLegacyAgentManifest(first.body);
+  const converted = parseAgentDefinition(
+    agentDefinitionMarkdown(
+      {
+        ...first,
+        properties: { ...first.properties, Enabled: true, Model: "gpt" },
+      },
+      retainedManifestResourceKeys(manifest),
+    ),
+  );
+  const v1Body = `## Agent definition\n\n\`\`\`json\n${JSON.stringify({
+    calledBy: converted.calledBy,
+    enabled: converted.enabled,
+    id: converted.id,
+    inputResourceSelectors: converted.resourceKeys.filter((key) =>
+      key.startsWith("policy/"),
+    ),
+    model: converted.model,
+    promptResources: converted.resourceKeys.filter((key) =>
+      key.startsWith("prompt/"),
+    ),
+    reasoning: converted.reasoning,
+    schema: "agent-definition-v1",
+    transitions: converted.transitions,
+  })}\n\`\`\`\n`;
+  const inventory: ManagementInventory = {
+    ...original,
+    agents: {
+      ...original.agents,
+      rows: [{ ...first, body: v1Body }, ...original.agents.rows.slice(1)],
+    },
+  };
+
+  assert.deepEqual(parseAgentDefinition(v1Body).commands, { inclusion: [] });
+  assert.equal(
+    planManagementV2Migration(inventory).actions.filter(
+      (entry) => entry.kind === "convert_agent",
+    ).length,
+    8,
+  );
+});
+
 test("Management v2 plan digest is independent of Notion row order", () => {
   const original = expectedLegacyInventory();
   const reversed: ManagementInventory = {

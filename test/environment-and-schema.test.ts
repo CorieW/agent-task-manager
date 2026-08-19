@@ -145,7 +145,7 @@ test("Agent configuration is parsed from the page body", () => {
   });
 });
 
-test("Agent definitions reject unsupported schemas and fields", () => {
+test("Agent definitions read v1 as deny-all and reject unsupported schemas", () => {
   const valid = {
     commands: { exclusion: [] },
     enabled: true,
@@ -160,12 +160,26 @@ test("Agent definitions reject unsupported schemas and fields", () => {
   const markdown = (definition: object): string =>
     `## Agent definition\n\n\`\`\`json\n${JSON.stringify(definition)}\n\`\`\`\n`;
 
+  assert.deepEqual(
+    parseAgentDefinition(
+      markdown({
+        ...valid,
+        commands: undefined,
+        schema: "agent-definition-v1",
+      }),
+    ).commands,
+    { inclusion: [] },
+  );
+  assert.throws(
+    () => parseAgentDefinition(markdown({ ...valid, schema: "unknown" })),
+    /schema must equal agent-definition-v1 or agent-definition-v2/u,
+  );
   assert.throws(
     () =>
       parseAgentDefinition(
         markdown({ ...valid, schema: "agent-definition-v1" }),
       ),
-    /schema must equal agent-definition-v2/u,
+    /unsupported fields: commands/u,
   );
   assert.throws(
     () => parseAgentDefinition(markdown({ ...valid, prohibitedCommand: "rm" })),

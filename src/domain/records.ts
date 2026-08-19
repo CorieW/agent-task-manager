@@ -297,11 +297,12 @@ export function parseAgentDefinition(markdown: string): AgentDefinition {
     throw new TypeError("Agent definition must be an object");
 
   const definition = parsed as Record<string, unknown>;
-  rejectUnknownDefinitionFields(definition);
-  if (definition.schema !== "agent-definition-v2")
+  const schema = definition.schema;
+  if (schema !== "agent-definition-v1" && schema !== "agent-definition-v2")
     throw new TypeError(
-      "Agent definition schema must equal agent-definition-v2",
+      "Agent definition schema must equal agent-definition-v1 or agent-definition-v2",
     );
+  rejectUnknownDefinitionFields(definition, schema);
   const promptResources = definitionStrings(
     definition.promptResources,
     "promptResources",
@@ -329,7 +330,10 @@ export function parseAgentDefinition(markdown: string): AgentDefinition {
 
   return {
     calledBy: optionalDefinitionText(definition.calledBy, "calledBy"),
-    commands: parseAgentCommandPolicy(definition.commands),
+    commands:
+      schema === "agent-definition-v1"
+        ? { inclusion: [] }
+        : parseAgentCommandPolicy(definition.commands),
     enabled: definition.enabled,
     id: definitionText(definition.id, "id"),
     model: definitionText(definition.model, "model"),
@@ -342,10 +346,10 @@ export function parseAgentDefinition(markdown: string): AgentDefinition {
 
 function rejectUnknownDefinitionFields(
   definition: Readonly<Record<string, unknown>>,
+  schema: "agent-definition-v1" | "agent-definition-v2",
 ): void {
   const supported = new Set([
     "calledBy",
-    "commands",
     "enabled",
     "id",
     "inputResourceSelectors",
@@ -355,6 +359,7 @@ function rejectUnknownDefinitionFields(
     "reasoning",
     "schema",
     "transitions",
+    ...(schema === "agent-definition-v2" ? ["commands"] : []),
   ]);
   const unknown = Object.keys(definition).filter((key) => !supported.has(key));
   if (unknown.length !== 0)

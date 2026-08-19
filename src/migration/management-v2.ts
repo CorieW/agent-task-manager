@@ -708,7 +708,11 @@ function booleanProperty(value: unknown, label: string): boolean {
   return value;
 }
 function hasAgentDefinition(markdown: string): boolean {
+  const section = agentDefinitionSection(markdown);
+  if (section === null) return false;
   try {
+    const definition = parseDefinitionObject(section.content);
+    if (definition.schema !== "agent-definition-v2") return false;
     parseAgentDefinition(markdown);
     return true;
   } catch {
