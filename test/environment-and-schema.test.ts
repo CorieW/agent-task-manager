@@ -43,6 +43,12 @@ test("decoded Agent transitions validate without a JSON round trip", () => {
     () => validateAgentTransitions({ blocked: null }),
     /Invalid Task status/u,
   );
+  assert.deepEqual(
+    NOTION_TABLES.find((table) => table.kind === "tasks")?.properties.find(
+      (property) => property.name === "Type",
+    )?.options,
+    [],
+  );
 });
 
 test("v2 environment accepts only the five simplified tables", () => {
@@ -99,19 +105,7 @@ test("Notion schema has only Tasks, Agents, Resources, Active Agents, and Errors
     NOTION_TABLES.find((table) => table.kind === "tasks")?.properties.find(
       (property) => property.name === "Status",
     )?.options,
-    [
-      "Backlog",
-      "Ready",
-      "Planned",
-      "In progress",
-      "Blocked",
-      "In review",
-      "Completed",
-      "Cancelled",
-      "Duplicate",
-      "Not reproducible",
-      "Superseded",
-    ],
+    [],
   );
 });
 
@@ -120,9 +114,11 @@ test("Agent configuration is parsed from the page body", () => {
 
 \`\`\`json
 {
-  "schema": "agent-definition-v2",
+  "schema": "agent-definition-v3",
   "enabled": true,
   "commands": {"inclusion": ["git", "pnpm.cmd"]},
+  "allowedTaskTypes": ["Bug", "Vulnerability"],
+  "allowedStatuses": ["In progress", "Blocked"],
   "id": "code-reviewer",
   "model": "gpt-5.6-sol",
   "reasoning": "high",
@@ -135,6 +131,8 @@ test("Agent configuration is parsed from the page body", () => {
   assert.equal(definition.id, "code-reviewer");
   assert.equal(definition.model, "gpt-5.6-sol");
   assert.deepEqual(definition.commands, { inclusion: ["git", "pnpm"] });
+  assert.deepEqual(definition.allowedTaskTypes, ["Bug", "Vulnerability"]);
+  assert.deepEqual(definition.allowedStatuses, ["In progress", "Blocked"]);
   assert.deepEqual(definition.resourceKeys, [
     "prompt/code-reviewer",
     "policy/review",
@@ -172,7 +170,7 @@ test("Agent definitions read v1 as deny-all and reject unsupported schemas", () 
   );
   assert.throws(
     () => parseAgentDefinition(markdown({ ...valid, schema: "unknown" })),
-    /schema must equal agent-definition-v1 or agent-definition-v2/u,
+    /schema must equal agent-definition-v1, agent-definition-v2, or agent-definition-v3/u,
   );
   assert.throws(
     () =>
@@ -184,6 +182,39 @@ test("Agent definitions read v1 as deny-all and reject unsupported schemas", () 
   assert.throws(
     () => parseAgentDefinition(markdown({ ...valid, prohibitedCommand: "rm" })),
     /unsupported fields: prohibitedCommand/u,
+  );
+});
+
+test("Agent v3 requires unique user-defined Task type and status allowlists", () => {
+  const definition = {
+    allowedStatuses: ["Planning"],
+    allowedTaskTypes: ["Bug"],
+    commands: { inclusion: [] },
+    enabled: true,
+    id: "coder",
+    inputResourceSelectors: ["policy/review"],
+    model: "gpt",
+    promptResources: ["prompt/coder"],
+    reasoning: "high",
+    schema: "agent-definition-v3",
+    transitions: { succeeded: "Planning" },
+  };
+  const markdown = (value: object): string =>
+    `## Agent definition\n\n\`\`\`json\n${JSON.stringify(value)}\n\`\`\`\n`;
+
+  assert.throws(
+    () =>
+      parseAgentDefinition(
+        markdown({ ...definition, allowedTaskTypes: ["Bug", "Bug"] }),
+      ),
+    /allowedTaskTypes must not contain duplicates/u,
+  );
+  assert.throws(
+    () =>
+      parseAgentDefinition(
+        markdown({ ...definition, allowedStatuses: ["Planning", ""] }),
+      ),
+    /allowedStatuses must not contain empty values/u,
   );
 });
 

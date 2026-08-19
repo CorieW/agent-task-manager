@@ -21,6 +21,8 @@ export type AgentTransitions = Readonly<Record<string, string>>;
 
 /** Validated authoritative configuration parsed from an Agent page body. */
 export interface AgentDefinition {
+  readonly allowedStatuses: readonly string[];
+  readonly allowedTaskTypes: readonly string[];
   readonly calledBy: string;
   readonly commands: AgentCommandPolicy;
   readonly enabled: boolean;
@@ -42,6 +44,7 @@ export interface TaskRecord {
   readonly properties: JsonObject;
   readonly status: string;
   readonly title: string;
+  readonly type: string;
   readonly version: string;
 }
 
@@ -59,6 +62,8 @@ export interface ResourceRecord {
 
 /** Provider-neutral projection of one Agent record and resolved configuration. */
 export interface AgentRecord {
+  readonly allowedStatuses: readonly string[];
+  readonly allowedTaskTypes: readonly string[];
   readonly archived: boolean;
   readonly body: string;
   readonly calledBy: string;
@@ -300,9 +305,13 @@ export function parseAgentDefinition(markdown: string): AgentDefinition {
 
   const definition = parsed as Record<string, unknown>;
   const schema = definition.schema;
-  if (schema !== "agent-definition-v1" && schema !== "agent-definition-v2")
+  if (
+    schema !== "agent-definition-v1" &&
+    schema !== "agent-definition-v2" &&
+    schema !== "agent-definition-v3"
+  )
     throw new TypeError(
-      "Agent definition schema must equal agent-definition-v1 or agent-definition-v2",
+      "Agent definition schema must equal agent-definition-v1, agent-definition-v2, or agent-definition-v3",
     );
   rejectUnknownDefinitionFields(definition, schema);
   const promptResources = definitionStrings(
@@ -331,6 +340,14 @@ export function parseAgentDefinition(markdown: string): AgentDefinition {
     throw new TypeError("Agent definition enabled must be a boolean");
 
   return {
+    allowedStatuses:
+      schema === "agent-definition-v3"
+        ? definitionStringSet(definition.allowedStatuses, "allowedStatuses")
+        : [],
+    allowedTaskTypes:
+      schema === "agent-definition-v3"
+        ? definitionStringSet(definition.allowedTaskTypes, "allowedTaskTypes")
+        : [],
     calledBy: optionalDefinitionText(definition.calledBy, "calledBy"),
     commands:
       schema === "agent-definition-v1"
@@ -348,7 +365,7 @@ export function parseAgentDefinition(markdown: string): AgentDefinition {
 
 function rejectUnknownDefinitionFields(
   definition: Readonly<Record<string, unknown>>,
-  schema: "agent-definition-v1" | "agent-definition-v2",
+  schema: "agent-definition-v1" | "agent-definition-v2" | "agent-definition-v3",
 ): void {
   const supported = new Set([
     "calledBy",
@@ -361,7 +378,10 @@ function rejectUnknownDefinitionFields(
     "reasoning",
     "schema",
     "transitions",
-    ...(schema === "agent-definition-v2" ? ["commands"] : []),
+    ...(schema === "agent-definition-v1" ? [] : ["commands"]),
+    ...(schema === "agent-definition-v3"
+      ? ["allowedStatuses", "allowedTaskTypes"]
+      : []),
   ]);
   const unknown = Object.keys(definition).filter((key) => !supported.has(key));
   if (unknown.length !== 0)
@@ -387,4 +407,15 @@ function definitionStrings(value: unknown, name: string): readonly string[] {
   if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string"))
     throw new TypeError(`Agent definition ${name} must be a string array`);
   return value.map((entry) => entry.normalize("NFC"));
+}
+
+function definitionStringSet(value: unknown, name: string): readonly string[] {
+  const entries = definitionStrings(value, name);
+  if (entries.some((entry) => entry.trim() === ""))
+    throw new TypeError(
+      `Agent definition ${name} must not contain empty values`,
+    );
+  if (new Set(entries).size !== entries.length)
+    throw new TypeError(`Agent definition ${name} must not contain duplicates`);
+  return entries;
 }

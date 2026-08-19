@@ -2,7 +2,11 @@
 
 /** Renders strict proxy-only command instructions for a harness-bound run. */
 export function commandProxySystemPrompt(): string {
-  return `Operating-system command policy:
+  return `Task assignment policy:
+- Work only on the current Task supplied by the trusted harness and only while its Type and Status remain in this Agent's allowedTaskTypes and allowedStatuses.
+- Never modify a Task directly or select another Task. Finish only through a declared outcome; the manager applies the configured transition after rechecking the allowlists.
+
+Operating-system command policy:
 - Execute every operating-system command exclusively through: agent-task-manager command proxy -- <command> [arguments...]
 - The trusted harness binds the current run identity outside Agent-controlled arguments. Never supply or select another run or harness identity.
 - Never invoke a shell, terminal, process API, executable, script, alias, or command runner directly.

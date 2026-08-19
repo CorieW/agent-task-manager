@@ -6,6 +6,7 @@ import type {
   ReportErrorInput,
   RestartActiveAgentInput,
   StartActiveAgentInput,
+  TaskRecord,
 } from "../domain/records.js";
 import type { AgentCommandPolicy } from "../domain/commands.js";
 import type { AgentTaskProvider } from "../provider/agent-task-provider.js";
@@ -60,6 +61,7 @@ export class AgentCoordinator {
     const task = await this.provider.getTask(input.taskId);
     if (task === null || task.archived)
       throw new Error(`Task is unavailable: ${input.taskId}`);
+    this.assertTaskEligibility(agent, task);
     const live = (await this.provider.listActiveAgents()).filter(
       (entry) => entry.status === "running",
     );
@@ -129,11 +131,18 @@ export class AgentCoordinator {
       );
     const agent = await this.agentById(run.agentId);
     this.assertAgentVersion(run, agent);
+    const task = await this.provider.getTask(run.taskId);
+    if (task === null || task.archived)
+      throw new Error("Active Agent Task is unavailable");
+    this.assertTaskEligibility(agent, task);
     if (!Object.hasOwn(agent.transitions, outcome))
       throw new Error(`Agent does not declare outcome: ${outcome}`);
     const target = agent.transitions[outcome]!;
-    if (target !== "$current")
+    if (target !== "$current") {
+      if (!agent.allowedStatuses.includes(target))
+        throw new Error(`Agent is not allowed to set Task status: ${target}`);
       await this.provider.setTaskStatus(run.taskId, target);
+    }
     const completed = await this.provider.updateActiveAgent(runId, {
       finishedAt: this.now().toISOString(),
       outcome,
@@ -255,6 +264,7 @@ export class AgentCoordinator {
     const task = await this.provider.getTask(restartSource.taskId);
     if (task === null || task.archived)
       throw new Error("Active Agent Task is unavailable");
+    this.assertTaskEligibility(agent, task);
     const resources = await this.resourcesFor(agent);
     const run = await this.provider.createActiveAgent({
       agentId: restartSource.agentId,
@@ -342,6 +352,7 @@ export class AgentCoordinator {
     const task = await this.provider.getTask(run.taskId);
     if (task === null || task.archived)
       throw new Error("Active Agent Task is unavailable");
+    this.assertTaskEligibility(agent, task);
     const resources = await this.resourcesFor(agent);
     return {
       agent,
@@ -375,6 +386,15 @@ export class AgentCoordinator {
       return resource;
     });
     return resources;
+  }
+
+  private assertTaskEligibility(agent: AgentRecord, task: TaskRecord): void {
+    if (!agent.allowedTaskTypes.includes(task.type))
+      throw new Error(`Agent is not allowed to use Task type: ${task.type}`);
+    if (!agent.allowedStatuses.includes(task.status))
+      throw new Error(
+        `Agent is not allowed to use Task status: ${task.status}`,
+      );
   }
 
   private async requiredAgent(key: string): Promise<AgentRecord> {

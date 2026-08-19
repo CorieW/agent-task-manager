@@ -93,7 +93,7 @@ test("expected Management v2 baseline produces a deterministic complete plan", (
   );
 });
 
-test("v1-compatible Agent bodies still schedule persisted v2 conversion", () => {
+test("older Agent bodies still schedule persisted v3 conversion", () => {
   const original = expectedLegacyInventory();
   const first = original.agents.rows[0]!;
   const manifest = parseLegacyAgentManifest(first.body);
@@ -201,6 +201,8 @@ test("column-backed Agent descriptions migrate into body definitions", () => {
   assert.equal(definition.id, "code-reviewer");
   assert.equal(definition.enabled, true);
   assert.deepEqual(definition.commands, { inclusion: [] });
+  assert.deepEqual(definition.allowedTaskTypes, []);
+  assert.deepEqual(definition.allowedStatuses, []);
   assert.deepEqual(definition.resourceKeys, [
     "prompt/code-reviewer",
     "policy/review/code-cleanliness",
@@ -283,7 +285,12 @@ test("planning after partial additive progress is safe and omits completed actio
     ),
     tasks: table(
       MANAGEMENT_V2_DATABASES.tasks,
-      { Dependencies: "relation", Status: "select", Task: "title" },
+      {
+        Dependencies: "relation",
+        Status: "select",
+        Task: "title",
+        Type: "select",
+      },
       [],
     ),
   };

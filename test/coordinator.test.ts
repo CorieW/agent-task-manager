@@ -25,6 +25,7 @@ function task(): TaskRecord {
     properties: {},
     status: "Planned",
     title: "Implement",
+    type: "Feature",
     version: "1",
   };
 }
@@ -46,6 +47,8 @@ function resource(
 }
 function agent(): AgentRecord {
   return {
+    allowedStatuses: ["Planned", "Blocked", "In review"],
+    allowedTaskTypes: ["Feature"],
     archived: false,
     body: "Agent",
     calledBy: "harness",
@@ -257,6 +260,63 @@ test("ordinary open Errors are informational and inactive Resources block start"
     /unavailable/,
   );
   assert.equal((await unavailable.listActiveAgents()).length, 0);
+});
+
+test("Agent Task type and status allowlists guard start and completion", async () => {
+  const deniedType = new InMemoryProvider({
+    agents: [agent()],
+    resources: [resource("prompt"), resource("policy", "Policy")],
+    tasks: [{ ...task(), type: "Vulnerability" }],
+  });
+  await assert.rejects(
+    new AgentCoordinator(deniedType).start({
+      agentKey: "coder",
+      harnessId: "h",
+      parentRunId: null,
+      runId: "wrong-type",
+      taskId: "task-1",
+    }),
+    /not allowed to use Task type: Vulnerability/u,
+  );
+
+  const deniedStatus = new InMemoryProvider({
+    agents: [agent()],
+    resources: [resource("prompt"), resource("policy", "Policy")],
+    tasks: [{ ...task(), status: "Ready" }],
+  });
+  await assert.rejects(
+    new AgentCoordinator(deniedStatus).start({
+      agentKey: "coder",
+      harnessId: "h",
+      parentRunId: null,
+      runId: "wrong-status",
+      taskId: "task-1",
+    }),
+    /not allowed to use Task status: Ready/u,
+  );
+
+  const transitionAgent = {
+    ...agent(),
+    allowedStatuses: ["Planned"],
+  };
+  const transitionProvider = new InMemoryProvider({
+    agents: [transitionAgent],
+    resources: [resource("prompt"), resource("policy", "Policy")],
+    tasks: [task()],
+  });
+  const coordinator = new AgentCoordinator(transitionProvider);
+  await coordinator.start({
+    agentKey: "coder",
+    harnessId: "h",
+    parentRunId: null,
+    runId: "transition",
+    taskId: "task-1",
+  });
+  await assert.rejects(
+    coordinator.complete("transition", "h", "succeeded"),
+    /not allowed to set Task status: In review/u,
+  );
+  assert.equal((await transitionProvider.getTask("task-1"))?.status, "Planned");
 });
 
 test("completion rejects Agent definition drift before mutating its Task", async () => {

@@ -38,6 +38,7 @@ async function setup(policy: AgentCommandPolicy) {
     properties: {},
     status: "Planned",
     title: "Task",
+    type: "Feature",
     version: "1",
   };
   const resource = (id: string, kind: string): ResourceRecord => ({
@@ -51,6 +52,8 @@ async function setup(policy: AgentCommandPolicy) {
     version: "1",
   });
   const agent: AgentRecord = {
+    allowedStatuses: ["Planned", "In review"],
+    allowedTaskTypes: ["Feature"],
     archived: false,
     body: "Agent",
     calledBy: "harness",
@@ -175,6 +178,7 @@ test("command proxy enforces inclusion, ownership, and path-free names", async (
   };
   const proxy = new CommandProxy(coordinator, executor, gate);
   assert.match(context.systemPrompt, /exclusively through/u);
+  assert.match(context.systemPrompt, /allowedTaskTypes and allowedStatuses/u);
   assert.match(context.systemPrompt, /Never invoke a shell/u);
   assert.match(context.systemPrompt, /harness binds the current run identity/u);
   assert.doesNotMatch(context.systemPrompt, /--run-id|--harness-id/u);

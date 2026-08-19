@@ -533,6 +533,7 @@ export class NotionProvider implements AgentTaskProvider {
       properties: plainProperties(props),
       status: selectValue(props.Status),
       title: textValue(props.Task),
+      type: selectValue(props.Type),
       version: version(page),
     };
   }
@@ -583,6 +584,8 @@ export class NotionProvider implements AgentTaskProvider {
       return resourceId;
     });
     return {
+      allowedStatuses: definition.allowedStatuses,
+      allowedTaskTypes: definition.allowedTaskTypes,
       archived: archived(page),
       body,
       calledBy: definition.calledBy,

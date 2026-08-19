@@ -396,6 +396,7 @@ export function assertManagementV2Inventory(
     { Dependencies: "relation", Status: "select", Task: "title" },
     failures,
   );
+  assertOptionalPropertyTypes(inventory.tasks, { Type: "select" }, failures);
   if (failures.length > 0)
     throw new Error(
       `Management v2 preflight drifted:\n- ${failures.join("\n- ")}`,
@@ -534,7 +535,13 @@ export function agentDefinitionMarkdown(
   const notes = stringProperty(row.properties.Notes, "Notes");
   const definition = {
     ...legacy,
-    schema: "agent-definition-v2",
+    schema: "agent-definition-v3",
+    allowedStatuses: Array.isArray(legacy.allowedStatuses)
+      ? legacy.allowedStatuses
+      : [],
+    allowedTaskTypes: Array.isArray(legacy.allowedTaskTypes)
+      ? legacy.allowedTaskTypes
+      : [],
     commands:
       legacy.commands === undefined ? { inclusion: [] } : legacy.commands,
     enabled:
@@ -636,6 +643,7 @@ function digestInventory(inventory: ManagementInventory): string {
 function hasV2Properties(inventory: ManagementInventory): boolean {
   return (
     inventory.agents.properties.Name === "title" &&
+    inventory.tasks.properties.Type === "select" &&
     ["Source", "Active Agent"].every(
       (name) => inventory.errors.properties[name] !== undefined,
     )
@@ -712,7 +720,7 @@ function hasAgentDefinition(markdown: string): boolean {
   if (section === null) return false;
   try {
     const definition = parseDefinitionObject(section.content);
-    if (definition.schema !== "agent-definition-v2") return false;
+    if (definition.schema !== "agent-definition-v3") return false;
     parseAgentDefinition(markdown);
     return true;
   } catch {
