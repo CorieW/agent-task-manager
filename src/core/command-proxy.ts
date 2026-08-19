@@ -46,6 +46,15 @@ export type CommandExecutor = (
   request: BrokerCommandRequest,
 ) => Promise<ProxyCommandResult>;
 
+/** Signals that broker containment could not be proven empty. */
+export class ContainmentShutdownUnconfirmedError extends Error {
+  /** Creates a fail-closed shutdown error while retaining the run fence. */
+  public constructor(message: string) {
+    super(message);
+    this.name = "ContainmentShutdownUnconfirmedError";
+  }
+}
+
 /** Two-phase gate that registers a run lease before broker execution. */
 export interface CommandExecutionGate {
   execute<T>(
@@ -55,11 +64,18 @@ export interface CommandExecutionGate {
   ): Promise<T>;
 }
 
+/** Release token that can preserve a fail-closed durable fence. */
+export interface CommandLeaseRelease {
+  (): Promise<void>;
+  /** Closes the local handle while deliberately preserving the lease file. */
+  abandon(): Promise<void>;
+}
+
 /** Mutex capabilities needed to register a long-lived command lease. */
 export interface CommandLeaseMutex {
   lock(options?: {
     readonly reclaimable?: boolean;
-  }): Promise<() => Promise<void>>;
+  }): Promise<CommandLeaseRelease>;
   run<T>(operation: () => Promise<T>): Promise<T>;
 }
 
@@ -74,7 +90,7 @@ export function createCommandExecutionGate(
       authorize: () => Promise<BrokerCommandRequest>,
       execute: (request: BrokerCommandRequest) => Promise<T>,
     ): Promise<T> => {
-      let release: (() => Promise<void>) | undefined;
+      let release: CommandLeaseRelease | undefined;
       let request: BrokerCommandRequest | undefined;
       await globalMutex.run(async () => {
         release = await runMutex(runId).lock({ reclaimable: false });
@@ -88,8 +104,14 @@ export function createCommandExecutionGate(
       });
       try {
         return await execute(request!);
+      } catch (error) {
+        if (error instanceof ContainmentShutdownUnconfirmedError) {
+          await release!.abandon();
+          release = undefined;
+        }
+        throw error;
       } finally {
-        await release!();
+        if (release !== undefined) await release();
       }
     },
   };
@@ -163,7 +185,7 @@ export function createCommandBrokerExecutor(
       let outputBytes = 0;
       let settled = false;
       let terminationError: Error | undefined;
-      let forceTimer: NodeJS.Timeout | undefined;
+      let graceTimer: NodeJS.Timeout | undefined;
       const timer = setTimeout(() => {
         terminate(
           new Error(
@@ -171,27 +193,36 @@ export function createCommandBrokerExecutor(
           ),
         );
       }, timeoutMilliseconds);
+      const forceUnconfirmedShutdown = (): void => {
+        if (settled || terminationError === undefined) return;
+        settled = true;
+        child.stdout.destroy();
+        child.stderr.destroy();
+        child.stdin.destroy();
+        try {
+          child.kill("SIGKILL");
+        } catch {
+          // The durable run fence remains when termination cannot be sent.
+        }
+        child.unref();
+        reject(
+          new ContainmentShutdownUnconfirmedError(
+            `${terminationError.message}; broker containment shutdown was not confirmed`,
+          ),
+        );
+      };
       const terminate = (error: Error): void => {
         if (settled || terminationError !== undefined) return;
         terminationError = error;
         clearTimeout(timer);
-        child.stdout.destroy();
-        child.stderr.destroy();
         child.stdin.end();
-        try {
-          child.kill();
-        } catch {
-          // Preserve the protocol failure that required broker termination.
-        }
-        forceTimer = setTimeout(() => {
-          try {
-            child.kill("SIGKILL");
-          } catch {
-            // Keep the run lease when forced broker shutdown cannot be sent.
-          }
-        }, terminationGraceMilliseconds);
+        graceTimer = setTimeout(
+          forceUnconfirmedShutdown,
+          terminationGraceMilliseconds,
+        );
       };
       const collect = (chunks: Buffer[]) => (chunk: Buffer) => {
+        if (terminationError !== undefined) return;
         outputBytes += chunk.length;
         if (outputBytes > maxOutputBytes) {
           terminate(
@@ -209,14 +240,20 @@ export function createCommandBrokerExecutor(
         if (settled) return;
         settled = true;
         clearTimeout(timer);
-        if (forceTimer !== undefined) clearTimeout(forceTimer);
+        if (graceTimer !== undefined) clearTimeout(graceTimer);
         if (terminationError !== undefined) {
-          reject(terminationError);
+          if (exitCode === 0 && signal === null) reject(terminationError);
+          else
+            reject(
+              new ContainmentShutdownUnconfirmedError(
+                `${terminationError.message}; broker containment shutdown was not confirmed`,
+              ),
+            );
           return;
         }
         if (exitCode !== 0 || signal !== null) {
           reject(
-            new Error(
+            new ContainmentShutdownUnconfirmedError(
               `Command broker failed (${signal ?? String(exitCode)}): ${Buffer.concat(stderr).toString("utf8").trim()}`,
             ),
           );

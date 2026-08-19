@@ -8,6 +8,7 @@ import test from "node:test";
 import {
   SingleHostMutex,
   type SingleHostMutexIdentity,
+  type SingleHostMutexRelease,
 } from "../src/provider/notion/single-host-mutex.js";
 
 test("mutex requires an explicit absolute coordination root", () => {
@@ -19,6 +20,28 @@ test("mutex requires an explicit absolute coordination root", () => {
       ),
     /Mutex root must be an absolute path/u,
   );
+});
+
+test("abandon closes the handle while preserving a durable fence", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-task-manager-mutex-"));
+  try {
+    const identity = {
+      environmentId: "environment",
+      runId: "run-1",
+      scope: "command",
+    } as const;
+    const release = await new SingleHostMutex(identity, root).lock({
+      reclaimable: false,
+    });
+    await release.abandon();
+    await assert.rejects(
+      new SingleHostMutex(identity, root).lock(),
+      (error: unknown) =>
+        error instanceof Error && "code" in error && error.code === "EEXIST",
+    );
+  } finally {
+    await rm(root, { force: true, recursive: true });
+  }
 });
 
 /** Proves two identities can hold distinct lock files at the same time. */
@@ -146,7 +169,7 @@ test("concurrent stale recovery admits exactly one mutex owner", async () => {
       ),
     );
     const acquired = attempts.filter(
-      (result): result is PromiseFulfilledResult<() => Promise<void>> =>
+      (result): result is PromiseFulfilledResult<SingleHostMutexRelease> =>
         result.status === "fulfilled",
     );
     assert.equal(acquired.length, 1);

@@ -5,6 +5,7 @@ import test from "node:test";
 import {
   type BrokerCommandRequest,
   CommandProxy,
+  ContainmentShutdownUnconfirmedError,
   createCommandBrokerExecutor,
   createCommandExecutionGate,
   type CommandExecutionGate,
@@ -490,9 +491,13 @@ test("sandbox broker rejects ambiguous terminal results", async () => {
 
 test("command gate releases the global mutex while retaining the run lease", async () => {
   let globallyLocked = false;
+  let runAbandoned = false;
   let runLocked = false;
   const globalMutex = {
-    lock: async () => async () => undefined,
+    lock: async () =>
+      Object.assign(async () => undefined, {
+        abandon: async () => undefined,
+      }),
     run: async <T>(operation: () => Promise<T>) => {
       globallyLocked = true;
       try {
@@ -507,9 +512,17 @@ test("command gate releases the global mutex while retaining the run lease", asy
       assert.equal(globallyLocked, true);
       assert.deepEqual(options, { reclaimable: false });
       runLocked = true;
-      return async () => {
-        runLocked = false;
-      };
+      return Object.assign(
+        async () => {
+          runLocked = false;
+        },
+        {
+          abandon: async () => {
+            runAbandoned = true;
+            runLocked = false;
+          },
+        },
+      );
     },
     run: async <T>(operation: () => Promise<T>) => operation(),
   };
@@ -546,6 +559,19 @@ test("command gate releases the global mutex while retaining the run lease", asy
     /broker failed/u,
   );
   assert.equal(runLocked, false);
+  assert.equal(runAbandoned, false);
+  await assert.rejects(
+    gate.execute(
+      "run-1",
+      async () => brokerRequest(),
+      async () => {
+        throw new ContainmentShutdownUnconfirmedError("unconfirmed");
+      },
+    ),
+    /unconfirmed/u,
+  );
+  assert.equal(runLocked, false);
+  assert.equal(runAbandoned, true);
 });
 
 function brokerRequest(): BrokerCommandRequest {

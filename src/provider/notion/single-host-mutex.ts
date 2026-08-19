@@ -8,6 +8,12 @@ export interface SingleHostMutexLockOptions {
   readonly reclaimable?: boolean;
 }
 
+/** Releases a mutex normally or abandons its durable file as a fence. */
+export interface SingleHostMutexRelease {
+  (): Promise<void>;
+  abandon(): Promise<void>;
+}
+
 /** Domain-separated identity used to coordinate one environment or command run. */
 export type SingleHostMutexIdentity =
   | {
@@ -50,7 +56,7 @@ export class SingleHostMutex {
   /** Acquires the mutex until the returned release callback is awaited. */
   public async lock(
     options: SingleHostMutexLockOptions = {},
-  ): Promise<() => Promise<void>> {
+  ): Promise<SingleHostMutexRelease> {
     /** Prior queue tail awaited before attempting the filesystem lock. */
     const previous = this.#tail;
     /** Callback that releases this caller's queue position. */
@@ -67,20 +73,23 @@ export class SingleHostMutex {
       releaseQueue();
       throw error;
     }
-    let released = false;
-    return async () => {
-      if (released) return;
-      released = true;
+    let finished = false;
+    const finish = async (remove: boolean): Promise<void> => {
+      if (finished) return;
+      finished = true;
       try {
         try {
           await handle.close();
         } finally {
-          await rm(this.#path, { force: true });
+          if (remove) await rm(this.#path, { force: true });
         }
       } finally {
         releaseQueue();
       }
     };
+    return Object.assign(async () => finish(true), {
+      abandon: async () => finish(false),
+    });
   }
 
   /** Acquires the lock, clearing one stale owner before a single retry. */
