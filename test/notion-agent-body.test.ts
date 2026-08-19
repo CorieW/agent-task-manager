@@ -100,7 +100,9 @@ test("Notion Agent loading retries a body and metadata torn read", async () => {
 
   const agent = await provider.getAgentByKey("code-reviewer");
   assert.match(agent?.version ?? "", /^[0-9a-f]{64}$/u);
-  assert.deepEqual(agent?.compatibleVersions, ["2026-08-17T13:00:00.000Z"]);
+  assert.deepEqual(agent?.restartCompatibleVersions, [
+    "2026-08-17T13:00:00.000Z",
+  ]);
 });
 
 test("Notion Agent versions bind same-timestamp command policy changes", async () => {

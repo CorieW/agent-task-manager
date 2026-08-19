@@ -46,7 +46,7 @@ export class AgentCoordinator {
       const agent = await this.requiredAgent(input.agentKey);
       if (
         replay.agentId !== agent.id ||
-        !this.agentVersionMatches(replay.agentVersion, agent) ||
+        replay.agentVersion !== agent.version ||
         replay.taskId !== input.taskId ||
         replay.parentRunId !== input.parentRunId ||
         replay.harnessId !== input.harnessId
@@ -251,7 +251,7 @@ export class AgentCoordinator {
     }
     const startedAt = this.now().toISOString();
     const agent = await this.agentById(restartSource.agentId);
-    this.assertAgentVersion(restartSource, agent);
+    this.assertRestartVersion(restartSource, agent);
     const task = await this.provider.getTask(restartSource.taskId);
     if (task === null || task.archived)
       throw new Error("Active Agent Task is unavailable");
@@ -390,14 +390,18 @@ export class AgentCoordinator {
     return agent;
   }
   private assertAgentVersion(run: ActiveAgentRecord, agent: AgentRecord): void {
-    if (!this.agentVersionMatches(run.agentVersion, agent))
+    if (run.agentVersion !== agent.version)
       throw new Error("Agent definition changed after the run started");
   }
-  private agentVersionMatches(version: string, agent: AgentRecord): boolean {
-    return (
-      version === agent.version ||
-      (agent.compatibleVersions?.includes(version) ?? false)
-    );
+  private assertRestartVersion(
+    run: ActiveAgentRecord,
+    agent: AgentRecord,
+  ): void {
+    if (
+      run.agentVersion !== agent.version &&
+      !(agent.restartCompatibleVersions?.includes(run.agentVersion) ?? false)
+    )
+      throw new Error("Agent definition changed after the run started");
   }
   private async runningOwned(
     runId: string,

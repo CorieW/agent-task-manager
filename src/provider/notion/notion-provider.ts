@@ -587,7 +587,6 @@ export class NotionProvider implements AgentTaskProvider {
       body,
       calledBy: definition.calledBy,
       commands: definition.commands,
-      compatibleVersions: [version(page)],
       enabled: definition.enabled,
       id: id(page),
       key: definition.id,
@@ -597,6 +596,7 @@ export class NotionProvider implements AgentTaskProvider {
       properties: plainProperties(props),
       reasoning: definition.reasoning,
       resourceIds,
+      restartCompatibleVersions: [version(page)],
       transitions: definition.transitions,
       version: agentVersion(page, body),
     };

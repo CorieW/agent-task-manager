@@ -294,10 +294,10 @@ test("completion rejects Agent definition drift before mutating its Task", async
   assert.equal((await provider.getTask("task-1"))?.status, "Planned");
 });
 
-test("legacy Agent versions replay and restart with the canonical version", async () => {
+test("legacy Agent versions fail closed until a canonical restart", async () => {
   const canonicalAgent = {
     ...agent(),
-    compatibleVersions: ["legacy-timestamp"],
+    restartCompatibleVersions: ["legacy-timestamp"],
     version: "body-digest",
   };
   const legacyRun = {
@@ -328,17 +328,25 @@ test("legacy Agent versions replay and restart with the canonical version", asyn
   });
   const coordinator = new AgentCoordinator(provider);
 
-  const replay = await coordinator.start({
-    agentKey: canonicalAgent.key,
-    harnessId: "h",
-    parentRunId: null,
-    runId: legacyRun.runId,
-    taskId: legacyRun.taskId,
-  });
-  assert.equal(replay.run.agentVersion, "legacy-timestamp");
-  assert.deepEqual(await coordinator.commandPolicy(legacyRun.runId, "h"), {
-    exclusion: [],
-  });
+  await assert.rejects(
+    coordinator.start({
+      agentKey: canonicalAgent.key,
+      harnessId: "h",
+      parentRunId: null,
+      runId: legacyRun.runId,
+      taskId: legacyRun.taskId,
+    }),
+    /Run ID reuse conflicts/u,
+  );
+  await assert.rejects(
+    coordinator.commandPolicy(legacyRun.runId, "h"),
+    /definition changed/u,
+  );
+  await assert.rejects(
+    coordinator.complete(legacyRun.runId, "h", "succeeded"),
+    /definition changed/u,
+  );
+  assert.equal((await provider.getTask("task-1"))?.status, "Planned");
   await coordinator.fail(legacyRun.runId, "h", "infra");
   const restarted = await coordinator.restart({
     harnessId: "h",

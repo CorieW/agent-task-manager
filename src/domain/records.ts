@@ -63,8 +63,6 @@ export interface AgentRecord {
   readonly body: string;
   readonly calledBy: string;
   readonly commands: AgentCommandPolicy;
-  /** Provider-supplied prior versions accepted during a bounded rolling upgrade. */
-  readonly compatibleVersions?: readonly string[];
   readonly enabled: boolean;
   /** Provider-owned record identifier. */
   readonly id: string;
@@ -76,6 +74,8 @@ export interface AgentRecord {
   readonly properties: JsonObject;
   readonly reasoning: string;
   readonly resourceIds: readonly string[];
+  /** Provider-supplied prior versions accepted only when rebasing a restart. */
+  readonly restartCompatibleVersions?: readonly string[];
   readonly transitions: AgentTransitions;
   readonly version: string;
 }
