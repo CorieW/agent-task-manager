@@ -80,9 +80,9 @@ const COMMAND_SPECS: readonly CommandSpec[] = [
       "active-agent restart --restart-of-run-id ID --run-id ID --harness-id ID",
   },
   {
-    flags: ["harness-id", "run-id"],
+    flags: [],
     name: "command proxy",
-    usage: "command proxy --run-id ID --harness-id ID -- COMMAND [ARGUMENT...]",
+    usage: "command proxy -- COMMAND [ARGUMENT...]",
   },
   { flags: [], name: "error list", usage: "error list" },
   { flags: ["key"], name: "error get", usage: "error get --key KEY" },
@@ -159,6 +159,14 @@ export async function runCli(
     const [executable, ...arguments_] = parsed.commandArguments;
     if (executable === undefined)
       throw new Error("command proxy requires a command after --");
+    const runId = requiredEnvironmentValue(
+      env,
+      "AGENT_TASK_MANAGER_COMMAND_RUN_ID",
+    );
+    const harnessId = requiredEnvironmentValue(
+      env,
+      "AGENT_TASK_MANAGER_COMMAND_HARNESS_ID",
+    );
     return toJsonValue(
       await new CommandProxy(
         coordinator,
@@ -167,8 +175,8 @@ export async function runCli(
       ).execute({
         arguments: arguments_,
         command: executable,
-        harnessId: requiredFlag(parsed.flags, "harness-id"),
-        runId: requiredFlag(parsed.flags, "run-id"),
+        harnessId,
+        runId,
       }),
     );
   }
@@ -334,7 +342,11 @@ function validateFlags(
 ): void {
   const spec = COMMAND_SPEC_BY_NAME.get(command);
   if (spec === undefined) throw new Error(`Unknown command: ${command}`);
-  const allowed = new Set([...GLOBAL_FLAGS, ...spec.flags]);
+  const globalFlags =
+    command === "command proxy"
+      ? GLOBAL_FLAGS.filter((name) => name !== "environment")
+      : GLOBAL_FLAGS;
+  const allowed = new Set([...globalFlags, ...spec.flags]);
   for (const name of Object.keys(flags))
     if (!allowed.has(name))
       throw new Error(`Flag --${name} is not allowed for ${command}`);
@@ -548,6 +560,16 @@ function requiredFlag(
 ): string {
   const value = optionalString(flags[name]);
   if (value === undefined || value === "") throw new Error(`Missing --${name}`);
+  return value;
+}
+/** Reads a non-empty identity value injected by the trusted harness. */
+function requiredEnvironmentValue(
+  env: NodeJS.ProcessEnv,
+  name: string,
+): string {
+  const value = env[name];
+  if (value === undefined || value.trim() === "")
+    throw new Error(`Missing ${name}`);
   return value;
 }
 function optionalString(

@@ -175,8 +175,8 @@ test("command proxy enforces inclusion, ownership, and path-free names", async (
   const proxy = new CommandProxy(coordinator, executor, gate);
   assert.match(context.systemPrompt, /exclusively through/u);
   assert.match(context.systemPrompt, /Never invoke a shell/u);
-  assert.match(context.systemPrompt, /--run-id="run-1"/u);
-  assert.match(context.systemPrompt, /--harness-id="harness-1"/u);
+  assert.match(context.systemPrompt, /harness binds the current run identity/u);
+  assert.doesNotMatch(context.systemPrompt, /--run-id|--harness-id/u);
   assert.equal(
     (
       await proxy.execute({
@@ -227,10 +227,10 @@ test("command proxy enforces inclusion, ownership, and path-free names", async (
   assert.equal(calls.length, 1);
 });
 
-test("command prompt binds flag-like run identifiers", () => {
-  const prompt = commandProxySystemPrompt("--run", "--harness");
-  assert.match(prompt, /--run-id="--run"/u);
-  assert.match(prompt, /--harness-id="--harness"/u);
+test("command prompt leaves run identity to the trusted harness", () => {
+  const prompt = commandProxySystemPrompt();
+  assert.match(prompt, /command proxy -- <command>/u);
+  assert.doesNotMatch(prompt, /--run-id|--harness-id/u);
 });
 
 test("command proxy exclusion denies only configured commands", async () => {

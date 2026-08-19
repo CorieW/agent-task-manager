@@ -23,6 +23,14 @@ test("CLI rejects unknown and command-irrelevant flags", async () => {
   assert.deepEqual(await runCli(["providers", "--json"]), {
     providers: [{ connectionSecret: "NOTION_TOKEN", type: "notion" }],
   });
+  await assert.rejects(
+    runCli(["command", "proxy", "--run-id", "other", "--", "git"]),
+    /Flag --run-id is not allowed for command proxy/u,
+  );
+  await assert.rejects(
+    runCli(["command", "proxy", "--environment", "other.json", "--", "git"]),
+    /Flag --environment is not allowed for command proxy/u,
+  );
 });
 
 test("boolean flags do not consume command positionals", async () => {

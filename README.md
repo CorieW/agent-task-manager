@@ -17,7 +17,7 @@ task list|get
 agent list|get
 resource list|get
 active-agent list|get|start|heartbeat|complete|fail|sweep|restart
-command proxy --run-id ID --harness-id ID -- COMMAND [ARGUMENT...]
+command proxy -- COMMAND [ARGUMENT...]
 error list|get|report|resolve
 validate
 init --plan|--apply
@@ -26,7 +26,7 @@ providers
 
 Every command emits JSON. Set `AGENT_TASK_MANAGER_ENVIRONMENT` or pass `--environment`; the default is `agent-task-manager.environment.json`. For Notion, place the token in the environment variable named by `provider.connection.tokenEnv` (default `NOTION_TOKEN`).
 
-Agent commands additionally require `AGENT_TASK_MANAGER_COMMAND_BROKER` to name an absolute trusted sandbox-broker executable. The manager authorizes requests but never spawns Agent-requested executables directly.
+Agent commands additionally require `AGENT_TASK_MANAGER_COMMAND_BROKER` to name an absolute trusted sandbox-broker executable. The trusted harness must inject the current run through `AGENT_TASK_MANAGER_COMMAND_RUN_ID` and `AGENT_TASK_MANAGER_COMMAND_HARNESS_ID`; these values must not be controllable by the Agent. The manager authorizes requests but never spawns Agent-requested executables directly.
 
 ## Development
 

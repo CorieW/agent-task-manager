@@ -96,7 +96,7 @@ export class AgentCoordinator {
       agent,
       resources,
       run,
-      systemPrompt: commandProxySystemPrompt(run.runId, run.harnessId),
+      systemPrompt: commandProxySystemPrompt(),
       task,
     };
   }
@@ -272,7 +272,7 @@ export class AgentCoordinator {
       agent,
       resources,
       run,
-      systemPrompt: commandProxySystemPrompt(run.runId, run.harnessId),
+      systemPrompt: commandProxySystemPrompt(),
       task,
     };
   }
@@ -347,7 +347,7 @@ export class AgentCoordinator {
       agent,
       resources,
       run,
-      systemPrompt: commandProxySystemPrompt(run.runId, run.harnessId),
+      systemPrompt: commandProxySystemPrompt(),
       task,
     };
   }
