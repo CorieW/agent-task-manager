@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /** Command-line surface for the simplified, harness-owned lifecycle. */
 import { readFile } from "node:fs/promises";
+import { isAbsolute } from "node:path";
 import { pathToFileURL } from "node:url";
 import process from "node:process";
 
@@ -138,19 +139,30 @@ export async function runCli(
   const configuration = await loadEnvironment(parsed.flags.environment, env);
   const provider = providerFor(configuration, env);
   const coordinator = new AgentCoordinator(provider);
-  const mutex = new SingleHostMutex({
-    environmentId: configuration.environmentId,
-    scope: "environment",
-  });
+  let mutexRoot: string | undefined;
+  const coordinationRoot = (): string =>
+    (mutexRoot ??= coordinationDirectory(env));
+  let mutex: SingleHostMutex | undefined;
+  const environmentMutex = (): SingleHostMutex =>
+    (mutex ??= new SingleHostMutex(
+      {
+        environmentId: configuration.environmentId,
+        scope: "environment",
+      },
+      coordinationRoot(),
+    ));
   const runMutexes = new Map<string, SingleHostMutex>();
   const runMutex = (runId: string): SingleHostMutex => {
     const existing = runMutexes.get(runId);
     if (existing !== undefined) return existing;
-    const created = new SingleHostMutex({
-      environmentId: configuration.environmentId,
-      runId,
-      scope: "command",
-    });
+    const created = new SingleHostMutex(
+      {
+        environmentId: configuration.environmentId,
+        runId,
+        scope: "command",
+      },
+      coordinationRoot(),
+    );
     runMutexes.set(runId, created);
     return created;
   };
@@ -171,7 +183,7 @@ export async function runCli(
       await new CommandProxy(
         coordinator,
         commandBrokerExecutor(env),
-        createCommandExecutionGate(mutex, runMutex),
+        createCommandExecutionGate(environmentMutex(), runMutex),
       ).execute({
         arguments: arguments_,
         command: executable,
@@ -203,7 +215,9 @@ export async function runCli(
       );
     return {
       plan,
-      tables: await mutex.run(() => provider.applyWorkspacePlan(plan)),
+      tables: await environmentMutex().run(() =>
+        provider.applyWorkspacePlan(plan),
+      ),
     } as unknown as JsonValue;
   }
   if (family === "task") {
@@ -239,7 +253,7 @@ export async function runCli(
       );
     if (action === "start")
       return toJsonValue(
-        await mutex.run(() =>
+        await environmentMutex().run(() =>
           coordinator.start({
             agentKey: requiredFlag(parsed.flags, "agent-key"),
             harnessId: requiredFlag(parsed.flags, "harness-id"),
@@ -251,7 +265,7 @@ export async function runCli(
       );
     if (action === "heartbeat")
       return toJsonValue(
-        await mutex.run(() =>
+        await environmentMutex().run(() =>
           coordinator.heartbeat(
             requiredFlag(parsed.flags, "run-id"),
             requiredFlag(parsed.flags, "harness-id"),
@@ -261,7 +275,7 @@ export async function runCli(
     if (action === "complete")
       return toJsonValue(
         await withRunLeases(
-          mutex,
+          environmentMutex(),
           runMutex,
           provider,
           [requiredFlag(parsed.flags, "run-id")],
@@ -276,7 +290,7 @@ export async function runCli(
     if (action === "fail")
       return toJsonValue(
         await withRunLeases(
-          mutex,
+          environmentMutex(),
           runMutex,
           provider,
           [requiredFlag(parsed.flags, "run-id")],
@@ -290,12 +304,12 @@ export async function runCli(
       );
     if (action === "sweep")
       return toJsonValue(
-        await sweepWithRunLeases(mutex, runMutex, coordinator),
+        await sweepWithRunLeases(environmentMutex(), runMutex, coordinator),
       );
     if (action === "restart")
       return toJsonValue(
         await withRunLeases(
-          mutex,
+          environmentMutex(),
           runMutex,
           provider,
           [requiredFlag(parsed.flags, "restart-of-run-id")],
@@ -316,11 +330,13 @@ export async function runCli(
       );
     if (action === "report") {
       const input = await readErrorInput(requiredFlag(parsed.flags, "input"));
-      return toJsonValue(await mutex.run(() => coordinator.reportError(input)));
+      return toJsonValue(
+        await environmentMutex().run(() => coordinator.reportError(input)),
+      );
     }
     if (action === "resolve")
       return toJsonValue(
-        await mutex.run(() =>
+        await environmentMutex().run(() =>
           coordinator.resolveError(
             requiredFlag(parsed.flags, "key"),
             requiredFlag(parsed.flags, "resolution"),
@@ -571,6 +587,18 @@ function requiredEnvironmentValue(
   if (value === undefined || value.trim() === "")
     throw new Error(`Missing ${name}`);
   return value;
+}
+/** Resolves manager-only lock storage provisioned outside Agent sandboxes. */
+function coordinationDirectory(env: NodeJS.ProcessEnv): string {
+  const path = requiredEnvironmentValue(
+    env,
+    "AGENT_TASK_MANAGER_COORDINATION_DIRECTORY",
+  );
+  if (!isAbsolute(path))
+    throw new Error(
+      "AGENT_TASK_MANAGER_COORDINATION_DIRECTORY must be an absolute path",
+    );
+  return path;
 }
 function optionalString(
   value: boolean | string | undefined,

@@ -10,6 +10,17 @@ import {
   type SingleHostMutexIdentity,
 } from "../src/provider/notion/single-host-mutex.js";
 
+test("mutex requires an explicit absolute coordination root", () => {
+  assert.throws(
+    () =>
+      new SingleHostMutex(
+        { environmentId: "environment", scope: "environment" },
+        "relative",
+      ),
+    /Mutex root must be an absolute path/u,
+  );
+});
+
 /** Proves two identities can hold distinct lock files at the same time. */
 async function assertDistinctLockIdentities(
   first: SingleHostMutexIdentity,

@@ -304,7 +304,10 @@ test("sandbox broker receives literal arguments without manager secrets", async 
               livenessChannelOpen: !process.stdin.readableEnded,
               runId: request.runId,
               schema: request.schema,
-              secret: process.env.${secretName}
+              secret: process.env.${secretName},
+              tempLeaked: process.env.TEMP === "manager-temp-sentinel",
+              tmpLeaked: process.env.TMP === "manager-tmp-sentinel",
+              tmpdirLeaked: process.env.TMPDIR === "manager-tmpdir-sentinel"
             })
           }), () => process.exit(0));
         }, 20);
@@ -313,7 +316,15 @@ test("sandbox broker receives literal arguments without manager secrets", async 
     const executor = createCommandBrokerExecutor(
       process.execPath,
       ["--input-type=commonjs", "-e", broker],
-      { environment: { ...process.env, LANG: "broker-locale" } },
+      {
+        environment: {
+          ...process.env,
+          LANG: "broker-locale",
+          TEMP: "manager-temp-sentinel",
+          TMP: "manager-tmp-sentinel",
+          TMPDIR: "manager-tmpdir-sentinel",
+        },
+      },
     );
     const result = await executor({
       arguments: ["status", "&&", "node"],
@@ -329,6 +340,9 @@ test("sandbox broker receives literal arguments without manager secrets", async 
       livenessChannelOpen: true,
       runId: "run-1",
       schema: "agent-command-broker-request-v2",
+      tempLeaked: false,
+      tmpLeaked: false,
+      tmpdirLeaked: false,
     });
   } finally {
     if (previous === undefined) delete process.env[secretName];

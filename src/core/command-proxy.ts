@@ -283,9 +283,6 @@ function commandEnvironment(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
     "PATH",
     "PATHEXT",
     "SystemRoot",
-    "TEMP",
-    "TMP",
-    "TMPDIR",
     "WINDIR",
   ];
   return Object.fromEntries(

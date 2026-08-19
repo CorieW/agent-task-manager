@@ -1,8 +1,7 @@
 /** Serializes in-process Notion writes and rejects live same-host writers through a shared lock file. */
 import { createHash } from "node:crypto";
 import { open, readFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 
 /** Controls whether a dead owning process is sufficient to recover a lock. */
 export interface SingleHostMutexLockOptions {
@@ -30,8 +29,10 @@ export class SingleHostMutex {
   /** Per-key promise tail that serializes mutex callers. */
   #tail: Promise<void> = Promise.resolve();
 
-  /** Initializes single-host mutex. */
-  public constructor(identity: SingleHostMutexIdentity, root = tmpdir()) {
+  /** Initializes a mutex inside a host-private coordination directory. */
+  public constructor(identity: SingleHostMutexIdentity, root: string) {
+    if (!isAbsolute(root))
+      throw new TypeError("Mutex root must be an absolute path");
     this.#path = join(root, `agent-task-manager-${safeName(identity)}.lock`);
     this.#recoveryPath = `${this.#path}.recovery`;
   }
