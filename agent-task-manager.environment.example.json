@@ -1,6 +1,7 @@
 {
-  "schema": "agent-task-manager-environment-v2",
+  "schema": "agent-task-manager-environment-v3",
   "environmentId": "management-v2",
+  "worktree": null,
   "provider": {
     "type": "notion",
     "connection": {

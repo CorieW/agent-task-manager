@@ -146,6 +146,7 @@ export class InMemoryProvider implements AgentTaskProvider {
       agentVersion: input.agentVersion,
       archived: false,
       attempt: input.attempt,
+      branch: input.branch,
       failureSummary: "",
       finishedAt: null,
       harnessId: input.harnessId,
@@ -160,6 +161,7 @@ export class InMemoryProvider implements AgentTaskProvider {
       status: "running",
       taskId: input.taskId,
       version: this.version(),
+      worktreePath: input.worktreePath,
     };
     this.#activeAgents.set(record.runId, record);
     return clone(record);

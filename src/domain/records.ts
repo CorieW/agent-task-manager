@@ -97,6 +97,8 @@ export interface ActiveAgentRecord {
   readonly archived: boolean;
   /** One-based attempt number within the retry chain. */
   readonly attempt: number;
+  /** Unique Git branch bound to this run, or null for the primary repository. */
+  readonly branch: string | null;
   readonly failureSummary: string;
   readonly finishedAt: string | null;
   readonly harnessId: string;
@@ -117,6 +119,8 @@ export interface ActiveAgentRecord {
   readonly taskId: string;
   /** Provider version of this Active Agent record. */
   readonly version: string;
+  /** Absolute Git working directory bound to commands, or null when disabled. */
+  readonly worktreePath: string | null;
 }
 
 /** Provider-neutral projection of one keyed Error record. */

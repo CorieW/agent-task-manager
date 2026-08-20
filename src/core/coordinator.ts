@@ -11,6 +11,7 @@ import type {
 import type { AgentCommandPolicy } from "../domain/commands.js";
 import type { AgentTaskProvider } from "../provider/agent-task-provider.js";
 import { commandProxySystemPrompt } from "./agent-system-prompt.js";
+import { NO_WORKTREES, type RunWorktreeAllocator } from "./git-worktree.js";
 
 /** Maximum time a running Agent may go without a heartbeat. */
 export const STALE_AFTER_MILLISECONDS = 5 * 60 * 1000;
@@ -36,6 +37,7 @@ export class AgentCoordinator {
   public constructor(
     private readonly provider: AgentTaskProvider,
     private readonly now: () => Date = () => new Date(),
+    private readonly worktrees: RunWorktreeAllocator = NO_WORKTREES,
   ) {}
 
   /** Starts a run or idempotently replays an identical existing Run ID. */
@@ -55,6 +57,7 @@ export class AgentCoordinator {
         throw new Error(
           "Run ID reuse conflicts with the existing Active Agent",
         );
+      await this.worktrees.verify(agent.key, replay);
       return this.context(replay, agent);
     }
     const agent = await this.requiredAgent(input.agentKey);
@@ -81,11 +84,13 @@ export class AgentCoordinator {
         throw new Error("Child Active Agent must use its parent Task");
     }
     const resources = await this.resourcesFor(agent);
+    const worktree = await this.worktrees.prepare(agent.key, input.runId);
     const startedAt = this.now().toISOString();
     const run = await this.provider.createActiveAgent({
       agentId: agent.id,
       agentVersion: agent.version,
       attempt: 1,
+      branch: worktree?.branch ?? null,
       harnessId: input.harnessId,
       parentRunId: input.parentRunId,
       restartOfRunId: null,
@@ -93,6 +98,7 @@ export class AgentCoordinator {
       runId: input.runId,
       startedAt,
       taskId: input.taskId,
+      worktreePath: worktree?.path ?? null,
     });
     return {
       agent,
@@ -263,10 +269,12 @@ export class AgentCoordinator {
       throw new Error("Active Agent Task is unavailable");
     this.assertTaskEligibility(agent, task);
     const resources = await this.resourcesFor(agent);
+    const worktree = await this.worktrees.prepare(agent.key, input.runId);
     const run = await this.provider.createActiveAgent({
       agentId: restartSource.agentId,
       agentVersion: agent.version,
       attempt,
+      branch: worktree?.branch ?? null,
       harnessId: input.harnessId,
       parentRunId: restartSource.parentRunId,
       restartOfRunId: restartSource.runId,
@@ -274,6 +282,7 @@ export class AgentCoordinator {
       runId: input.runId,
       startedAt,
       taskId: restartSource.taskId,
+      worktreePath: worktree?.path ?? null,
     });
     return {
       agent,
@@ -284,15 +293,23 @@ export class AgentCoordinator {
     };
   }
 
-  /** Returns the pinned command policy after checking run ownership. */
-  public async commandPolicy(
+  /** Returns the pinned policy and verified working directory for one run. */
+  public async commandAuthorization(
     runId: string,
     harnessId: string,
-  ): Promise<AgentCommandPolicy> {
+  ): Promise<{
+    readonly commands: AgentCommandPolicy;
+    readonly workingDirectory: string;
+  }> {
     const run = await this.runningOwned(runId, harnessId);
     const agent = await this.agentById(run.agentId);
     this.assertAgentVersion(run, agent);
-    return agent.commands;
+    await this.worktrees.verify(agent.key, run);
+    if (run.worktreePath === null)
+      throw new Error(
+        "Agent commands are disabled without a configured Git working directory",
+      );
+    return { commands: agent.commands, workingDirectory: run.worktreePath };
   }
 
   /** Creates or reopens a keyed Error through the configured provider. */

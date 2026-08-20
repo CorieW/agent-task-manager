@@ -327,6 +327,7 @@ test("completion rejects Agent definition drift before mutating its Task", async
         agentVersion: "older-definition",
         archived: false,
         attempt: 1,
+        branch: null,
         failureSummary: "",
         finishedAt: null,
         harnessId: "h",
@@ -341,6 +342,7 @@ test("completion rejects Agent definition drift before mutating its Task", async
         status: "running",
         taskId: "task-1",
         version: "run-version",
+        worktreePath: null,
       },
     ],
     agents: [agent()],
@@ -365,6 +367,7 @@ test("legacy Agent versions fail closed until a canonical restart", async () => 
     agentVersion: "legacy-timestamp",
     archived: false,
     attempt: 1,
+    branch: null,
     failureSummary: "",
     finishedAt: null,
     harnessId: "h",
@@ -379,6 +382,7 @@ test("legacy Agent versions fail closed until a canonical restart", async () => 
     status: "running" as const,
     taskId: "task-1",
     version: "run-version",
+    worktreePath: null,
   };
   const provider = new InMemoryProvider({
     activeAgents: [legacyRun],
@@ -399,7 +403,7 @@ test("legacy Agent versions fail closed until a canonical restart", async () => 
     /Run ID reuse conflicts/u,
   );
   await assert.rejects(
-    coordinator.commandPolicy(legacyRun.runId, "h"),
+    coordinator.commandAuthorization(legacyRun.runId, "h"),
     /definition changed/u,
   );
   await assert.rejects(

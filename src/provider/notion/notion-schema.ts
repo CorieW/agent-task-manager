@@ -82,6 +82,8 @@ export const NOTION_TABLES: readonly NotionTableDescriptor[] = [
       property("Agent Version", "rich_text"),
       relationProperty("Task", "tasks", "Active Agents"),
       property("Task ID", "rich_text"),
+      property("Branch", "rich_text"),
+      property("Worktree", "rich_text"),
       relationProperty("Parent", "activeAgents"),
       relationProperty("Restart Of", "activeAgents"),
       property("Retry Key", "rich_text"),
@@ -127,7 +129,7 @@ export const NOTION_TABLES: readonly NotionTableDescriptor[] = [
 ];
 
 /** Version label included in the canonical Notion schema digest. */
-export const NOTION_SCHEMA_VERSION = "notion-workspace-schema-v8";
+export const NOTION_SCHEMA_VERSION = "notion-workspace-schema-v9";
 /** SHA-256 digest of the complete canonical Notion schema. */
 export const NOTION_SCHEMA_DIGEST = digestJson(
   toJsonValue({ tables: NOTION_TABLES, version: NOTION_SCHEMA_VERSION }),
