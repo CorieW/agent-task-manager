@@ -1,11 +1,17 @@
 /** CLI parsing and command-registry regression coverage. */
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import test from "node:test";
 
-import { proxyExitCode, runCli, sweepWithRunLeases } from "../src/cli.js";
+import {
+  isDirectExecution,
+  proxyExitCode,
+  runCli,
+  sweepWithRunLeases,
+} from "../src/cli.js";
 import { AgentCoordinator } from "../src/core/coordinator.js";
 import type { ActiveAgentRecord } from "../src/domain/records.js";
 import { InMemoryProvider } from "../src/provider/in-memory-provider.js";
@@ -79,6 +85,31 @@ test("CLI reports signalled proxy commands as failures", () => {
   assert.equal(proxyExitCode({ exitCode: 7 }), 7);
   assert.equal(proxyExitCode({ exitCode: 0, signal: "SIGTERM" }), 1);
   assert.equal(proxyExitCode({ result: "not a command" }), null);
+});
+
+test("CLI entry detection resolves linked global package directories", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-task-manager-entry-"));
+  const realDirectory = join(root, "real");
+  const linkedDirectory = join(root, "linked");
+  const realEntry = join(realDirectory, "cli.js");
+  try {
+    await mkdir(realDirectory);
+    await writeFile(realEntry, "// test entry\n", "utf8");
+    await symlink(
+      realDirectory,
+      linkedDirectory,
+      process.platform === "win32" ? "junction" : "dir",
+    );
+    assert.equal(
+      isDirectExecution(
+        pathToFileURL(realEntry).href,
+        join(linkedDirectory, "cli.js"),
+      ),
+      true,
+    );
+  } finally {
+    await rm(root, { force: true, recursive: true });
+  }
 });
 
 /** Creates one Active Agent fixture for scoped sweep orchestration. */

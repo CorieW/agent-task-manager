@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 /** Command-line surface for the simplified, harness-owned lifecycle. */
+import { realpathSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { isAbsolute } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import process from "node:process";
 
 import {
@@ -618,10 +619,7 @@ function optionalString(
   return typeof value === "string" ? value : undefined;
 }
 
-if (
-  process.argv[1] !== undefined &&
-  import.meta.url === pathToFileURL(process.argv[1]).href
-) {
+if (isDirectExecution(import.meta.url, process.argv[1])) {
   runCli(process.argv.slice(2)).then(
     (result) => {
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
@@ -635,6 +633,23 @@ if (
       process.exitCode = 1;
     },
   );
+}
+
+/** Identifies a CLI entry point after resolving package-manager links. */
+export function isDirectExecution(
+  moduleUrl: string,
+  argumentPath: string | undefined,
+): boolean {
+  if (argumentPath === undefined) return false;
+  try {
+    const modulePath = realpathSync(fileURLToPath(moduleUrl));
+    const invokedPath = realpathSync(argumentPath);
+    return process.platform === "win32"
+      ? modulePath.toLowerCase() === invokedPath.toLowerCase()
+      : modulePath === invokedPath;
+  } catch {
+    return moduleUrl === pathToFileURL(argumentPath).href;
+  }
 }
 
 /** Returns a nonzero status for failed or signalled proxied commands. */
