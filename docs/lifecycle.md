@@ -2,7 +2,7 @@
 
 An Active Agent is a disposable execution projection. Starting one parses the Agent definition from its page body, validates that it is enabled, resolves its `prompt/*` and `policy/*` selectors to active Resources, and then validates the Task Type and Status against the Agent's user-defined allowlists, optional same-Task parent, and Task root exclusivity. Replay and restart recheck those allowlists. The response contains the current Task, Agent, and Resource bodies plus a strict assignment-and-command system prompt; it contains no transcript or snapshot.
 
-The harness refreshes `Last Heartbeat`. A heartbeat more than five minutes old is stale. Failure or staleness stops and archives descendants but leaves the run's parent running. Failed and stale rows remain visible; successful and ancestor-stopped rows are archived.
+The harness refreshes `Last Heartbeat`. A heartbeat more than five minutes old is stale. Failure or staleness stops and archives descendants but leaves the run's parent running. Every terminal transition clears the run's live `Task` relation so the reciprocal Task `Active Agents` relation contains running agents only. The immutable `Task ID` metadata preserves retry and audit identity after detachment. Failed and stale rows remain visible; successful and ancestor-stopped rows are archived.
 
 Each Retry Key permits three attempts. The third failure reports `active-agent-retry:<retry-key>` and blocks another restart until a human resolves that Error. The next restart begins a new attempt-one chain. Other Errors are informational.
 

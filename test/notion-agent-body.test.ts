@@ -23,6 +23,7 @@ const ids = {
   parentRun: "66666666666666666666666666666666",
   restartRun: "77777777777777777777777777777777",
   resources: "dddddddddddddddddddddddddddddddd",
+  task: "99999999999999999999999999999999",
   tasks: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
 } as const;
 
@@ -216,6 +217,83 @@ test("Notion Active Agent lookup preserves parent and restart Run IDs", async ()
   assert.equal(run?.restartOfRunId, "failed");
 });
 
+test("Notion terminal Active Agents detach from Tasks without losing retry identity", async () => {
+  for (const status of ["completed", "failed", "stale", "stopped"] as const) {
+    const transport = new ActiveAgentLifecycleTransport();
+    const provider = lifecycleProvider(transport);
+    const terminal = await provider.updateActiveAgent("child", {
+      finishedAt: "2026-08-17T12:01:00.000Z",
+      status,
+    });
+    assert.equal(terminal.taskId, ids.task);
+    assert.deepEqual(transport.patches[0], {
+      properties: {
+        "Finished At": requestDate("2026-08-17T12:01:00.000Z"),
+        Status: requestSelect(
+          `${status.slice(0, 1).toUpperCase()}${status.slice(1)}`,
+        ),
+        Task: requestRelation([]),
+        "Task ID": requestRichText(ids.task),
+      },
+    });
+  }
+
+  const transport = new ActiveAgentLifecycleTransport();
+  const provider = lifecycleProvider(transport);
+  await provider.archiveActiveAgent("child");
+  assert.deepEqual(transport.patches[0], {
+    in_trash: true,
+    properties: {
+      Task: requestRelation([]),
+      "Task ID": requestRichText(ids.task),
+    },
+  });
+});
+
+test("Notion Active Agent creation persists historical Task identity", async () => {
+  const transport = new ActiveAgentCreationTransport();
+  const created = await lifecycleProvider(transport).createActiveAgent({
+    agentId: ids.agent,
+    agentVersion: "agent-version",
+    attempt: 1,
+    harnessId: "harness",
+    parentRunId: null,
+    restartOfRunId: null,
+    retryKey: "child",
+    runId: "child",
+    startedAt: "2026-08-17T12:00:00.000Z",
+    taskId: ids.task,
+  });
+
+  assert.equal(created.taskId, ids.task);
+  assert.deepEqual(
+    transport.createdProperties?.Task,
+    requestRelation([ids.task]),
+  );
+  assert.deepEqual(
+    transport.createdProperties?.["Task ID"],
+    requestRichText(ids.task),
+  );
+});
+
+function lifecycleProvider(transport: NotionTransport): NotionProvider {
+  return new NotionProvider(
+    {
+      bootstrapParent: "ffffffffffffffffffffffffffffffff",
+      connection: {},
+      tables: {
+        activeAgents: ids.activeAgents,
+        agents: ids.agents,
+        errors: ids.errors,
+        resources: ids.resources,
+        tasks: ids.tasks,
+      },
+      type: "notion",
+    },
+    transport,
+  );
+}
+
 class AgentBodyTransport implements NotionTransport {
   public constructor(
     private readonly propertyOverride?: {
@@ -317,6 +395,68 @@ class SameTimestampAgentBodyTransport extends AgentBodyTransport {
   }
 }
 
+class ActiveAgentLifecycleTransport implements NotionTransport {
+  public readonly patches: JsonObject[] = [];
+  private detached = false;
+
+  public async request(request: NotionRequest): Promise<JsonObject> {
+    if (request.path === `/v1/data_sources/${ids.activeAgents}/query`)
+      return pageResults([
+        activeAgentLifecyclePage(this.detached ? [] : [ids.task]),
+      ]);
+    if (
+      request.method === "PATCH" &&
+      request.path === `/v1/pages/${ids.childRun}`
+    ) {
+      assert.ok(
+        request.body !== undefined &&
+          request.body !== null &&
+          typeof request.body === "object" &&
+          !Array.isArray(request.body),
+      );
+      this.patches.push(request.body);
+      this.detached = true;
+      return activeAgentLifecyclePage([]);
+    }
+    throw new Error(
+      `Unexpected Notion request: ${request.method} ${request.path}`,
+    );
+  }
+}
+
+class ActiveAgentCreationTransport implements NotionTransport {
+  public createdProperties: JsonObject | null = null;
+
+  public async request(request: NotionRequest): Promise<JsonObject> {
+    if (request.path === `/v1/data_sources/${ids.activeAgents}/query`)
+      return pageResults(
+        this.createdProperties === null
+          ? []
+          : [activeAgentLifecyclePage([ids.task])],
+      );
+    if (request.method === "POST" && request.path === "/v1/pages") {
+      assert.ok(
+        request.body !== undefined &&
+          request.body !== null &&
+          typeof request.body === "object" &&
+          !Array.isArray(request.body),
+      );
+      const properties = request.body.properties;
+      assert.ok(
+        properties !== undefined &&
+          properties !== null &&
+          typeof properties === "object" &&
+          !Array.isArray(properties),
+      );
+      this.createdProperties = properties;
+      return { id: ids.childRun };
+    }
+    throw new Error(
+      `Unexpected Notion request: ${request.method} ${request.path}`,
+    );
+  }
+}
+
 function agentMarkdown(commands: string): string {
   return `## Agent definition
 
@@ -336,6 +476,19 @@ function activeAgentPage(
     Parent: relationProperty(parentId === undefined ? [] : [parentId]),
     "Restart Of": relationProperty(restartId === undefined ? [] : [restartId]),
     "Run ID": richTextProperty("title", runId),
+  });
+}
+
+function activeAgentLifecyclePage(taskIds: readonly string[]): JsonObject {
+  return page(ids.childRun, {
+    "Finished At": dateProperty(null),
+    Outcome: richTextProperty("rich_text", ""),
+    Parent: relationProperty([]),
+    "Restart Of": relationProperty([]),
+    "Run ID": richTextProperty("title", "child"),
+    Status: selectProperty("Running"),
+    Task: relationProperty(taskIds),
+    "Task ID": richTextProperty("rich_text", ids.task),
   });
 }
 
@@ -376,4 +529,24 @@ function selectProperty(value: string): JsonObject {
 
 function relationProperty(ids: readonly string[]): JsonObject {
   return { relation: ids.map((id) => ({ id })), type: "relation" };
+}
+
+function dateProperty(value: string | null): JsonObject {
+  return { date: value === null ? null : { start: value }, type: "date" };
+}
+
+function requestDate(value: string): JsonObject {
+  return { date: { start: value } };
+}
+
+function requestRelation(ids: readonly string[]): JsonObject {
+  return { relation: ids.map((id) => ({ id })) };
+}
+
+function requestRichText(value: string): JsonObject {
+  return { rich_text: [{ text: { content: value }, type: "text" }] };
+}
+
+function requestSelect(value: string): JsonObject {
+  return { select: { name: value } };
 }

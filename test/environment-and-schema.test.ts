@@ -101,6 +101,10 @@ test("Notion schema has only Tasks, Agents, Resources, Active Agents, and Errors
     active.properties.find((property) => property.name === "Task")?.syncedName,
     "Active Agents",
   );
+  assert.equal(
+    active.properties.find((property) => property.name === "Task ID")?.type,
+    "rich_text",
+  );
   assert.deepEqual(
     NOTION_TABLES.find((table) => table.kind === "tasks")?.properties.find(
       (property) => property.name === "Status",

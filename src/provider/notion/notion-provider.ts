@@ -373,6 +373,7 @@ export class NotionProvider implements AgentTaskProvider {
           Agent: relation([input.agentId]),
           "Agent Version": richText(input.agentVersion),
           Task: relation([input.taskId]),
+          "Task ID": richText(input.taskId),
           Parent: relation(parent === null ? [] : [parent.id]),
           "Restart Of": relation(restart === null ? [] : [restart.id]),
           "Retry Key": richText(input.retryKey),
@@ -399,6 +400,10 @@ export class NotionProvider implements AgentTaskProvider {
     runId: string,
     patch: ActiveAgentPatch,
   ): Promise<ActiveAgentRecord> {
+    const current = required(
+      await this.getActiveAgent(runId),
+      `Active Agent not found: ${runId}`,
+    );
     const properties: Record<string, JsonValue> = {};
     if (patch.status !== undefined)
       properties.Status = select(label(patch.status));
@@ -410,10 +415,8 @@ export class NotionProvider implements AgentTaskProvider {
       properties.Outcome = richText(patch.outcome);
     if (patch.failureSummary !== undefined)
       properties["Failure Summary"] = richText(patch.failureSummary);
-    const current = required(
-      await this.getActiveAgent(runId),
-      `Active Agent not found: ${runId}`,
-    );
+    if (patch.status !== undefined && patch.status !== "running")
+      Object.assign(properties, detachedTaskProperties(current.taskId));
     await this.transport.request({
       body: { properties },
       method: "PATCH",
@@ -431,7 +434,10 @@ export class NotionProvider implements AgentTaskProvider {
       `Active Agent not found: ${runId}`,
     );
     await this.transport.request({
-      body: { in_trash: true },
+      body: {
+        in_trash: true,
+        properties: detachedTaskProperties(current.taskId),
+      },
       method: "PATCH",
       path: `/v1/pages/${current.id}`,
     });
@@ -804,7 +810,7 @@ export class NotionProvider implements AgentTaskProvider {
         status: selectValue(
           props.Status,
         ).toLowerCase() as ActiveAgentRecord["status"],
-        taskId: first("Task") ?? "",
+        taskId: first("Task") ?? textValue(props["Task ID"]),
         version: version(page),
       };
     });
@@ -1078,6 +1084,13 @@ function select(value: string): JsonObject {
 }
 function relation(ids: readonly string[]): JsonObject {
   return { relation: ids.map((value) => ({ id: normalizeId(value) })) };
+}
+
+/** Preserves immutable Task identity while removing reciprocal live ownership. */
+function detachedTaskProperties(taskId: string): JsonObject {
+  if (taskId === "")
+    throw new Error("Active Agent Task identity is unavailable");
+  return { Task: relation([]), "Task ID": richText(taskId) };
 }
 function date(value: string | null): JsonObject {
   return { date: value === null ? null : { start: value } };
