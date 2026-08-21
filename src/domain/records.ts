@@ -4,6 +4,10 @@ import {
   parseAgentCommandPolicy,
   type AgentCommandPolicy,
 } from "./commands.js";
+import {
+  parseAgentLifecycleConfig,
+  type AgentLifecycleConfig,
+} from "./lifecycle.js";
 
 /** Lifecycle state of a Resource. */
 export type ResourceState = "active" | "draft" | "retired";
@@ -29,6 +33,7 @@ export interface AgentDefinition {
   readonly commands: AgentCommandPolicy;
   readonly enabled: boolean;
   readonly id: string;
+  readonly lifecycleCommands: AgentLifecycleConfig;
   readonly model: string;
   readonly notes: string;
   readonly reasoning: string;
@@ -77,6 +82,7 @@ export interface AgentRecord {
   readonly id: string;
   /** Stable lookup key declared by the Agent definition. */
   readonly key: string;
+  readonly lifecycleCommands: AgentLifecycleConfig;
   readonly model: string;
   readonly name: string;
   readonly notes: string;
@@ -361,6 +367,10 @@ export function parseAgentDefinition(markdown: string): AgentDefinition {
         : parseAgentCommandPolicy(definition.commands),
     enabled: definition.enabled,
     id: definitionText(definition.id, "id"),
+    lifecycleCommands:
+      schema === "agent-definition-v3"
+        ? parseAgentLifecycleConfig(definition.lifecycleCommands)
+        : parseAgentLifecycleConfig(undefined),
     model: definitionText(definition.model, "model"),
     notes: optionalDefinitionText(definition.notes, "notes"),
     reasoning: definitionText(definition.reasoning, "reasoning"),
@@ -386,7 +396,7 @@ function rejectUnknownDefinitionFields(
     "transitions",
     ...(schema === "agent-definition-v1" ? [] : ["commands"]),
     ...(schema === "agent-definition-v3"
-      ? ["allowedStatuses", "allowedTaskTypes"]
+      ? ["allowedStatuses", "allowedTaskTypes", "lifecycleCommands"]
       : []),
   ]);
   const unknown = Object.keys(definition).filter((key) => !supported.has(key));

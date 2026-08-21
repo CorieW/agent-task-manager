@@ -19,6 +19,7 @@ import {
   normalizeCommandName,
   parseAgentCommandPolicy,
 } from "../src/domain/commands.js";
+import { EMPTY_AGENT_LIFECYCLE } from "../src/domain/lifecycle.js";
 import type {
   AgentRecord,
   ResourceRecord,
@@ -61,6 +62,7 @@ async function setup(policy: AgentCommandPolicy) {
     enabled: true,
     id: "agent-1",
     key: "coder",
+    lifecycleCommands: EMPTY_AGENT_LIFECYCLE,
     model: "gpt",
     name: "Coder",
     notes: "",

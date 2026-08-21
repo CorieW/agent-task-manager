@@ -6,6 +6,7 @@ export * from "./core/coordinator.js";
 export * from "./core/lifecycle-commands.js";
 export * from "./domain/commands.js";
 export * from "./domain/json.js";
+export * from "./domain/lifecycle.js";
 export * from "./domain/provider.js";
 export * from "./domain/records.js";
 export * from "./provider/agent-task-provider.js";

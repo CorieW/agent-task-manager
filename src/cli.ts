@@ -143,11 +143,7 @@ export async function runCli(
   const coordinator = new AgentCoordinator(
     provider,
     () => new Date(),
-    new ConfiguredLifecycleCommands(
-      configuration.environmentId,
-      configuration.lifecycleCommands,
-      env,
-    ),
+    new ConfiguredLifecycleCommands(configuration.environmentId, env),
   );
   let mutexRoot: string | undefined;
   const coordinationRoot = (): string =>

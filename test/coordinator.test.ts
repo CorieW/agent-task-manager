@@ -18,6 +18,7 @@ import type {
   ResourceRecord,
   TaskRecord,
 } from "../src/domain/records.js";
+import { EMPTY_AGENT_LIFECYCLE } from "../src/domain/lifecycle.js";
 import { InMemoryProvider } from "../src/provider/in-memory-provider.js";
 
 function task(): TaskRecord {
@@ -61,6 +62,7 @@ function agent(): AgentRecord {
     enabled: true,
     id: "agent-1",
     key: "coder",
+    lifecycleCommands: EMPTY_AGENT_LIFECYCLE,
     model: "gpt",
     name: "Coder",
     notes: "",
@@ -99,14 +101,14 @@ test("configured lifecycle commands surround duties and replay only once", async
   const events: string[] = [];
   let failAfter = false;
   const lifecycle: AgentLifecycleCommands = {
-    async after(context) {
+    async after(_config, context) {
       events.push(`after:${context.status}:${context.outcome}`);
       if (failAfter) throw new Error("cleanup failed");
     },
-    async before(context) {
+    async before(_config, context) {
       events.push(`before:${context.runId}`);
     },
-    workingDirectory(_agentKey, context) {
+    workingDirectory(_config, context) {
       return resolve("runs", context.runId);
     },
   };
@@ -176,7 +178,7 @@ test("a before command failure creates no Active Agent", async () => {
 test("after commands run for stopped descendants and their failed root", async () => {
   const terminal: string[] = [];
   const lifecycle: AgentLifecycleCommands = {
-    async after(context) {
+    async after(_config, context) {
       terminal.push(`${context.runId}:${context.status}`);
     },
     async before() {},

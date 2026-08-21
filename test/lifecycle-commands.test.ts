@@ -13,18 +13,18 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
 
-import type { LifecycleCommandsConfig } from "../src/config/environment.js";
+import {
+  type AgentLifecycleConfig,
+  parseAgentLifecycleConfig,
+} from "../src/domain/lifecycle.js";
 import {
   ConfiguredLifecycleCommands,
+  NO_LIFECYCLE_COMMANDS,
   type LifecycleCommandContext,
   type LifecycleCommandInvocation,
 } from "../src/core/lifecycle-commands.js";
 
-const command = (
-  executable: string,
-  agentKeys: readonly string[] | null = null,
-) => ({
-  agentKeys,
+const command = (executable: string) => ({
   arguments: ["{{runId}}", "{{workingDirectory}}", "{{status}}"],
   environment: {
     AGENT_TASK_MANAGER_RUN_ID: "cannot-override",
@@ -37,26 +37,24 @@ const command = (
 });
 
 test("lifecycle commands render trusted context in configured order", async () => {
-  const config: LifecycleCommandsConfig = {
+  const config: AgentLifecycleConfig = {
     afterAgent: [command("cleanup")],
-    beforeAgent: [command("skip", ["reviewer"]), command("prepare", ["coder"])],
-    workingDirectories: { coder: resolve("runs", "{{runId}}") },
+    beforeAgent: [command("prepare")],
+    workingDirectory: resolve("runs", "{{runId}}"),
   };
   const calls: LifecycleCommandInvocation[] = [];
   const lifecycle = new ConfiguredLifecycleCommands(
     "project",
-    config,
     { FORWARDED: "yes", PATH: "test-path", SECRET: "must-not-leak" },
     async (invocation) => {
       calls.push(invocation);
     },
   );
   const start = baseContext();
-  assert.equal(lifecycle.workingDirectory("toString", start), null);
-  const workingDirectory = lifecycle.workingDirectory("coder", start);
+  const workingDirectory = lifecycle.workingDirectory(config, start);
   assert.equal(workingDirectory, resolve("runs", "run-1"));
-  await lifecycle.before({ ...start, workingDirectory });
-  await lifecycle.after({
+  await lifecycle.before(config, { ...start, workingDirectory });
+  await lifecycle.after(config, {
     ...start,
     outcome: "succeeded",
     status: "completed",
@@ -86,21 +84,16 @@ test("lifecycle commands render trusted context in configured order", async () =
 });
 
 test("lifecycle command failures identify phase and run without leaking output", async () => {
-  const config: LifecycleCommandsConfig = {
+  const config: AgentLifecycleConfig = {
     afterAgent: [],
     beforeAgent: [command("prepare")],
-    workingDirectories: {},
+    workingDirectory: null,
   };
-  const lifecycle = new ConfiguredLifecycleCommands(
-    "project",
-    config,
-    {},
-    async () => {
-      throw new Error("secret command output");
-    },
-  );
+  const lifecycle = new ConfiguredLifecycleCommands("project", {}, async () => {
+    throw new Error("secret command output");
+  });
   await assert.rejects(
-    lifecycle.before({ ...baseContext(), workingDirectory: null }),
+    lifecycle.before(config, { ...baseContext(), workingDirectory: null }),
     (error: unknown) => {
       assert.match(
         String(error),
@@ -109,6 +102,55 @@ test("lifecycle command failures identify phase and run without leaking output",
       assert.doesNotMatch(String(error), /secret command output/u);
       return true;
     },
+  );
+});
+
+test("Agent lifecycle configuration rejects filters and unsafe templates", () => {
+  const base = {
+    afterAgent: [],
+    beforeAgent: [],
+    workingDirectory: resolve("runs", "{{runId}}"),
+  };
+  assert.throws(
+    () => parseAgentLifecycleConfig({ ...base, agentKeys: ["coder"] }),
+    /unsupported fields: agentKeys/u,
+  );
+  assert.throws(
+    () =>
+      parseAgentLifecycleConfig({
+        ...base,
+        workingDirectory: resolve("runs", "{{status}}"),
+      }),
+    /stable start-context/u,
+  );
+  assert.throws(
+    () =>
+      parseAgentLifecycleConfig({
+        ...base,
+        beforeAgent: [
+          {
+            arguments: ["{{unknown}}"],
+            environment: {},
+            executable: "prepare",
+            inheritEnvironment: [],
+            timeoutMilliseconds: 0,
+            workingDirectory: null,
+          },
+        ],
+      }),
+    /unsupported placeholder|positive integer/u,
+  );
+});
+
+test("the no-op host fails closed for Agent-owned lifecycle commands", () => {
+  const config: AgentLifecycleConfig = {
+    afterAgent: [],
+    beforeAgent: [],
+    workingDirectory: resolve("runs", "{{runId}}"),
+  };
+  assert.throws(
+    () => NO_LIFECYCLE_COMMANDS.workingDirectory(config, baseContext()),
+    /requires a host lifecycle executor/u,
   );
 });
 
@@ -126,10 +168,9 @@ test("generic before and after commands can manage a Git worktree", async () => 
     await git(repository, ["commit", "-m", "test: seed"]);
     await writeFile(join(repository, "local-only.txt"), "local\n", "utf8");
 
-    const config: LifecycleCommandsConfig = {
+    const config: AgentLifecycleConfig = {
       beforeAgent: [
         {
-          agentKeys: ["coder"],
           arguments: [
             "worktree",
             "add",
@@ -147,7 +188,6 @@ test("generic before and after commands can manage a Git worktree", async () => 
       ],
       afterAgent: [
         {
-          agentKeys: ["coder"],
           arguments: ["worktree", "remove", "--force", "{{workingDirectory}}"],
           environment: {},
           executable: "git",
@@ -156,13 +196,13 @@ test("generic before and after commands can manage a Git worktree", async () => 
           workingDirectory: repository,
         },
       ],
-      workingDirectories: { coder: join(runs, "{{runId}}") },
+      workingDirectory: join(runs, "{{runId}}"),
     };
-    const lifecycle = new ConfiguredLifecycleCommands("project", config);
+    const lifecycle = new ConfiguredLifecycleCommands("project");
     const start = baseContext();
-    const workingDirectory = lifecycle.workingDirectory("coder", start);
+    const workingDirectory = lifecycle.workingDirectory(config, start);
     assert.notEqual(workingDirectory, null);
-    await lifecycle.before({ ...start, workingDirectory });
+    await lifecycle.before(config, { ...start, workingDirectory });
     assert.equal(
       await readFile(join(workingDirectory!, "committed.txt"), "utf8"),
       "committed\n",
@@ -173,7 +213,7 @@ test("generic before and after commands can manage a Git worktree", async () => 
       "atm/run-1",
     );
 
-    await lifecycle.after({
+    await lifecycle.after(config, {
       ...start,
       outcome: "succeeded",
       status: "completed",

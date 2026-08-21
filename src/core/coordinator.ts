@@ -63,7 +63,7 @@ export class AgentCoordinator {
         throw new Error(
           "Run ID reuse conflicts with the existing Active Agent",
         );
-      this.assertWorkingDirectory(agent.key, replay);
+      this.assertWorkingDirectory(agent, replay);
       return this.context(replay, agent);
     }
     const agent = await this.requiredAgent(input.agentKey);
@@ -90,8 +90,8 @@ export class AgentCoordinator {
         throw new Error("Child Active Agent must use its parent Task");
     }
     const resources = await this.resourcesFor(agent);
-    const lifecycle = this.startLifecycleContext(agent.key, input);
-    await this.lifecycle.before(lifecycle);
+    const lifecycle = this.startLifecycleContext(agent, input);
+    await this.lifecycle.before(agent.lifecycleCommands, lifecycle);
     const startedAt = this.now().toISOString();
     const run = await this.provider.createActiveAgent({
       agentId: agent.id,
@@ -143,7 +143,7 @@ export class AgentCoordinator {
       );
     const agent = await this.agentById(run.agentId);
     this.assertAgentVersion(run, agent);
-    this.assertWorkingDirectory(agent.key, run);
+    this.assertWorkingDirectory(agent, run);
     const task = await this.provider.getTask(run.taskId);
     if (task === null || task.archived)
       throw new Error("Active Agent Task is unavailable");
@@ -151,6 +151,7 @@ export class AgentCoordinator {
     if (!Object.hasOwn(agent.transitions, outcome))
       throw new Error(`Agent does not declare outcome: ${outcome}`);
     await this.lifecycle.after(
+      agent.lifecycleCommands,
       this.terminalLifecycleContext(run, agent.key, "completed", outcome, ""),
     );
     const target = agent.transitions[outcome]!;
@@ -279,13 +280,13 @@ export class AgentCoordinator {
       throw new Error("Active Agent Task is unavailable");
     this.assertTaskEligibility(agent, task);
     const resources = await this.resourcesFor(agent);
-    const lifecycle = this.startLifecycleContext(agent.key, {
+    const lifecycle = this.startLifecycleContext(agent, {
       harnessId: input.harnessId,
       parentRunId: restartSource.parentRunId,
       runId: input.runId,
       taskId: restartSource.taskId,
     });
-    await this.lifecycle.before(lifecycle);
+    await this.lifecycle.before(agent.lifecycleCommands, lifecycle);
     const run = await this.provider.createActiveAgent({
       agentId: restartSource.agentId,
       agentVersion: agent.version,
@@ -319,7 +320,7 @@ export class AgentCoordinator {
     const run = await this.runningOwned(runId, harnessId);
     const agent = await this.agentById(run.agentId);
     this.assertAgentVersion(run, agent);
-    this.assertWorkingDirectory(agent.key, run);
+    this.assertWorkingDirectory(agent, run);
     return {
       commands: agent.commands,
       workingDirectory: run.workingDirectory,
@@ -344,18 +345,21 @@ export class AgentCoordinator {
     for (const child of this.descendants(run.runId, all).filter(
       (entry) => entry.status === "running",
     )) {
-      const agentKey = await this.agentKeyForHook(child.agentId);
-      if (agentKey !== "") this.assertWorkingDirectory(agentKey, child);
       const failureSummary = `Stopped because ancestor ${run.runId} ${status}`;
-      await this.lifecycle.after(
-        this.terminalLifecycleContext(
-          child,
-          agentKey,
-          "stopped",
-          "",
-          failureSummary,
-        ),
-      );
+      const childAgent = await this.provider.getAgent(child.agentId);
+      if (childAgent !== null) {
+        this.assertWorkingDirectory(childAgent, child);
+        await this.lifecycle.after(
+          childAgent.lifecycleCommands,
+          this.terminalLifecycleContext(
+            child,
+            childAgent.key,
+            "stopped",
+            "",
+            failureSummary,
+          ),
+        );
+      }
       await this.provider.updateActiveAgent(child.runId, {
         failureSummary,
         finishedAt: this.now().toISOString(),
@@ -363,11 +367,14 @@ export class AgentCoordinator {
       });
       await this.provider.archiveActiveAgent(child.runId);
     }
-    const agentKey = await this.agentKeyForHook(run.agentId);
-    if (agentKey !== "") this.assertWorkingDirectory(agentKey, run);
-    await this.lifecycle.after(
-      this.terminalLifecycleContext(run, agentKey, status, "", summary),
-    );
+    const agent = await this.provider.getAgent(run.agentId);
+    if (agent !== null) {
+      this.assertWorkingDirectory(agent, run);
+      await this.lifecycle.after(
+        agent.lifecycleCommands,
+        this.terminalLifecycleContext(run, agent.key, status, "", summary),
+      );
+    }
     const terminated = await this.provider.updateActiveAgent(run.runId, {
       failureSummary: summary,
       finishedAt: this.now().toISOString(),
@@ -409,7 +416,7 @@ export class AgentCoordinator {
   }
 
   private startLifecycleContext(
-    agentKey: string,
+    agent: AgentRecord,
     input: {
       readonly harnessId: string;
       readonly parentRunId: string | null;
@@ -418,7 +425,7 @@ export class AgentCoordinator {
     },
   ): LifecycleCommandContext {
     const context = {
-      agentKey,
+      agentKey: agent.key,
       failureSummary: "",
       harnessId: input.harnessId,
       outcome: "",
@@ -429,7 +436,10 @@ export class AgentCoordinator {
     };
     return {
       ...context,
-      workingDirectory: this.lifecycle.workingDirectory(agentKey, context),
+      workingDirectory: this.lifecycle.workingDirectory(
+        agent.lifecycleCommands,
+        context,
+      ),
     };
   }
 
@@ -454,11 +464,11 @@ export class AgentCoordinator {
   }
 
   private assertWorkingDirectory(
-    agentKey: string,
+    agent: AgentRecord,
     run: ActiveAgentRecord,
   ): void {
-    const expected = this.lifecycle.workingDirectory(agentKey, {
-      agentKey,
+    const expected = this.lifecycle.workingDirectory(agent.lifecycleCommands, {
+      agentKey: agent.key,
       failureSummary: "",
       harnessId: run.harnessId,
       outcome: "",
@@ -471,10 +481,6 @@ export class AgentCoordinator {
       throw new Error(
         "Active Agent working directory does not match lifecycle configuration",
       );
-  }
-
-  private async agentKeyForHook(agentId: string): Promise<string> {
-    return (await this.provider.getAgent(agentId))?.key ?? "";
   }
 
   private async resourcesFor(

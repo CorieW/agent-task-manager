@@ -600,6 +600,7 @@ export class NotionProvider implements AgentTaskProvider {
       enabled: definition.enabled,
       id: id(page),
       key: definition.id,
+      lifecycleCommands: definition.lifecycleCommands,
       model: definition.model,
       name: textValue(props.Name),
       notes: definition.notes,

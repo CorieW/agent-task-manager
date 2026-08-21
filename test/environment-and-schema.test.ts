@@ -1,6 +1,5 @@
 /** Strict configuration, schema, identifier, and payload parsing coverage. */
 import assert from "node:assert/strict";
-import { resolve } from "node:path";
 import test from "node:test";
 
 import {
@@ -52,27 +51,10 @@ test("decoded Agent transitions validate without a JSON round trip", () => {
   );
 });
 
-test("v3 environment parses strict generic lifecycle commands", () => {
+test("v3 environment contains provider configuration only", () => {
   const value = parseEnvironmentConfig(
     toJsonValue({
       environmentId: "management-v2",
-      lifecycleCommands: {
-        afterAgent: [],
-        beforeAgent: [
-          {
-            agentKeys: ["coder"],
-            arguments: ["prepare", "{{runId}}", "{{workingDirectory}}"],
-            environment: { TASK_CONTEXT: "{{taskId}}" },
-            executable: "tool",
-            inheritEnvironment: [],
-            timeoutMilliseconds: 30_000,
-            workingDirectory: resolve("repository"),
-          },
-        ],
-        workingDirectories: {
-          coder: resolve("runs", "{{runId}}"),
-        },
-      },
       provider: {
         bootstrapParent: "parent",
         connection: { tokenEnv: "NOTION_TOKEN" },
@@ -99,30 +81,15 @@ test("v3 environment parses strict generic lifecycle commands", () => {
     () => parseEnvironmentConfig(toJsonValue({ ...value.raw, runtime: {} })),
     EnvironmentConfigError,
   );
-  assert.equal(value.lifecycleCommands.beforeAgent[0]?.agentKeys?.[0], "coder");
   assert.throws(
     () =>
       parseEnvironmentConfig(
         toJsonValue({
           ...value.raw,
-          lifecycleCommands: {
-            afterAgent: [],
-            beforeAgent: [
-              {
-                agentKeys: ["coder", "coder"],
-                arguments: ["{{unknown}}"],
-                environment: { "INVALID-NAME": "value" },
-                executable: "tool",
-                inheritEnvironment: ["BAD-NAME"],
-                timeoutMilliseconds: 0,
-                workingDirectory: "relative",
-              },
-            ],
-            workingDirectories: { coder: resolve("runs", "{{status}}") },
-          },
+          lifecycleCommands: {},
         }),
       ),
-    /duplicates|unsupported placeholder|environment variable|positive integer|absolute path|stable start-context/u,
+    /lifecycleCommands is not allowed/u,
   );
 });
 
@@ -174,6 +141,18 @@ test("Agent configuration is parsed from the page body", () => {
   "id": "code-reviewer",
   "model": "gpt-5.6-sol",
   "reasoning": "high",
+  "lifecycleCommands": {
+    "workingDirectory": "C:\\\\runs\\\\{{runId}}",
+    "beforeAgent": [{
+      "executable": "prepare",
+      "arguments": ["{{workingDirectory}}"],
+      "workingDirectory": "C:\\\\project",
+      "environment": {"TASK_ID": "{{taskId}}"},
+      "inheritEnvironment": [],
+      "timeoutMilliseconds": 30000
+    }],
+    "afterAgent": []
+  },
   "inputResourceSelectors": ["policy/review", "schema/result-v1"],
   "promptResources": ["prompt/code-reviewer"],
   "transitions": {"succeeded": "In progress", "blocked": "Blocked"}
@@ -185,6 +164,14 @@ test("Agent configuration is parsed from the page body", () => {
   assert.deepEqual(definition.commands, { inclusion: ["git", "pnpm"] });
   assert.deepEqual(definition.allowedTaskTypes, ["Bug", "Vulnerability"]);
   assert.deepEqual(definition.allowedStatuses, ["In progress", "Blocked"]);
+  assert.equal(
+    definition.lifecycleCommands.beforeAgent[0]?.executable,
+    "prepare",
+  );
+  assert.equal(
+    definition.lifecycleCommands.workingDirectory,
+    "C:\\runs\\{{runId}}",
+  );
   assert.deepEqual(definition.resourceKeys, [
     "prompt/code-reviewer",
     "policy/review",

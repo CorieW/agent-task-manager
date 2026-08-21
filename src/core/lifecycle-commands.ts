@@ -1,11 +1,11 @@
-/** Runs trusted, environment-configured commands at Agent lifecycle boundaries. */
+/** Runs trusted, Agent-configured commands at lifecycle boundaries. */
 import { execFile } from "node:child_process";
 import { isAbsolute } from "node:path";
 
 import type {
+  AgentLifecycleConfig,
   LifecycleCommandConfig,
-  LifecycleCommandsConfig,
-} from "../config/environment.js";
+} from "../domain/lifecycle.js";
 import type { ActiveAgentStatus } from "../domain/records.js";
 
 /** Stable values available to lifecycle command templates and environments. */
@@ -37,19 +37,30 @@ export type LifecycleCommandExecutor = (
 
 /** Lifecycle capabilities consumed by the provider-neutral coordinator. */
 export interface AgentLifecycleCommands {
-  after(context: LifecycleCommandContext): Promise<void>;
-  before(context: LifecycleCommandContext): Promise<void>;
+  after(
+    config: AgentLifecycleConfig,
+    context: LifecycleCommandContext,
+  ): Promise<void>;
+  before(
+    config: AgentLifecycleConfig,
+    context: LifecycleCommandContext,
+  ): Promise<void>;
   workingDirectory(
-    agentKey: string,
+    config: AgentLifecycleConfig,
     context: Omit<LifecycleCommandContext, "workingDirectory">,
   ): string | null;
 }
 
 /** No-op lifecycle commands for programmatic hosts without environment hooks. */
 export const NO_LIFECYCLE_COMMANDS: AgentLifecycleCommands = {
-  async after() {},
-  async before() {},
-  workingDirectory() {
+  async after(config) {
+    assertEmptyLifecycle(config);
+  },
+  async before(config) {
+    assertEmptyLifecycle(config);
+  },
+  workingDirectory(config) {
+    assertEmptyLifecycle(config);
     return null;
   },
 };
@@ -58,43 +69,46 @@ export const NO_LIFECYCLE_COMMANDS: AgentLifecycleCommands = {
 export class ConfiguredLifecycleCommands implements AgentLifecycleCommands {
   public constructor(
     private readonly environmentId: string,
-    private readonly config: LifecycleCommandsConfig,
     private readonly hostEnvironment: NodeJS.ProcessEnv = process.env,
     private readonly execute: LifecycleCommandExecutor = executeCommand,
   ) {}
 
   /** Resolves the optional per-Agent execution directory template. */
   public workingDirectory(
-    agentKey: string,
+    config: AgentLifecycleConfig,
     context: Omit<LifecycleCommandContext, "workingDirectory">,
   ): string | null {
-    if (!Object.hasOwn(this.config.workingDirectories, agentKey)) return null;
-    const template = this.config.workingDirectories[agentKey];
-    if (template === undefined) return null;
+    const template = config.workingDirectory;
+    if (template === null) return null;
     const value = render(
       template,
       {
         ...context,
-        agentKey,
         workingDirectory: null,
       },
       this.environmentId,
     );
     if (!isAbsolute(value))
       throw new Error(
-        `Lifecycle working directory did not render as an absolute path for Agent: ${agentKey}`,
+        `Lifecycle working directory did not render as an absolute path for Agent: ${context.agentKey}`,
       );
     return value;
   }
 
   /** Runs matching before-Agent commands in configured order. */
-  public async before(context: LifecycleCommandContext): Promise<void> {
-    await this.run("beforeAgent", this.config.beforeAgent, context);
+  public async before(
+    config: AgentLifecycleConfig,
+    context: LifecycleCommandContext,
+  ): Promise<void> {
+    await this.run("beforeAgent", config.beforeAgent, context);
   }
 
   /** Runs matching after-Agent commands in configured order. */
-  public async after(context: LifecycleCommandContext): Promise<void> {
-    await this.run("afterAgent", this.config.afterAgent, context);
+  public async after(
+    config: AgentLifecycleConfig,
+    context: LifecycleCommandContext,
+  ): Promise<void> {
+    await this.run("afterAgent", config.afterAgent, context);
   }
 
   private async run(
@@ -103,11 +117,6 @@ export class ConfiguredLifecycleCommands implements AgentLifecycleCommands {
     context: LifecycleCommandContext,
   ): Promise<void> {
     for (const [index, command] of commands.entries()) {
-      if (
-        command.agentKeys !== null &&
-        !command.agentKeys.includes(context.agentKey)
-      )
-        continue;
       const executable = render(
         command.executable,
         context,
@@ -176,6 +185,17 @@ function runtimeEnvironment(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
       return value === undefined ? [] : [[key, value]];
     }),
   );
+}
+
+function assertEmptyLifecycle(config: AgentLifecycleConfig): void {
+  if (
+    config.workingDirectory !== null ||
+    config.beforeAgent.length !== 0 ||
+    config.afterAgent.length !== 0
+  )
+    throw new Error(
+      "Agent lifecycle configuration requires a host lifecycle executor",
+    );
 }
 
 function render(
