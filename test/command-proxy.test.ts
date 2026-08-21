@@ -20,6 +20,7 @@ import {
   parseAgentCommandPolicy,
 } from "../src/domain/commands.js";
 import { EMPTY_AGENT_LIFECYCLE } from "../src/domain/lifecycle.js";
+import { EMPTY_AGENT_TASK_DESCRIPTION } from "../src/domain/task-description.js";
 import type {
   AgentRecord,
   ResourceRecord,
@@ -69,6 +70,7 @@ async function setup(policy: AgentCommandPolicy) {
     properties: {},
     reasoning: "high",
     resourceIds: ["prompt", "policy"],
+    taskDescription: EMPTY_AGENT_TASK_DESCRIPTION,
     transitions: { succeeded: "In review" },
     version: "1",
   };
@@ -238,9 +240,19 @@ test("command proxy enforces inclusion, ownership, and path-free names", async (
 });
 
 test("command prompt leaves run identity to the trusted harness", () => {
-  const prompt = commandProxySystemPrompt();
+  const prompt = commandProxySystemPrompt(EMPTY_AGENT_TASK_DESCRIPTION);
   assert.match(prompt, /command proxy -- <command>/u);
   assert.doesNotMatch(prompt, /--run-id|--harness-id/u);
+});
+
+test("command prompt delegates configured Task sections to the harness", () => {
+  const prompt = commandProxySystemPrompt({
+    requiredSectionsByOutcome: { succeeded: ["Planning"] },
+    writableSections: ["Planning"],
+  });
+  assert.match(prompt, /only these Task-description sections: `Planning`/u);
+  assert.match(prompt, /active-agent update-task-section/u);
+  assert.match(prompt, /do not invoke it through the operating-system/u);
 });
 
 test("command proxy exclusion denies only configured commands", async () => {

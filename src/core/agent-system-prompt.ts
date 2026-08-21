@@ -1,10 +1,19 @@
 /** Supplies strict command-routing instructions to every Agent run. */
+import type { AgentTaskDescriptionConfig } from "../domain/task-description.js";
 
 /** Renders strict proxy-only command instructions for a harness-bound run. */
-export function commandProxySystemPrompt(): string {
+export function commandProxySystemPrompt(
+  taskDescription: AgentTaskDescriptionConfig,
+): string {
+  const taskDescriptionPolicy =
+    taskDescription.writableSections.length === 0
+      ? "- Never modify a Task directly or select another Task."
+      : `- Never modify a Task directly or select another Task. The manager permits this Agent to replace only these Task-description sections: ${taskDescription.writableSections.map((section) => `\`${section}\``).join(", ")}.
+- Give the complete section content to the trusted harness and request \`agent-task-manager active-agent update-task-section --run-id <current> --harness-id <current> --section <allowed> --input <file-or->\`. The harness owns that manager command and its identity arguments; do not invoke it through the operating-system command proxy or claim persistence without its returned Task record.`;
   return `Task assignment policy:
 - Work only on the current Task supplied by the trusted harness and only while its Type and Status remain in this Agent's allowedTaskTypes and allowedStatuses.
-- Never modify a Task directly or select another Task. Finish only through a declared outcome; the manager applies its configured transition after rechecking the Task's current assignment eligibility.
+${taskDescriptionPolicy}
+- Finish only through a declared outcome; the manager applies its configured transition after rechecking the Task's current assignment eligibility and required Task-description sections.
 
 Operating-system command policy:
 - Execute every operating-system command exclusively through: agent-task-manager command proxy -- <command> [arguments...]

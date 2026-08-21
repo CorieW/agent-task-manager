@@ -19,6 +19,7 @@ import type {
   TaskRecord,
 } from "../src/domain/records.js";
 import { EMPTY_AGENT_LIFECYCLE } from "../src/domain/lifecycle.js";
+import { EMPTY_AGENT_TASK_DESCRIPTION } from "../src/domain/task-description.js";
 import { InMemoryProvider } from "../src/provider/in-memory-provider.js";
 
 function task(): TaskRecord {
@@ -69,6 +70,7 @@ function agent(): AgentRecord {
     properties: {},
     reasoning: "high",
     resourceIds: ["prompt", "policy"],
+    taskDescription: EMPTY_AGENT_TASK_DESCRIPTION,
     transitions: {
       blocked: "Blocked",
       succeeded: "In review",
@@ -257,6 +259,92 @@ test("children require a running same-Task parent and a root cannot complete ove
   assert.equal((await provider.getTask("task-1"))?.status, "In review");
   assert.equal((await provider.getActiveAgent("root"))?.archived, true);
   assert.equal((await provider.getActiveAgent("child"))?.archived, true);
+});
+
+test("configured Agents persist required Task sections before completion", async () => {
+  const planner = {
+    ...agent(),
+    key: "task-planner",
+    taskDescription: {
+      requiredSectionsByOutcome: { succeeded: ["Planning"] },
+      writableSections: ["Planning"],
+    },
+  };
+  const provider = new InMemoryProvider({
+    agents: [planner],
+    resources: [resource("prompt"), resource("policy", "Policy")],
+    tasks: [task()],
+  });
+  const coordinator = new AgentCoordinator(provider);
+  const context = await coordinator.start({
+    agentKey: planner.key,
+    harnessId: "h",
+    parentRunId: null,
+    runId: "planner",
+    taskId: "task-1",
+  });
+  assert.match(context.systemPrompt, /update-task-section/u);
+  await assert.rejects(
+    coordinator.complete("planner", "h", "succeeded"),
+    /requires Task description section: Planning/u,
+  );
+  await assert.rejects(
+    coordinator.updateTaskSection("planner", "h", "Review", "No."),
+    /not allowed to write/u,
+  );
+  const first = await coordinator.updateTaskSection(
+    "planner",
+    "h",
+    "Planning",
+    "### Scope\n\nImplementation-ready.",
+  );
+  assert.equal(
+    first.body,
+    "Task context\n\n## Planning\n\n### Scope\n\nImplementation-ready.\n",
+  );
+  const revised = await coordinator.updateTaskSection(
+    "planner",
+    "h",
+    "Planning",
+    "### Scope\n\nRevised.",
+  );
+  assert.equal(revised.body.match(/^## Planning$/gmu)?.length, 1);
+  assert.doesNotMatch(revised.body, /Implementation-ready/u);
+  await coordinator.complete("planner", "h", "succeeded");
+  assert.equal((await provider.getTask("task-1"))?.status, "In review");
+});
+
+test("Task section updates enforce run ownership and description drift", async () => {
+  const planner = {
+    ...agent(),
+    taskDescription: {
+      requiredSectionsByOutcome: {},
+      writableSections: ["Planning"],
+    },
+  };
+  const provider = new InMemoryProvider({
+    agents: [planner],
+    resources: [resource("prompt"), resource("policy", "Policy")],
+    tasks: [task()],
+  });
+  const coordinator = new AgentCoordinator(provider);
+  await coordinator.start({
+    agentKey: planner.key,
+    harnessId: "h",
+    parentRunId: null,
+    runId: "planner",
+    taskId: "task-1",
+  });
+  await assert.rejects(
+    coordinator.updateTaskSection("planner", "other", "Planning", "Plan."),
+    /Harness does not own/u,
+  );
+  const current = (await provider.getTask("task-1"))!;
+  await provider.updateTaskBody("task-1", current.body, "Changed externally.");
+  await assert.rejects(
+    provider.updateTaskBody("task-1", current.body, "Stale replacement."),
+    /changed before update/u,
+  );
 });
 
 test("heartbeats expire only after five minutes and stale parents stop their subtree", async () => {

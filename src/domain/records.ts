@@ -8,6 +8,10 @@ import {
   parseAgentLifecycleConfig,
   type AgentLifecycleConfig,
 } from "./lifecycle.js";
+import {
+  parseAgentTaskDescriptionConfig,
+  type AgentTaskDescriptionConfig,
+} from "./task-description.js";
 
 /** Lifecycle state of a Resource. */
 export type ResourceState = "active" | "draft" | "retired";
@@ -38,6 +42,7 @@ export interface AgentDefinition {
   readonly notes: string;
   readonly reasoning: string;
   readonly resourceKeys: readonly string[];
+  readonly taskDescription: AgentTaskDescriptionConfig;
   readonly transitions: AgentTransitions;
 }
 
@@ -91,6 +96,7 @@ export interface AgentRecord {
   readonly resourceIds: readonly string[];
   /** Provider-supplied prior versions accepted only when rebasing a restart. */
   readonly restartCompatibleVersions?: readonly string[];
+  readonly taskDescription: AgentTaskDescriptionConfig;
   readonly transitions: AgentTransitions;
   readonly version: string;
 }
@@ -347,6 +353,7 @@ export function parseAgentDefinition(markdown: string): AgentDefinition {
   if (typeof definition.enabled !== "boolean")
     throw new TypeError("Agent definition enabled must be a boolean");
 
+  const transitions = validateAgentTransitions(definition.transitions);
   return {
     allowedStatuses: definitionStringSet(
       definition.allowedStatuses,
@@ -365,7 +372,11 @@ export function parseAgentDefinition(markdown: string): AgentDefinition {
     notes: optionalDefinitionText(definition.notes, "notes"),
     reasoning: definitionText(definition.reasoning, "reasoning"),
     resourceKeys: [...new Set([...promptResources, ...policyResources])],
-    transitions: validateAgentTransitions(definition.transitions),
+    taskDescription: parseAgentTaskDescriptionConfig(
+      definition.taskDescription,
+      transitions,
+    ),
+    transitions,
   };
 }
 
@@ -387,6 +398,7 @@ function rejectUnknownDefinitionFields(
     "allowedStatuses",
     "allowedTaskTypes",
     "lifecycleCommands",
+    "taskDescription",
   ]);
   const unknown = Object.keys(definition).filter((key) => !supported.has(key));
   if (unknown.length !== 0)

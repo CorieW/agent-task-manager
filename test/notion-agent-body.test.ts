@@ -281,6 +281,23 @@ test("Notion Active Agent creation persists historical Task identity", async () 
   );
 });
 
+test("Notion Task body updates require and replace exact Markdown", async () => {
+  const transport = new TaskBodyTransport();
+  const updated = await lifecycleProvider(transport).updateTaskBody(
+    ids.task,
+    "## Context\n\nOriginal.\n",
+    "## Context\n\nOriginal.\n\n## Planning\n\nPlan.\n",
+  );
+  assert.match(updated.body, /## Planning\n\nPlan\./u);
+  assert.deepEqual(transport.patch, {
+    type: "update_content",
+    update_content: {
+      new_str: "## Context\n\nOriginal.\n\n## Planning\n\nPlan.\n",
+      old_str: "## Context\n\nOriginal.\n",
+    },
+  });
+});
+
 function lifecycleProvider(transport: NotionTransport): NotionProvider {
   return new NotionProvider(
     {
@@ -455,6 +472,47 @@ class ActiveAgentCreationTransport implements NotionTransport {
       );
       this.createdProperties = properties;
       return { id: ids.childRun };
+    }
+    throw new Error(
+      `Unexpected Notion request: ${request.method} ${request.path}`,
+    );
+  }
+}
+
+class TaskBodyTransport implements NotionTransport {
+  public patch: JsonObject | null = null;
+  private markdown = "## Context\n\nOriginal.\n";
+
+  public async request(request: NotionRequest): Promise<JsonObject> {
+    if (request.method === "GET" && request.path === `/v1/pages/${ids.task}`)
+      return page(ids.task, {
+        Dependencies: relationProperty([]),
+        Priority: { number: 15, type: "number" },
+        Status: selectProperty("In Planning (AI)"),
+        Task: richTextProperty("title", "Plan work"),
+        Type: selectProperty("Feature"),
+      });
+    if (request.path === `/v1/pages/${ids.task}/markdown`) {
+      if (request.method === "GET") return { markdown: this.markdown };
+      assert.ok(
+        request.method === "PATCH" &&
+          request.body !== undefined &&
+          request.body !== null &&
+          typeof request.body === "object" &&
+          !Array.isArray(request.body),
+      );
+      this.patch = request.body;
+      const update = request.body.update_content;
+      assert.ok(
+        update !== undefined &&
+          update !== null &&
+          typeof update === "object" &&
+          !Array.isArray(update) &&
+          update.old_str === this.markdown &&
+          typeof update.new_str === "string",
+      );
+      this.markdown = update.new_str;
+      return {};
     }
     throw new Error(
       `Unexpected Notion request: ${request.method} ${request.path}`,

@@ -9,6 +9,7 @@ export * from "./domain/json.js";
 export * from "./domain/lifecycle.js";
 export * from "./domain/provider.js";
 export * from "./domain/records.js";
+export * from "./domain/task-description.js";
 export * from "./provider/agent-task-provider.js";
 export * from "./provider/in-memory-provider.js";
 export * from "./provider/notion/notion-provider.js";

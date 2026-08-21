@@ -50,6 +50,12 @@ export interface AgentTaskProvider {
   getTask(id: string): Promise<TaskRecord | null>;
   /** Replaces a Task status and returns the versioned record. */
   setTaskStatus(id: string, status: string): Promise<TaskRecord>;
+  /** Atomically replaces exact Task Markdown and returns the versioned record. */
+  updateTaskBody(
+    id: string,
+    expectedBody: string,
+    body: string,
+  ): Promise<TaskRecord>;
   /** Lists live, non-archived Agents. */
   listAgents(): Promise<readonly AgentRecord[]>;
   /** Returns an Agent by provider record ID without loading unrelated Agents. */

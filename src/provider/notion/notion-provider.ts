@@ -273,6 +273,25 @@ export class NotionProvider implements AgentTaskProvider {
       `Task not found after update: ${id}`,
     );
   }
+  /** @inheritdoc */
+  public async updateTaskBody(
+    id: string,
+    expectedBody: string,
+    body: string,
+  ): Promise<TaskRecord> {
+    await this.transport.request({
+      body: {
+        type: "update_content",
+        update_content: { new_str: body, old_str: expectedBody },
+      },
+      method: "PATCH",
+      path: `/v1/pages/${normalizeId(id)}/markdown`,
+    });
+    return required(
+      await this.getTask(id),
+      `Task not found after description update: ${id}`,
+    );
+  }
 
   /** @inheritdoc */
   public async listAgents(): Promise<readonly AgentRecord[]> {
@@ -608,6 +627,7 @@ export class NotionProvider implements AgentTaskProvider {
       reasoning: definition.reasoning,
       resourceIds,
       restartCompatibleVersions: [version(page)],
+      taskDescription: definition.taskDescription,
       transitions: definition.transitions,
       version: agentVersion(page, body),
     };

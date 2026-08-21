@@ -66,7 +66,8 @@ test("CLI rejects unknown command shapes before loading configuration", async ()
       help !== null &&
       "help" in help &&
       typeof help.help === "string" &&
-      help.help.includes("active-agent restart"),
+      help.help.includes("active-agent restart") &&
+      help.help.includes("active-agent update-task-section"),
     true,
   );
 });

@@ -96,6 +96,19 @@ export class InMemoryProvider implements AgentTaskProvider {
     return clone(next);
   }
   /** @inheritdoc */
+  public async updateTaskBody(
+    id: string,
+    expectedBody: string,
+    body: string,
+  ): Promise<TaskRecord> {
+    const current = required(this.#tasks.get(id), `Task not found: ${id}`);
+    if (current.body !== expectedBody)
+      throw new Error("Task description changed before update");
+    const next = { ...current, body, version: this.version() };
+    this.#tasks.set(id, next);
+    return clone(next);
+  }
+  /** @inheritdoc */
   public async listAgents(): Promise<readonly AgentRecord[]> {
     return [...this.#agents.values()]
       .filter((entry) => !entry.archived)

@@ -1,6 +1,6 @@
 {
   "name": "agent-task-manager",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Single-host coordination for disposable task-driven AI agents",
   "type": "module",
   "private": true,

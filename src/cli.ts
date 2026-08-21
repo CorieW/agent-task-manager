@@ -71,6 +71,12 @@ const COMMAND_SPECS: readonly CommandSpec[] = [
       "active-agent complete --run-id ID --harness-id ID --outcome OUTCOME",
   },
   {
+    flags: ["harness-id", "input", "run-id", "section"],
+    name: "active-agent update-task-section",
+    usage:
+      "active-agent update-task-section --run-id ID --harness-id ID --section NAME --input FILE|-",
+  },
+  {
     flags: ["harness-id", "run-id", "summary"],
     name: "active-agent fail",
     usage: "active-agent fail --run-id ID --harness-id ID --summary TEXT",
@@ -293,6 +299,24 @@ export async function runCli(
             ),
         ),
       );
+    if (action === "update-task-section") {
+      const content = await readTextInput(requiredFlag(parsed.flags, "input"));
+      return toJsonValue(
+        await withRunLeases(
+          environmentMutex(),
+          runMutex,
+          provider,
+          [requiredFlag(parsed.flags, "run-id")],
+          () =>
+            coordinator.updateTaskSection(
+              requiredFlag(parsed.flags, "run-id"),
+              requiredFlag(parsed.flags, "harness-id"),
+              requiredFlag(parsed.flags, "section"),
+              content,
+            ),
+        ),
+      );
+    }
     if (action === "fail")
       return toJsonValue(
         await withRunLeases(
@@ -566,9 +590,12 @@ function affectedRunIds(
   return [...result].sort();
 }
 async function readErrorInput(path: string): Promise<ReportErrorInput> {
-  const raw = path === "-" ? await readStdin() : await readFile(path, "utf8");
+  const raw = await readTextInput(path);
   const value = toJsonValue(JSON.parse(raw) as unknown);
   return parseReportErrorInput(value);
+}
+async function readTextInput(path: string): Promise<string> {
+  return path === "-" ? readStdin() : readFile(path, "utf8");
 }
 async function readStdin(): Promise<string> {
   const chunks: Buffer[] = [];

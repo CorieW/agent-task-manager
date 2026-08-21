@@ -155,6 +155,10 @@ test("Agent configuration is parsed from the page body", () => {
   },
   "inputResourceSelectors": ["policy/review", "schema/result-v1"],
   "promptResources": ["prompt/code-reviewer"],
+  "taskDescription": {
+    "writableSections": ["Planning"],
+    "requiredSectionsByOutcome": {"succeeded": ["Planning"]}
+  },
   "transitions": {"succeeded": "In progress", "blocked": "Blocked"}
 }
 \`\`\`
@@ -180,6 +184,10 @@ test("Agent configuration is parsed from the page body", () => {
     blocked: "Blocked",
     succeeded: "In progress",
   });
+  assert.deepEqual(definition.taskDescription, {
+    requiredSectionsByOutcome: { succeeded: ["Planning"] },
+    writableSections: ["Planning"],
+  });
 });
 
 test("Agent definitions accept only the complete v1 schema", () => {
@@ -202,6 +210,10 @@ test("Agent definitions accept only the complete v1 schema", () => {
   assert.deepEqual(parseAgentDefinition(markdown(valid)).commands, {
     exclusion: [],
   });
+  assert.deepEqual(parseAgentDefinition(markdown(valid)).taskDescription, {
+    requiredSectionsByOutcome: {},
+    writableSections: [],
+  });
   assert.throws(
     () => parseAgentDefinition(markdown({ ...valid, schema: "unsupported" })),
     /schema must equal agent-definition-v1/u,
@@ -213,6 +225,19 @@ test("Agent definitions accept only the complete v1 schema", () => {
   assert.throws(
     () => parseAgentDefinition(markdown({ ...valid, prohibitedCommand: "rm" })),
     /unsupported fields: prohibitedCommand/u,
+  );
+  assert.throws(
+    () =>
+      parseAgentDefinition(
+        markdown({
+          ...valid,
+          taskDescription: {
+            requiredSectionsByOutcome: { missing: ["Planning"] },
+            writableSections: ["Planning"],
+          },
+        }),
+      ),
+    /unknown outcome/u,
   );
 });
 

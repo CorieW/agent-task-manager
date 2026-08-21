@@ -16,7 +16,7 @@ If a run fails, its failed subtree is restarted from the beginning. The manager 
 task list|get
 agent list|get
 resource list|get
-active-agent list|get|start|heartbeat|complete|fail|sweep|restart
+active-agent list|get|start|heartbeat|update-task-section|complete|fail|sweep|restart
 command proxy -- COMMAND [ARGUMENT...]
 error list|get|report|resolve
 validate
@@ -31,6 +31,8 @@ Set `AGENT_TASK_MANAGER_COORDINATION_DIRECTORY` to an existing absolute director
 Agent commands additionally require `AGENT_TASK_MANAGER_COMMAND_BROKER` to name an absolute trusted sandbox-broker executable. The trusted harness must inject the current run through `AGENT_TASK_MANAGER_COMMAND_RUN_ID` and `AGENT_TASK_MANAGER_COMMAND_HARNESS_ID`; these values must not be controllable by the Agent. The manager authorizes requests but never spawns Agent-requested executables directly.
 
 Agent-definition v1 accepts optional `lifecycleCommands`. `beforeAgent` commands run after assignment preflight and before the Active Agent is created; `afterAgent` commands run after duties finish but before Task and Active Agent terminal mutations. A failure therefore leaves lifecycle state retryable. External command effects are not transactional, so configured commands must be idempotent and must not daemonize. These trusted commands are separate from Agent command allowlists and execute without a shell.
+
+Agent-definition v1 also accepts optional `taskDescription` boundaries. `writableSections` authorizes exact level-two Task-description sections, while `requiredSectionsByOutcome` prevents a declared outcome from completing until its configured sections exist with non-empty content. The harness persists content with `active-agent update-task-section`; Agents never receive arbitrary Task or Notion mutation access.
 
 ## Development
 

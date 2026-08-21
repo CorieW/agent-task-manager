@@ -11,6 +11,10 @@ import type {
   TaskRecord,
 } from "../domain/records.js";
 import type { AgentCommandPolicy } from "../domain/commands.js";
+import {
+  taskDescriptionHasSection,
+  upsertTaskDescriptionSection,
+} from "../domain/task-description.js";
 import type { AgentTaskProvider } from "../provider/agent-task-provider.js";
 import { commandProxySystemPrompt } from "./agent-system-prompt.js";
 import {
@@ -110,7 +114,7 @@ export class AgentCoordinator {
       agent,
       resources,
       run,
-      systemPrompt: commandProxySystemPrompt(),
+      systemPrompt: commandProxySystemPrompt(agent.taskDescription),
       task,
     };
   }
@@ -150,6 +154,13 @@ export class AgentCoordinator {
     this.assertTaskEligibility(agent, task);
     if (!Object.hasOwn(agent.transitions, outcome))
       throw new Error(`Agent does not declare outcome: ${outcome}`);
+    for (const section of agent.taskDescription.requiredSectionsByOutcome[
+      outcome
+    ] ?? [])
+      if (!taskDescriptionHasSection(task.body, section))
+        throw new Error(
+          `Agent outcome ${outcome} requires Task description section: ${section}`,
+        );
     await this.lifecycle.after(
       agent.lifecycleCommands,
       this.terminalLifecycleContext(run, agent.key, "completed", outcome, ""),
@@ -304,7 +315,7 @@ export class AgentCoordinator {
       agent,
       resources,
       run,
-      systemPrompt: commandProxySystemPrompt(),
+      systemPrompt: commandProxySystemPrompt(agent.taskDescription),
       task,
     };
   }
@@ -325,6 +336,29 @@ export class AgentCoordinator {
       commands: agent.commands,
       workingDirectory: run.workingDirectory,
     };
+  }
+
+  /** Replaces one Agent-authorized Task-description section in place. */
+  public async updateTaskSection(
+    runId: string,
+    harnessId: string,
+    section: string,
+    content: string,
+  ): Promise<TaskRecord> {
+    const run = await this.runningOwned(runId, harnessId);
+    const agent = await this.agentById(run.agentId);
+    this.assertAgentVersion(run, agent);
+    this.assertWorkingDirectory(agent, run);
+    if (!agent.taskDescription.writableSections.includes(section))
+      throw new Error(
+        `Agent is not allowed to write Task description section: ${section}`,
+      );
+    const task = await this.provider.getTask(run.taskId);
+    if (task === null || task.archived)
+      throw new Error("Active Agent Task is unavailable");
+    this.assertTaskEligibility(agent, task);
+    const body = upsertTaskDescriptionSection(task.body, section, content);
+    return this.provider.updateTaskBody(task.id, task.body, body);
   }
 
   /** Creates or reopens a keyed Error through the configured provider. */
@@ -410,7 +444,7 @@ export class AgentCoordinator {
       agent,
       resources,
       run,
-      systemPrompt: commandProxySystemPrompt(),
+      systemPrompt: commandProxySystemPrompt(agent.taskDescription),
       task,
     };
   }
