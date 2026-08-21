@@ -1,6 +1,11 @@
 {
-  "schema": "agent-task-manager-environment-v2",
+  "schema": "agent-task-manager-environment-v3",
   "environmentId": "management-v2",
+  "lifecycleCommands": {
+    "beforeAgent": [],
+    "afterAgent": [],
+    "workingDirectories": {}
+  },
   "provider": {
     "type": "notion",
     "connection": {

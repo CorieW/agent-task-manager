@@ -1,5 +1,6 @@
 /** Strict configuration, schema, identifier, and payload parsing coverage. */
 import assert from "node:assert/strict";
+import { resolve } from "node:path";
 import test from "node:test";
 
 import {
@@ -51,10 +52,27 @@ test("decoded Agent transitions validate without a JSON round trip", () => {
   );
 });
 
-test("v2 environment accepts only the five simplified tables", () => {
+test("v3 environment parses strict generic lifecycle commands", () => {
   const value = parseEnvironmentConfig(
     toJsonValue({
       environmentId: "management-v2",
+      lifecycleCommands: {
+        afterAgent: [],
+        beforeAgent: [
+          {
+            agentKeys: ["coder"],
+            arguments: ["prepare", "{{runId}}", "{{workingDirectory}}"],
+            environment: { TASK_CONTEXT: "{{taskId}}" },
+            executable: "tool",
+            inheritEnvironment: [],
+            timeoutMilliseconds: 30_000,
+            workingDirectory: resolve("repository"),
+          },
+        ],
+        workingDirectories: {
+          coder: resolve("runs", "{{runId}}"),
+        },
+      },
       provider: {
         bootstrapParent: "parent",
         connection: { tokenEnv: "NOTION_TOKEN" },
@@ -67,7 +85,7 @@ test("v2 environment accepts only the five simplified tables", () => {
         },
         type: "notion",
       },
-      schema: "agent-task-manager-environment-v2",
+      schema: "agent-task-manager-environment-v3",
     }),
   );
   assert.deepEqual(Object.keys(value.provider.tables).sort(), [
@@ -80,6 +98,31 @@ test("v2 environment accepts only the five simplified tables", () => {
   assert.throws(
     () => parseEnvironmentConfig(toJsonValue({ ...value.raw, runtime: {} })),
     EnvironmentConfigError,
+  );
+  assert.equal(value.lifecycleCommands.beforeAgent[0]?.agentKeys?.[0], "coder");
+  assert.throws(
+    () =>
+      parseEnvironmentConfig(
+        toJsonValue({
+          ...value.raw,
+          lifecycleCommands: {
+            afterAgent: [],
+            beforeAgent: [
+              {
+                agentKeys: ["coder", "coder"],
+                arguments: ["{{unknown}}"],
+                environment: { "INVALID-NAME": "value" },
+                executable: "tool",
+                inheritEnvironment: ["BAD-NAME"],
+                timeoutMilliseconds: 0,
+                workingDirectory: "relative",
+              },
+            ],
+            workingDirectories: { coder: resolve("runs", "{{status}}") },
+          },
+        }),
+      ),
+    /duplicates|unsupported placeholder|environment variable|positive integer|absolute path|stable start-context/u,
   );
 });
 
@@ -103,6 +146,11 @@ test("Notion schema has only Tasks, Agents, Resources, Active Agents, and Errors
   );
   assert.equal(
     active.properties.find((property) => property.name === "Task ID")?.type,
+    "rich_text",
+  );
+  assert.equal(
+    active.properties.find((property) => property.name === "Working Directory")
+      ?.type,
     "rich_text",
   );
   assert.deepEqual(

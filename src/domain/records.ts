@@ -117,6 +117,8 @@ export interface ActiveAgentRecord {
   readonly taskId: string;
   /** Provider version of this Active Agent record. */
   readonly version: string;
+  /** Absolute configured command directory, or null for the host default. */
+  readonly workingDirectory: string | null;
 }
 
 /** Provider-neutral projection of one keyed Error record. */

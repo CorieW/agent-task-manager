@@ -199,7 +199,8 @@ test("command proxy enforces inclusion, ownership, and path-free names", async (
       command: "git",
       commands: { inclusion: ["git"] },
       runId: "run-1",
-      schema: "agent-command-broker-request-v2",
+      schema: "agent-command-broker-request-v3",
+      workingDirectory: null,
     },
   ]);
   await assert.rejects(
@@ -272,14 +273,15 @@ test("command proxy exclusion denies only configured commands", async () => {
   );
 });
 
-test("command policy lookup does not enumerate unrelated Agents", async () => {
+test("command authorization does not enumerate unrelated Agents", async () => {
   const { coordinator, provider } = await setup({ inclusion: ["git"] });
   provider.listAgents = async () => {
     throw new Error("unrelated Agent body is malformed");
   };
-  assert.deepEqual(await coordinator.commandPolicy("run-1", "harness-1"), {
-    inclusion: ["git"],
-  });
+  assert.deepEqual(
+    await coordinator.commandAuthorization("run-1", "harness-1"),
+    { commands: { inclusion: ["git"] }, workingDirectory: null },
+  );
 });
 
 test("sandbox broker receives literal arguments without manager secrets", async () => {
@@ -305,10 +307,12 @@ test("sandbox broker receives literal arguments without manager secrets", async 
             stdout: JSON.stringify({
               arguments: request.arguments,
               commands: request.commands,
+              cwd: process.cwd(),
               locale: process.env.LANG,
               livenessChannelOpen: !process.stdin.readableEnded,
               runId: request.runId,
               schema: request.schema,
+              workingDirectory: request.workingDirectory,
               secret: process.env.${secretName},
               tempLeaked: process.env.TEMP === "manager-temp-sentinel",
               tmpLeaked: process.env.TMP === "manager-tmp-sentinel",
@@ -336,18 +340,21 @@ test("sandbox broker receives literal arguments without manager secrets", async 
       command: "git",
       commands: { inclusion: ["git"] },
       runId: "run-1",
-      schema: "agent-command-broker-request-v2",
+      schema: "agent-command-broker-request-v3",
+      workingDirectory: process.cwd(),
     });
     assert.deepEqual(JSON.parse(result.stdout), {
       arguments: ["status", "&&", "node"],
       commands: { inclusion: ["git"] },
+      cwd: process.cwd(),
       locale: "broker-locale",
       livenessChannelOpen: true,
       runId: "run-1",
-      schema: "agent-command-broker-request-v2",
+      schema: "agent-command-broker-request-v3",
       tempLeaked: false,
       tmpLeaked: false,
       tmpdirLeaked: false,
+      workingDirectory: process.cwd(),
     });
   } finally {
     if (previous === undefined) delete process.env[secretName];
@@ -541,7 +548,8 @@ test("command gate releases the global mutex while retaining the run lease", asy
         command: "git",
         commands: { inclusion: ["git"] },
         runId: "run-1",
-        schema: "agent-command-broker-request-v2",
+        schema: "agent-command-broker-request-v3",
+        workingDirectory: null,
       };
     },
     async () => {
@@ -584,6 +592,7 @@ function brokerRequest(): BrokerCommandRequest {
     command: "git",
     commands: { inclusion: ["git"] },
     runId: "run-1",
-    schema: "agent-command-broker-request-v2",
+    schema: "agent-command-broker-request-v3",
+    workingDirectory: null,
   };
 }

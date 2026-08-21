@@ -11,6 +11,7 @@ import {
   type EnvironmentConfig,
 } from "./config/environment.js";
 import { AgentCoordinator, type SweepResult } from "./core/coordinator.js";
+import { ConfiguredLifecycleCommands } from "./core/lifecycle-commands.js";
 import {
   CommandProxy,
   createCommandBrokerExecutor,
@@ -139,7 +140,15 @@ export async function runCli(
 
   const configuration = await loadEnvironment(parsed.flags.environment, env);
   const provider = providerFor(configuration, env);
-  const coordinator = new AgentCoordinator(provider);
+  const coordinator = new AgentCoordinator(
+    provider,
+    () => new Date(),
+    new ConfiguredLifecycleCommands(
+      configuration.environmentId,
+      configuration.lifecycleCommands,
+      env,
+    ),
+  );
   let mutexRoot: string | undefined;
   const coordinationRoot = (): string =>
     (mutexRoot ??= coordinationDirectory(env));

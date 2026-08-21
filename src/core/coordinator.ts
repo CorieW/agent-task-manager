@@ -1,4 +1,6 @@
 /** Coordinates owned Agent runs, hierarchy, completion, failure, and retries. */
+import { resolve } from "node:path";
+
 import type {
   ActiveAgentContext,
   ActiveAgentRecord,
@@ -11,6 +13,11 @@ import type {
 import type { AgentCommandPolicy } from "../domain/commands.js";
 import type { AgentTaskProvider } from "../provider/agent-task-provider.js";
 import { commandProxySystemPrompt } from "./agent-system-prompt.js";
+import {
+  NO_LIFECYCLE_COMMANDS,
+  type AgentLifecycleCommands,
+  type LifecycleCommandContext,
+} from "./lifecycle-commands.js";
 
 /** Maximum time a running Agent may go without a heartbeat. */
 export const STALE_AFTER_MILLISECONDS = 5 * 60 * 1000;
@@ -36,6 +43,7 @@ export class AgentCoordinator {
   public constructor(
     private readonly provider: AgentTaskProvider,
     private readonly now: () => Date = () => new Date(),
+    private readonly lifecycle: AgentLifecycleCommands = NO_LIFECYCLE_COMMANDS,
   ) {}
 
   /** Starts a run or idempotently replays an identical existing Run ID. */
@@ -55,6 +63,7 @@ export class AgentCoordinator {
         throw new Error(
           "Run ID reuse conflicts with the existing Active Agent",
         );
+      this.assertWorkingDirectory(agent.key, replay);
       return this.context(replay, agent);
     }
     const agent = await this.requiredAgent(input.agentKey);
@@ -81,6 +90,8 @@ export class AgentCoordinator {
         throw new Error("Child Active Agent must use its parent Task");
     }
     const resources = await this.resourcesFor(agent);
+    const lifecycle = this.startLifecycleContext(agent.key, input);
+    await this.lifecycle.before(lifecycle);
     const startedAt = this.now().toISOString();
     const run = await this.provider.createActiveAgent({
       agentId: agent.id,
@@ -93,6 +104,7 @@ export class AgentCoordinator {
       runId: input.runId,
       startedAt,
       taskId: input.taskId,
+      workingDirectory: lifecycle.workingDirectory,
     });
     return {
       agent,
@@ -131,12 +143,16 @@ export class AgentCoordinator {
       );
     const agent = await this.agentById(run.agentId);
     this.assertAgentVersion(run, agent);
+    this.assertWorkingDirectory(agent.key, run);
     const task = await this.provider.getTask(run.taskId);
     if (task === null || task.archived)
       throw new Error("Active Agent Task is unavailable");
     this.assertTaskEligibility(agent, task);
     if (!Object.hasOwn(agent.transitions, outcome))
       throw new Error(`Agent does not declare outcome: ${outcome}`);
+    await this.lifecycle.after(
+      this.terminalLifecycleContext(run, agent.key, "completed", outcome, ""),
+    );
     const target = agent.transitions[outcome]!;
     if (target !== "$current")
       await this.provider.setTaskStatus(run.taskId, target);
@@ -263,6 +279,13 @@ export class AgentCoordinator {
       throw new Error("Active Agent Task is unavailable");
     this.assertTaskEligibility(agent, task);
     const resources = await this.resourcesFor(agent);
+    const lifecycle = this.startLifecycleContext(agent.key, {
+      harnessId: input.harnessId,
+      parentRunId: restartSource.parentRunId,
+      runId: input.runId,
+      taskId: restartSource.taskId,
+    });
+    await this.lifecycle.before(lifecycle);
     const run = await this.provider.createActiveAgent({
       agentId: restartSource.agentId,
       agentVersion: agent.version,
@@ -274,6 +297,7 @@ export class AgentCoordinator {
       runId: input.runId,
       startedAt,
       taskId: restartSource.taskId,
+      workingDirectory: lifecycle.workingDirectory,
     });
     return {
       agent,
@@ -284,15 +308,22 @@ export class AgentCoordinator {
     };
   }
 
-  /** Returns the pinned command policy after checking run ownership. */
-  public async commandPolicy(
+  /** Returns the pinned command policy and configured execution directory. */
+  public async commandAuthorization(
     runId: string,
     harnessId: string,
-  ): Promise<AgentCommandPolicy> {
+  ): Promise<{
+    readonly commands: AgentCommandPolicy;
+    readonly workingDirectory: string | null;
+  }> {
     const run = await this.runningOwned(runId, harnessId);
     const agent = await this.agentById(run.agentId);
     this.assertAgentVersion(run, agent);
-    return agent.commands;
+    this.assertWorkingDirectory(agent.key, run);
+    return {
+      commands: agent.commands,
+      workingDirectory: run.workingDirectory,
+    };
   }
 
   /** Creates or reopens a keyed Error through the configured provider. */
@@ -313,13 +344,30 @@ export class AgentCoordinator {
     for (const child of this.descendants(run.runId, all).filter(
       (entry) => entry.status === "running",
     )) {
+      const agentKey = await this.agentKeyForHook(child.agentId);
+      if (agentKey !== "") this.assertWorkingDirectory(agentKey, child);
+      const failureSummary = `Stopped because ancestor ${run.runId} ${status}`;
+      await this.lifecycle.after(
+        this.terminalLifecycleContext(
+          child,
+          agentKey,
+          "stopped",
+          "",
+          failureSummary,
+        ),
+      );
       await this.provider.updateActiveAgent(child.runId, {
-        failureSummary: `Stopped because ancestor ${run.runId} ${status}`,
+        failureSummary,
         finishedAt: this.now().toISOString(),
         status: "stopped",
       });
       await this.provider.archiveActiveAgent(child.runId);
     }
+    const agentKey = await this.agentKeyForHook(run.agentId);
+    if (agentKey !== "") this.assertWorkingDirectory(agentKey, run);
+    await this.lifecycle.after(
+      this.terminalLifecycleContext(run, agentKey, status, "", summary),
+    );
     const terminated = await this.provider.updateActiveAgent(run.runId, {
       failureSummary: summary,
       finishedAt: this.now().toISOString(),
@@ -358,6 +406,75 @@ export class AgentCoordinator {
       systemPrompt: commandProxySystemPrompt(),
       task,
     };
+  }
+
+  private startLifecycleContext(
+    agentKey: string,
+    input: {
+      readonly harnessId: string;
+      readonly parentRunId: string | null;
+      readonly runId: string;
+      readonly taskId: string;
+    },
+  ): LifecycleCommandContext {
+    const context = {
+      agentKey,
+      failureSummary: "",
+      harnessId: input.harnessId,
+      outcome: "",
+      parentRunId: input.parentRunId,
+      runId: input.runId,
+      status: "running" as const,
+      taskId: input.taskId,
+    };
+    return {
+      ...context,
+      workingDirectory: this.lifecycle.workingDirectory(agentKey, context),
+    };
+  }
+
+  private terminalLifecycleContext(
+    run: ActiveAgentRecord,
+    agentKey: string,
+    status: ActiveAgentRecord["status"],
+    outcome: string,
+    failureSummary: string,
+  ): LifecycleCommandContext {
+    return {
+      agentKey,
+      failureSummary,
+      harnessId: run.harnessId,
+      outcome,
+      parentRunId: run.parentRunId,
+      runId: run.runId,
+      status,
+      taskId: run.taskId,
+      workingDirectory: run.workingDirectory,
+    };
+  }
+
+  private assertWorkingDirectory(
+    agentKey: string,
+    run: ActiveAgentRecord,
+  ): void {
+    const expected = this.lifecycle.workingDirectory(agentKey, {
+      agentKey,
+      failureSummary: "",
+      harnessId: run.harnessId,
+      outcome: "",
+      parentRunId: run.parentRunId,
+      runId: run.runId,
+      status: "running",
+      taskId: run.taskId,
+    });
+    if (!sameOptionalPath(expected, run.workingDirectory))
+      throw new Error(
+        "Active Agent working directory does not match lifecycle configuration",
+      );
+  }
+
+  private async agentKeyForHook(agentId: string): Promise<string> {
+    return (await this.provider.getAgent(agentId))?.key ?? "";
   }
 
   private async resourcesFor(
@@ -453,6 +570,15 @@ export class AgentCoordinator {
     }
     return false;
   }
+}
+
+function sameOptionalPath(left: string | null, right: string | null): boolean {
+  if (left === null || right === null) return left === right;
+  const normalizedLeft = resolve(left);
+  const normalizedRight = resolve(right);
+  return process.platform === "win32"
+    ? normalizedLeft.toLowerCase() === normalizedRight.toLowerCase()
+    : normalizedLeft === normalizedRight;
 }
 
 /** Returns the stable Error key that gates a retry chain after its limit. */

@@ -21,6 +21,7 @@ export interface CreateActiveAgentRecord {
   readonly runId: string;
   readonly startedAt: string;
   readonly taskId: string;
+  readonly workingDirectory: string | null;
 }
 /** Mutable lifecycle fields accepted when updating an Active Agent. */
 export interface ActiveAgentPatch {

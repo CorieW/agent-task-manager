@@ -160,6 +160,7 @@ export class InMemoryProvider implements AgentTaskProvider {
       status: "running",
       taskId: input.taskId,
       version: this.version(),
+      workingDirectory: input.workingDirectory,
     };
     this.#activeAgents.set(record.runId, record);
     return clone(record);

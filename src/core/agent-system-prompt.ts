@@ -9,6 +9,7 @@ export function commandProxySystemPrompt(): string {
 Operating-system command policy:
 - Execute every operating-system command exclusively through: agent-task-manager command proxy -- <command> [arguments...]
 - The trusted harness binds the current run identity outside Agent-controlled arguments. Never supply or select another run or harness identity.
+- When the Active Agent supplies a Working Directory, every proxied command starts there. Do not operate on another checkout or execution directory.
 - Never invoke a shell, terminal, process API, executable, script, alias, or command runner directly.
 - Never use an allowed command to launch a shell or another executable as a way to bypass the proxy policy.
 - Treat a proxy denial as final. Do not rename, wrap, reimplement, or otherwise bypass a denied command.

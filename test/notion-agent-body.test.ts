@@ -263,6 +263,7 @@ test("Notion Active Agent creation persists historical Task identity", async () 
     runId: "child",
     startedAt: "2026-08-17T12:00:00.000Z",
     taskId: ids.task,
+    workingDirectory: "C:\\runs\\child",
   });
 
   assert.equal(created.taskId, ids.task);
@@ -273,6 +274,10 @@ test("Notion Active Agent creation persists historical Task identity", async () 
   assert.deepEqual(
     transport.createdProperties?.["Task ID"],
     requestRichText(ids.task),
+  );
+  assert.deepEqual(
+    transport.createdProperties?.["Working Directory"],
+    requestRichText("C:\\runs\\child"),
   );
 });
 

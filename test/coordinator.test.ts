@@ -1,6 +1,7 @@
 /** Provider-neutral lifecycle, hierarchy, retry, and ownership coverage. */
 import assert from "node:assert/strict";
 import test from "node:test";
+import { resolve } from "node:path";
 
 import {
   AgentCoordinator,
@@ -8,6 +9,10 @@ import {
   STALE_AFTER_MILLISECONDS,
   retryErrorKey,
 } from "../src/core/coordinator.js";
+import {
+  NO_LIFECYCLE_COMMANDS,
+  type AgentLifecycleCommands,
+} from "../src/core/lifecycle-commands.js";
 import type {
   AgentRecord,
   ResourceRecord,
@@ -70,14 +75,17 @@ function agent(): AgentRecord {
     version: "1",
   };
 }
-function setup(now = new Date("2026-08-17T12:00:00.000Z")) {
+function setup(
+  now = new Date("2026-08-17T12:00:00.000Z"),
+  lifecycle: AgentLifecycleCommands = NO_LIFECYCLE_COMMANDS,
+) {
   let clock = now;
   const provider = new InMemoryProvider({
     agents: [agent()],
     resources: [resource("prompt"), resource("policy", "Policy")],
     tasks: [task()],
   });
-  const coordinator = new AgentCoordinator(provider, () => clock);
+  const coordinator = new AgentCoordinator(provider, () => clock, lifecycle);
   return {
     coordinator,
     provider,
@@ -86,6 +94,114 @@ function setup(now = new Date("2026-08-17T12:00:00.000Z")) {
     },
   };
 }
+
+test("configured lifecycle commands surround duties and replay only once", async () => {
+  const events: string[] = [];
+  let failAfter = false;
+  const lifecycle: AgentLifecycleCommands = {
+    async after(context) {
+      events.push(`after:${context.status}:${context.outcome}`);
+      if (failAfter) throw new Error("cleanup failed");
+    },
+    async before(context) {
+      events.push(`before:${context.runId}`);
+    },
+    workingDirectory(_agentKey, context) {
+      return resolve("runs", context.runId);
+    },
+  };
+  const state = setup(new Date("2026-08-17T12:00:00.000Z"), lifecycle);
+  const input = {
+    agentKey: "coder",
+    harnessId: "host-1",
+    parentRunId: null,
+    runId: "run-hooks",
+    taskId: "task-1",
+  };
+  const started = await state.coordinator.start(input);
+  assert.equal(started.run.workingDirectory, resolve("runs", "run-hooks"));
+  await state.coordinator.start(input);
+  assert.deepEqual(events, ["before:run-hooks"]);
+  assert.deepEqual(
+    await state.coordinator.commandAuthorization("run-hooks", "host-1"),
+    {
+      commands: { exclusion: [] },
+      workingDirectory: resolve("runs", "run-hooks"),
+    },
+  );
+
+  failAfter = true;
+  await assert.rejects(
+    state.coordinator.complete("run-hooks", "host-1", "succeeded"),
+    /cleanup failed/u,
+  );
+  assert.equal(
+    (await state.provider.getActiveAgent("run-hooks"))?.status,
+    "running",
+  );
+  assert.equal((await state.provider.getTask("task-1"))?.status, "Planned");
+  failAfter = false;
+  await state.coordinator.complete("run-hooks", "host-1", "succeeded");
+  assert.deepEqual(events, [
+    "before:run-hooks",
+    "after:completed:succeeded",
+    "after:completed:succeeded",
+  ]);
+});
+
+test("a before command failure creates no Active Agent", async () => {
+  const lifecycle: AgentLifecycleCommands = {
+    async after() {},
+    async before() {
+      throw new Error("preparation failed");
+    },
+    workingDirectory() {
+      return null;
+    },
+  };
+  const state = setup(new Date("2026-08-17T12:00:00.000Z"), lifecycle);
+  await assert.rejects(
+    state.coordinator.start({
+      agentKey: "coder",
+      harnessId: "host-1",
+      parentRunId: null,
+      runId: "run-hooks",
+      taskId: "task-1",
+    }),
+    /preparation failed/u,
+  );
+  assert.equal((await state.provider.listActiveAgents()).length, 0);
+});
+
+test("after commands run for stopped descendants and their failed root", async () => {
+  const terminal: string[] = [];
+  const lifecycle: AgentLifecycleCommands = {
+    async after(context) {
+      terminal.push(`${context.runId}:${context.status}`);
+    },
+    async before() {},
+    workingDirectory() {
+      return null;
+    },
+  };
+  const state = setup(new Date("2026-08-17T12:00:00.000Z"), lifecycle);
+  await state.coordinator.start({
+    agentKey: "coder",
+    harnessId: "host-1",
+    parentRunId: null,
+    runId: "root",
+    taskId: "task-1",
+  });
+  await state.coordinator.start({
+    agentKey: "coder",
+    harnessId: "host-1",
+    parentRunId: "root",
+    runId: "child",
+    taskId: "task-1",
+  });
+  await state.coordinator.fail("root", "host-1", "failed");
+  assert.deepEqual(terminal, ["child:stopped", "root:failed"]);
+});
 
 test("start returns current context, replays a matching Run ID, and enforces one root", async () => {
   const { coordinator } = setup();
@@ -341,6 +457,7 @@ test("completion rejects Agent definition drift before mutating its Task", async
         status: "running",
         taskId: "task-1",
         version: "run-version",
+        workingDirectory: null,
       },
     ],
     agents: [agent()],
@@ -379,6 +496,7 @@ test("legacy Agent versions fail closed until a canonical restart", async () => 
     status: "running" as const,
     taskId: "task-1",
     version: "run-version",
+    workingDirectory: null,
   };
   const provider = new InMemoryProvider({
     activeAgents: [legacyRun],
@@ -399,7 +517,7 @@ test("legacy Agent versions fail closed until a canonical restart", async () => 
     /Run ID reuse conflicts/u,
   );
   await assert.rejects(
-    coordinator.commandPolicy(legacyRun.runId, "h"),
+    coordinator.commandAuthorization(legacyRun.runId, "h"),
     /definition changed/u,
   );
   await assert.rejects(

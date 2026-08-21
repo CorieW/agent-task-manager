@@ -137,6 +137,7 @@ function activeRun(
     status: "running",
     taskId: `task-${runId}`,
     version: "1",
+    workingDirectory: null,
   };
 }
 

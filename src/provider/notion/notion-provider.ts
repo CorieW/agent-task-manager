@@ -385,6 +385,7 @@ export class NotionProvider implements AgentTaskProvider {
           "Finished At": date(null),
           Outcome: richText(""),
           "Failure Summary": richText(""),
+          "Working Directory": richText(input.workingDirectory ?? ""),
         },
       },
       method: "POST",
@@ -812,6 +813,7 @@ export class NotionProvider implements AgentTaskProvider {
         ).toLowerCase() as ActiveAgentRecord["status"],
         taskId: first("Task") ?? textValue(props["Task ID"]),
         version: version(page),
+        workingDirectory: nullableTextValue(props["Working Directory"]),
       };
     });
   }
@@ -1016,6 +1018,10 @@ function textValue(value: JsonValue | undefined): string {
       return typeof item.plain_text === "string" ? item.plain_text : "";
     })
     .join("");
+}
+function nullableTextValue(value: JsonValue | undefined): string | null {
+  const text = textValue(value);
+  return text === "" ? null : text;
 }
 function selectValue(value: JsonValue | undefined): string {
   if (value === undefined) return "";
