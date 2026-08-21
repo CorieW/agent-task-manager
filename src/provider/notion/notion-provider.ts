@@ -282,7 +282,9 @@ export class NotionProvider implements AgentTaskProvider {
     await this.transport.request({
       body: {
         type: "update_content",
-        update_content: { new_str: body, old_str: expectedBody },
+        update_content: {
+          content_updates: [{ new_str: body, old_str: expectedBody }],
+        },
       },
       method: "PATCH",
       path: `/v1/pages/${normalizeId(id)}/markdown`,

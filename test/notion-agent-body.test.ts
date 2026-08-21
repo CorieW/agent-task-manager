@@ -292,8 +292,12 @@ test("Notion Task body updates require and replace exact Markdown", async () => 
   assert.deepEqual(transport.patch, {
     type: "update_content",
     update_content: {
-      new_str: "## Context\n\nOriginal.\n\n## Planning\n\nPlan.\n",
-      old_str: "## Context\n\nOriginal.\n",
+      content_updates: [
+        {
+          new_str: "## Context\n\nOriginal.\n\n## Planning\n\nPlan.\n",
+          old_str: "## Context\n\nOriginal.\n",
+        },
+      ],
     },
   });
 });
@@ -507,11 +511,20 @@ class TaskBodyTransport implements NotionTransport {
         update !== undefined &&
           update !== null &&
           typeof update === "object" &&
-          !Array.isArray(update) &&
-          update.old_str === this.markdown &&
-          typeof update.new_str === "string",
+          !Array.isArray(update),
       );
-      this.markdown = update.new_str;
+      const contentUpdates = update.content_updates;
+      assert.ok(Array.isArray(contentUpdates) && contentUpdates.length === 1);
+      const replacement = contentUpdates[0];
+      assert.ok(
+        replacement !== undefined &&
+          replacement !== null &&
+          typeof replacement === "object" &&
+          !Array.isArray(replacement) &&
+          replacement.old_str === this.markdown &&
+          typeof replacement.new_str === "string",
+      );
+      this.markdown = replacement.new_str;
       return {};
     }
     throw new Error(
