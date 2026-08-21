@@ -1,12 +1,12 @@
 # Configuration and CLI
 
-Copy `agent-task-manager.environment.example.json` to the ignored `agent-task-manager.environment.json`. Use schema `agent-task-manager-environment-v3`; configure the Management page and the data-source IDs for `tasks`, `agents`, `activeAgents`, `errors`, and `resources`.
+Copy `agent-task-manager.environment.example.json` to the ignored `agent-task-manager.environment.json`. Use schema `agent-task-manager-environment-v1`; configure the Management page and the data-source IDs for `tasks`, `agents`, `activeAgents`, `errors`, and `resources`.
 
 An Agent definition's optional `lifecycleCommands` provides ordered trusted commands around that Agent's duties. This Coder fragment creates an isolated Git worktree without embedding Git behavior in Agent Task Manager:
 
 ```json
 {
-  "schema": "agent-definition-v3",
+  "schema": "agent-definition-v1",
   "id": "coder",
   "lifecycleCommands": {
     "workingDirectory": "A:\\Projects\\.agent-runs\\{{runId}}",

@@ -62,7 +62,7 @@ export class InMemoryProvider implements AgentTaskProvider {
   public async planWorkspace(environmentId: string): Promise<WorkspacePlan> {
     const core = {
       environmentId,
-      schema: "workspace-plan-v2" as const,
+      schema: "workspace-plan-v1" as const,
       steps: [],
       targetSchemaDigest: "memory",
     };

@@ -93,7 +93,7 @@ test("expected Management v2 baseline produces a deterministic complete plan", (
   );
 });
 
-test("older Agent bodies still schedule persisted v3 conversion", () => {
+test("incomplete Agent bodies still schedule persisted v1 conversion", () => {
   const original = expectedLegacyInventory();
   const first = original.agents.rows[0]!;
   const manifest = parseLegacyAgentManifest(first.body);
@@ -129,7 +129,7 @@ test("older Agent bodies still schedule persisted v3 conversion", () => {
     },
   };
 
-  assert.deepEqual(parseAgentDefinition(v1Body).commands, { inclusion: [] });
+  assert.throws(() => parseAgentDefinition(v1Body), /allowedStatuses/u);
   assert.equal(
     planManagementV2Migration(inventory).actions.filter(
       (entry) => entry.kind === "convert_agent",

@@ -141,7 +141,7 @@ export interface ManagementInventory {
 }
 /** Supported ordered operation kinds in a Management v2 migration. */
 export type MigrationActionKind =
-  | "add_v2_schema"
+  | "add_schema"
   | "archive_error"
   | "archive_operations"
   | "archive_resource"
@@ -175,11 +175,11 @@ export function planManagementV2Migration(
   assertManagementV2Inventory(inventory);
   const actions: MigrationAction[] = [];
   const needsAdditive =
-    inventory.activeAgents === null || !hasV2Properties(inventory);
+    inventory.activeAgents === null || !hasTargetProperties(inventory);
   if (needsAdditive)
     actions.push({
-      id: "schema:add-v2",
-      kind: "add_v2_schema",
+      id: "schema:add-v1",
+      kind: "add_schema",
       targetId: inventory.parentId,
     });
   if (inventory.activeAgents === null)
@@ -535,7 +535,7 @@ export function agentDefinitionMarkdown(
   const notes = stringProperty(row.properties.Notes, "Notes");
   const definition = {
     ...legacy,
-    schema: "agent-definition-v3",
+    schema: "agent-definition-v1",
     allowedStatuses: Array.isArray(legacy.allowedStatuses)
       ? legacy.allowedStatuses
       : [],
@@ -640,7 +640,7 @@ function digestInventory(inventory: ManagementInventory): string {
     }),
   );
 }
-function hasV2Properties(inventory: ManagementInventory): boolean {
+function hasTargetProperties(inventory: ManagementInventory): boolean {
   return (
     inventory.agents.properties.Name === "title" &&
     inventory.tasks.properties.Type === "select" &&
@@ -720,7 +720,7 @@ function hasAgentDefinition(markdown: string): boolean {
   if (section === null) return false;
   try {
     const definition = parseDefinitionObject(section.content);
-    if (definition.schema !== "agent-definition-v3") return false;
+    if (definition.schema !== "agent-definition-v1") return false;
     parseAgentDefinition(markdown);
     return true;
   } catch {

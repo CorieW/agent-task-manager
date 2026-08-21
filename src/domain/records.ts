@@ -317,15 +317,11 @@ export function parseAgentDefinition(markdown: string): AgentDefinition {
 
   const definition = parsed as Record<string, unknown>;
   const schema = definition.schema;
-  if (
-    schema !== "agent-definition-v1" &&
-    schema !== "agent-definition-v2" &&
-    schema !== "agent-definition-v3"
-  )
+  if (schema !== "agent-definition-v1")
     throw new TypeError(
-      "Agent definition schema must equal agent-definition-v1, agent-definition-v2, or agent-definition-v3",
+      "Agent definition schema must equal agent-definition-v1",
     );
-  rejectUnknownDefinitionFields(definition, schema);
+  rejectUnknownDefinitionFields(definition);
   const promptResources = definitionStrings(
     definition.promptResources,
     "promptResources",
@@ -352,25 +348,19 @@ export function parseAgentDefinition(markdown: string): AgentDefinition {
     throw new TypeError("Agent definition enabled must be a boolean");
 
   return {
-    allowedStatuses:
-      schema === "agent-definition-v3"
-        ? definitionStringSet(definition.allowedStatuses, "allowedStatuses")
-        : [],
-    allowedTaskTypes:
-      schema === "agent-definition-v3"
-        ? definitionStringSet(definition.allowedTaskTypes, "allowedTaskTypes")
-        : [],
+    allowedStatuses: definitionStringSet(
+      definition.allowedStatuses,
+      "allowedStatuses",
+    ),
+    allowedTaskTypes: definitionStringSet(
+      definition.allowedTaskTypes,
+      "allowedTaskTypes",
+    ),
     calledBy: optionalDefinitionText(definition.calledBy, "calledBy"),
-    commands:
-      schema === "agent-definition-v1"
-        ? { inclusion: [] }
-        : parseAgentCommandPolicy(definition.commands),
+    commands: parseAgentCommandPolicy(definition.commands),
     enabled: definition.enabled,
     id: definitionText(definition.id, "id"),
-    lifecycleCommands:
-      schema === "agent-definition-v3"
-        ? parseAgentLifecycleConfig(definition.lifecycleCommands)
-        : parseAgentLifecycleConfig(undefined),
+    lifecycleCommands: parseAgentLifecycleConfig(definition.lifecycleCommands),
     model: definitionText(definition.model, "model"),
     notes: optionalDefinitionText(definition.notes, "notes"),
     reasoning: definitionText(definition.reasoning, "reasoning"),
@@ -381,7 +371,6 @@ export function parseAgentDefinition(markdown: string): AgentDefinition {
 
 function rejectUnknownDefinitionFields(
   definition: Readonly<Record<string, unknown>>,
-  schema: "agent-definition-v1" | "agent-definition-v2" | "agent-definition-v3",
 ): void {
   const supported = new Set([
     "calledBy",
@@ -394,10 +383,10 @@ function rejectUnknownDefinitionFields(
     "reasoning",
     "schema",
     "transitions",
-    ...(schema === "agent-definition-v1" ? [] : ["commands"]),
-    ...(schema === "agent-definition-v3"
-      ? ["allowedStatuses", "allowedTaskTypes", "lifecycleCommands"]
-      : []),
+    "commands",
+    "allowedStatuses",
+    "allowedTaskTypes",
+    "lifecycleCommands",
   ]);
   const unknown = Object.keys(definition).filter((key) => !supported.has(key));
   if (unknown.length !== 0)

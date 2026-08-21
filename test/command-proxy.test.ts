@@ -98,13 +98,15 @@ const immediateGate: CommandExecutionGate = {
 
 test("Agent command policies require exactly one normalized list", () => {
   const definition = {
+    allowedStatuses: ["In review"],
+    allowedTaskTypes: ["Feature"],
     enabled: true,
     id: "coder",
     inputResourceSelectors: ["policy/review"],
     model: "gpt",
     promptResources: ["prompt/coder"],
     reasoning: "high",
-    schema: "agent-definition-v2",
+    schema: "agent-definition-v1",
     transitions: { succeeded: "In review" },
   };
   const markdown = (commands: object): string =>
@@ -201,7 +203,7 @@ test("command proxy enforces inclusion, ownership, and path-free names", async (
       command: "git",
       commands: { inclusion: ["git"] },
       runId: "run-1",
-      schema: "agent-command-broker-request-v3",
+      schema: "agent-command-broker-request-v1",
       workingDirectory: null,
     },
   ]);
@@ -342,7 +344,7 @@ test("sandbox broker receives literal arguments without manager secrets", async 
       command: "git",
       commands: { inclusion: ["git"] },
       runId: "run-1",
-      schema: "agent-command-broker-request-v3",
+      schema: "agent-command-broker-request-v1",
       workingDirectory: process.cwd(),
     });
     assert.deepEqual(JSON.parse(result.stdout), {
@@ -352,7 +354,7 @@ test("sandbox broker receives literal arguments without manager secrets", async 
       locale: "broker-locale",
       livenessChannelOpen: true,
       runId: "run-1",
-      schema: "agent-command-broker-request-v3",
+      schema: "agent-command-broker-request-v1",
       tempLeaked: false,
       tmpLeaked: false,
       tmpdirLeaked: false,
@@ -550,7 +552,7 @@ test("command gate releases the global mutex while retaining the run lease", asy
         command: "git",
         commands: { inclusion: ["git"] },
         runId: "run-1",
-        schema: "agent-command-broker-request-v3",
+        schema: "agent-command-broker-request-v1",
         workingDirectory: null,
       };
     },
@@ -594,7 +596,7 @@ function brokerRequest(): BrokerCommandRequest {
     command: "git",
     commands: { inclusion: ["git"] },
     runId: "run-1",
-    schema: "agent-command-broker-request-v3",
+    schema: "agent-command-broker-request-v1",
     workingDirectory: null,
   };
 }

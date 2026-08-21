@@ -2,12 +2,12 @@
 import type { JsonObject, JsonValue } from "../domain/json.js";
 import { TABLE_KINDS, type ProviderEnvironment } from "../domain/provider.js";
 
-/** Validated v3 environment configuration and its original JSON value. */
+/** Validated v1 environment configuration and its original JSON value. */
 export interface EnvironmentConfig {
   readonly environmentId: string;
   readonly provider: ProviderEnvironment;
   readonly raw: JsonObject;
-  readonly schema: "agent-task-manager-environment-v3";
+  readonly schema: "agent-task-manager-environment-v1";
 }
 /** Aggregates all problems found while parsing environment configuration. */
 export class EnvironmentConfigError extends TypeError {
@@ -16,13 +16,13 @@ export class EnvironmentConfigError extends TypeError {
   }
 }
 
-/** Strictly parses v3 environment JSON, rejecting unknown or missing fields. */
+/** Strictly parses v1 environment JSON, rejecting unknown or missing fields. */
 export function parseEnvironmentConfig(value: JsonValue): EnvironmentConfig {
   const issues: string[] = [];
   const root = object(value, "root", issues);
   rejectUnknown(root, ["schema", "environmentId", "provider"], "root", issues);
-  if (root.schema !== "agent-task-manager-environment-v3")
-    issues.push("schema must equal agent-task-manager-environment-v3");
+  if (root.schema !== "agent-task-manager-environment-v1")
+    issues.push("schema must equal agent-task-manager-environment-v1");
   const environmentId = string(root.environmentId, "environmentId", issues);
   const provider = object(root.provider, "provider", issues);
   rejectUnknown(
@@ -51,7 +51,7 @@ export function parseEnvironmentConfig(value: JsonValue): EnvironmentConfig {
     environmentId,
     provider: { bootstrapParent: parent, connection, tables, type },
     raw: root,
-    schema: "agent-task-manager-environment-v3",
+    schema: "agent-task-manager-environment-v1",
   };
 }
 

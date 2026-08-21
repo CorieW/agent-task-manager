@@ -38,7 +38,7 @@ export interface BrokerCommandRequest {
   readonly command: string;
   readonly commands: AgentCommandPolicy;
   readonly runId: string;
-  readonly schema: "agent-command-broker-request-v3";
+  readonly schema: "agent-command-broker-request-v1";
   readonly workingDirectory: string | null;
 }
 
@@ -145,7 +145,7 @@ export class CommandProxy {
           command,
           commands: authorization.commands,
           runId: input.runId,
-          schema: "agent-command-broker-request-v3",
+          schema: "agent-command-broker-request-v1",
           workingDirectory: authorization.workingDirectory,
         };
       },

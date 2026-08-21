@@ -51,7 +51,7 @@ test("decoded Agent transitions validate without a JSON round trip", () => {
   );
 });
 
-test("v3 environment contains provider configuration only", () => {
+test("v1 environment contains provider configuration only", () => {
   const value = parseEnvironmentConfig(
     toJsonValue({
       environmentId: "management-v2",
@@ -67,7 +67,7 @@ test("v3 environment contains provider configuration only", () => {
         },
         type: "notion",
       },
-      schema: "agent-task-manager-environment-v3",
+      schema: "agent-task-manager-environment-v1",
     }),
   );
   assert.deepEqual(Object.keys(value.provider.tables).sort(), [
@@ -133,7 +133,7 @@ test("Agent configuration is parsed from the page body", () => {
 
 \`\`\`json
 {
-  "schema": "agent-definition-v3",
+  "schema": "agent-definition-v1",
   "enabled": true,
   "commands": {"inclusion": ["git", "pnpm.cmd"]},
   "allowedTaskTypes": ["Bug", "Vulnerability"],
@@ -182,8 +182,10 @@ test("Agent configuration is parsed from the page body", () => {
   });
 });
 
-test("Agent definitions read v1 as deny-all and reject unsupported schemas", () => {
+test("Agent definitions accept only the complete v1 schema", () => {
   const valid = {
+    allowedStatuses: ["In progress"],
+    allowedTaskTypes: ["Feature"],
     commands: { exclusion: [] },
     enabled: true,
     id: "code-reviewer",
@@ -191,32 +193,22 @@ test("Agent definitions read v1 as deny-all and reject unsupported schemas", () 
     model: "gpt-5.6-sol",
     promptResources: ["prompt/code-reviewer"],
     reasoning: "high",
-    schema: "agent-definition-v2",
+    schema: "agent-definition-v1",
     transitions: { succeeded: "In progress" },
   };
   const markdown = (definition: object): string =>
     `## Agent definition\n\n\`\`\`json\n${JSON.stringify(definition)}\n\`\`\`\n`;
 
-  assert.deepEqual(
-    parseAgentDefinition(
-      markdown({
-        ...valid,
-        commands: undefined,
-        schema: "agent-definition-v1",
-      }),
-    ).commands,
-    { inclusion: [] },
+  assert.deepEqual(parseAgentDefinition(markdown(valid)).commands, {
+    exclusion: [],
+  });
+  assert.throws(
+    () => parseAgentDefinition(markdown({ ...valid, schema: "unsupported" })),
+    /schema must equal agent-definition-v1/u,
   );
   assert.throws(
-    () => parseAgentDefinition(markdown({ ...valid, schema: "unknown" })),
-    /schema must equal agent-definition-v1, agent-definition-v2, or agent-definition-v3/u,
-  );
-  assert.throws(
-    () =>
-      parseAgentDefinition(
-        markdown({ ...valid, schema: "agent-definition-v1" }),
-      ),
-    /unsupported fields: commands/u,
+    () => parseAgentDefinition(markdown({ ...valid, commands: undefined })),
+    /commands must be an object/u,
   );
   assert.throws(
     () => parseAgentDefinition(markdown({ ...valid, prohibitedCommand: "rm" })),
@@ -224,7 +216,7 @@ test("Agent definitions read v1 as deny-all and reject unsupported schemas", () 
   );
 });
 
-test("Agent v3 requires unique user-defined Task type and status allowlists", () => {
+test("Agent v1 requires unique user-defined Task type and status allowlists", () => {
   const definition = {
     allowedStatuses: ["Planning"],
     allowedTaskTypes: ["Bug"],
@@ -235,7 +227,7 @@ test("Agent v3 requires unique user-defined Task type and status allowlists", ()
     model: "gpt",
     promptResources: ["prompt/coder"],
     reasoning: "high",
-    schema: "agent-definition-v3",
+    schema: "agent-definition-v1",
     transitions: { succeeded: "Planning" },
   };
   const markdown = (value: object): string =>
@@ -259,6 +251,8 @@ test("Agent v3 requires unique user-defined Task type and status allowlists", ()
 
 test("Agent definitions require explicit Prompt and Policy resources", () => {
   const valid = {
+    allowedStatuses: ["In progress"],
+    allowedTaskTypes: ["Feature"],
     commands: { exclusion: [] },
     enabled: true,
     id: "code-reviewer",
@@ -266,7 +260,7 @@ test("Agent definitions require explicit Prompt and Policy resources", () => {
     model: "gpt-5.6-sol",
     promptResources: ["prompt/code-reviewer"],
     reasoning: "high",
-    schema: "agent-definition-v2",
+    schema: "agent-definition-v1",
     transitions: { succeeded: "In progress" },
   };
   const markdown = (definition: object): string =>

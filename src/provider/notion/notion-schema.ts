@@ -128,7 +128,7 @@ export const NOTION_TABLES: readonly NotionTableDescriptor[] = [
 ];
 
 /** Version label included in the canonical Notion schema digest. */
-export const NOTION_SCHEMA_VERSION = "notion-workspace-schema-v9";
+export const NOTION_SCHEMA_VERSION = "notion-workspace-schema-v1";
 /** SHA-256 digest of the complete canonical Notion schema. */
 export const NOTION_SCHEMA_DIGEST = digestJson(
   toJsonValue({ tables: NOTION_TABLES, version: NOTION_SCHEMA_VERSION }),

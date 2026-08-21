@@ -233,7 +233,7 @@ async function applyMigration(
     ),
   );
   if (
-    authorizedKinds.has("add_v2_schema") ||
+    authorizedKinds.has("add_schema") ||
     authorizedKinds.has("create_active_agents")
   ) {
     const additivePlan = await provider.planWorkspace("management-v2");
@@ -325,7 +325,7 @@ async function applyMigration(
         throw error;
     }
   }
-  if (authorizedKinds.has("add_v2_schema")) await configureSelects(transport);
+  if (authorizedKinds.has("add_schema")) await configureSelects(transport);
   await assertInventoryState(
     transport,
     inventory,

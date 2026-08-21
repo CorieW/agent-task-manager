@@ -1,5 +1,5 @@
 {
-  "schema": "agent-task-manager-environment-v3",
+  "schema": "agent-task-manager-environment-v1",
   "environmentId": "management-v2",
   "provider": {
     "type": "notion",

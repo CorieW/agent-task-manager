@@ -44,7 +44,7 @@ export interface WorkspacePlan {
   /** Digest of the complete plan used for apply-time drift checking. */
   readonly digest: string;
   readonly environmentId: string;
-  readonly schema: "workspace-plan-v2";
+  readonly schema: "workspace-plan-v1";
   readonly steps: readonly WorkspaceStep[];
   /** Digest of the canonical schema the plan converges on. */
   readonly targetSchemaDigest: string;

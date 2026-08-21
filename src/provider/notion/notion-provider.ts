@@ -161,7 +161,7 @@ export class NotionProvider implements AgentTaskProvider {
     }
     const core = {
       environmentId,
-      schema: "workspace-plan-v2" as const,
+      schema: "workspace-plan-v1" as const,
       steps,
       targetSchemaDigest: NOTION_SCHEMA_DIGEST,
     };
