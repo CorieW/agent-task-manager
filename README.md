@@ -1,6 +1,6 @@
 # Agent Task Manager
 
-Single-host coordination for disposable, task-driven AI agents. Notion stores project Tasks, Agent definitions, reusable Prompt and Policy Resources, Active Agent metadata, and Errors. The manager can allocate per-run Git worktrees and binds authorized commands to them. The external harness owns conversations, tools, publications, effects, repeat safety, and child processes.
+Single-host coordination for disposable, task-driven AI agents. Notion stores project Tasks, Agent definitions, reusable Prompt and Policy Resources, Active Agent metadata, and Errors. The external harness owns conversations, tools, commands, publications, effects, repeat safety, and child processes.
 
 If a run fails, its failed subtree is restarted from the beginning. The manager deliberately stores no transcript, command history, lease, checkpoint, effect receipt, or resumable conversation state.
 
@@ -29,8 +29,6 @@ Every command emits JSON. Set `AGENT_TASK_MANAGER_ENVIRONMENT` or pass `--enviro
 Set `AGENT_TASK_MANAGER_COORDINATION_DIRECTORY` to an existing absolute directory reserved for manager lock files. Its operating-system permissions or mount namespace must prevent Agent sandboxes from listing or modifying it.
 
 Agent commands additionally require `AGENT_TASK_MANAGER_COMMAND_BROKER` to name an absolute trusted sandbox-broker executable. The trusted harness must inject the current run through `AGENT_TASK_MANAGER_COMMAND_RUN_ID` and `AGENT_TASK_MANAGER_COMMAND_HARNESS_ID`; these values must not be controllable by the Agent. The manager authorizes requests but never spawns Agent-requested executables directly.
-
-Environment schema v3 has a required `worktree` setting. Use `null` to disable Agent commands, or configure a repository, worktree root, base ref, branch prefix, and the Agent keys that require isolation. Every run is command-bound to the configured repository; a required Agent receives a new linked worktree and branch for every Run ID. The manager preserves terminal worktrees so failed or uncommitted evidence is not destroyed automatically.
 
 ## Development
 

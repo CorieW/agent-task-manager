@@ -38,8 +38,7 @@ export interface BrokerCommandRequest {
   readonly command: string;
   readonly commands: AgentCommandPolicy;
   readonly runId: string;
-  readonly schema: "agent-command-broker-request-v3";
-  readonly workingDirectory: string;
+  readonly schema: "agent-command-broker-request-v2";
 }
 
 /** Sandboxed execution boundary supplied by the trusted host. */
@@ -134,19 +133,18 @@ export class CommandProxy {
       input.runId,
       async () => {
         const command = normalizeCommandName(input.command, this.platform);
-        const authorization = await this.coordinator.commandAuthorization(
+        const policy = await this.coordinator.commandPolicy(
           input.runId,
           input.harnessId,
         );
-        if (!commandIsAllowed(authorization.commands, command, this.platform))
+        if (!commandIsAllowed(policy, command, this.platform))
           throw new Error(`Agent command is not allowed: ${command}`);
         return {
           arguments: [...input.arguments],
           command,
-          commands: authorization.commands,
+          commands: policy,
           runId: input.runId,
-          schema: "agent-command-broker-request-v3",
-          workingDirectory: authorization.workingDirectory,
+          schema: "agent-command-broker-request-v2",
         };
       },
       (request) => this.executor(request),
@@ -177,7 +175,6 @@ export function createCommandBrokerExecutor(
   return async (request) =>
     new Promise((resolve, reject) => {
       const child = spawn(brokerExecutable, brokerArguments, {
-        cwd: request.workingDirectory,
         env: commandEnvironment(options.environment ?? process.env),
         shell: false,
         stdio: ["pipe", "pipe", "pipe"],

@@ -1,25 +1,13 @@
-/** Parses and validates v3 provider environment configuration. */
-import { isAbsolute, relative, resolve } from "node:path";
-
+/** Parses and validates v2 provider environment configuration. */
 import type { JsonObject, JsonValue } from "../domain/json.js";
 import { TABLE_KINDS, type ProviderEnvironment } from "../domain/provider.js";
 
-/** Git worktree isolation policy enforced for selected Agent definition keys. */
-export interface WorktreeConfig {
-  readonly baseRef: string;
-  readonly branchPrefix: string;
-  readonly repository: string;
-  readonly requiredAgentKeys: readonly string[];
-  readonly root: string;
-}
-
-/** Validated v3 environment configuration and its original JSON value. */
+/** Validated v2 environment configuration and its original JSON value. */
 export interface EnvironmentConfig {
   readonly environmentId: string;
   readonly provider: ProviderEnvironment;
   readonly raw: JsonObject;
-  readonly schema: "agent-task-manager-environment-v3";
-  readonly worktree: WorktreeConfig | null;
+  readonly schema: "agent-task-manager-environment-v2";
 }
 /** Aggregates all problems found while parsing environment configuration. */
 export class EnvironmentConfigError extends TypeError {
@@ -28,20 +16,14 @@ export class EnvironmentConfigError extends TypeError {
   }
 }
 
-/** Strictly parses v3 environment JSON, rejecting unknown or missing fields. */
+/** Strictly parses v2 environment JSON, rejecting unknown or missing fields. */
 export function parseEnvironmentConfig(value: JsonValue): EnvironmentConfig {
   const issues: string[] = [];
   const root = object(value, "root", issues);
-  rejectUnknown(
-    root,
-    ["schema", "environmentId", "provider", "worktree"],
-    "root",
-    issues,
-  );
-  if (root.schema !== "agent-task-manager-environment-v3")
-    issues.push("schema must equal agent-task-manager-environment-v3");
+  rejectUnknown(root, ["schema", "environmentId", "provider"], "root", issues);
+  if (root.schema !== "agent-task-manager-environment-v2")
+    issues.push("schema must equal agent-task-manager-environment-v2");
   const environmentId = string(root.environmentId, "environmentId", issues);
-  const worktree = parseWorktree(root.worktree, issues);
   const provider = object(root.provider, "provider", issues);
   rejectUnknown(
     provider,
@@ -69,49 +51,8 @@ export function parseEnvironmentConfig(value: JsonValue): EnvironmentConfig {
     environmentId,
     provider: { bootstrapParent: parent, connection, tables, type },
     raw: root,
-    schema: "agent-task-manager-environment-v3",
-    worktree,
+    schema: "agent-task-manager-environment-v2",
   };
-}
-
-function parseWorktree(
-  value: JsonValue | undefined,
-  issues: string[],
-): WorktreeConfig | null {
-  if (value === null) return null;
-  const worktree = object(value, "worktree", issues);
-  rejectUnknown(
-    worktree,
-    ["baseRef", "branchPrefix", "repository", "requiredAgentKeys", "root"],
-    "worktree",
-    issues,
-  );
-  const baseRef = string(worktree.baseRef, "worktree.baseRef", issues);
-  const branchPrefix = string(
-    worktree.branchPrefix,
-    "worktree.branchPrefix",
-    issues,
-  );
-  const repository = absolutePath(
-    worktree.repository,
-    "worktree.repository",
-    issues,
-  );
-  const root = absolutePath(worktree.root, "worktree.root", issues);
-  const requiredAgentKeys = stringSet(
-    worktree.requiredAgentKeys,
-    "worktree.requiredAgentKeys",
-    issues,
-  );
-  if (baseRef.startsWith("-"))
-    issues.push("worktree.baseRef must not start with '-'");
-  if (!branchPrefix.endsWith("/") || branchPrefix.startsWith("-"))
-    issues.push(
-      "worktree.branchPrefix must be a non-option prefix ending in '/'",
-    );
-  if (repository !== "" && root !== "" && pathsOverlap(repository, root))
-    issues.push("worktree.root and worktree.repository must not overlap");
-  return { baseRef, branchPrefix, repository, requiredAgentKeys, root };
 }
 
 function object(
@@ -143,41 +84,6 @@ function nullableString(
 ): string | null {
   if (value === null) return null;
   return string(value, path, issues);
-}
-function absolutePath(
-  value: JsonValue | undefined,
-  path: string,
-  issues: string[],
-): string {
-  const result = string(value, path, issues);
-  if (result !== "" && !isAbsolute(result))
-    issues.push(`${path} must be absolute`);
-  return result;
-}
-function stringSet(
-  value: JsonValue | undefined,
-  path: string,
-  issues: string[],
-): readonly string[] {
-  if (!Array.isArray(value)) {
-    issues.push(`${path} must be a string array`);
-    return [];
-  }
-  const result: string[] = [];
-  for (const [index, entry] of value.entries()) {
-    const item = string(entry, `${path}[${index}]`, issues);
-    if (item !== "") result.push(item.normalize("NFC"));
-  }
-  if (new Set(result).size !== result.length)
-    issues.push(`${path} must not contain duplicates`);
-  return result;
-}
-function pathsOverlap(left: string, right: string): boolean {
-  const contains = (parent: string, child: string): boolean => {
-    const value = relative(resolve(parent), resolve(child));
-    return value === "" || (!value.startsWith("..") && !isAbsolute(value));
-  };
-  return contains(left, right) || contains(right, left);
 }
 function rejectUnknown(
   value: JsonObject,

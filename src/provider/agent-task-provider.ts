@@ -14,7 +14,6 @@ export interface CreateActiveAgentRecord {
   readonly agentId: string;
   readonly agentVersion: string;
   readonly attempt: number;
-  readonly branch: string | null;
   readonly harnessId: string;
   readonly parentRunId: string | null;
   readonly restartOfRunId: string | null;
@@ -22,7 +21,6 @@ export interface CreateActiveAgentRecord {
   readonly runId: string;
   readonly startedAt: string;
   readonly taskId: string;
-  readonly worktreePath: string | null;
 }
 /** Mutable lifecycle fields accepted when updating an Active Agent. */
 export interface ActiveAgentPatch {

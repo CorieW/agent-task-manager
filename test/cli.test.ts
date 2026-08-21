@@ -123,7 +123,6 @@ function activeRun(
     agentVersion: "1",
     archived: false,
     attempt: 1,
-    branch: null,
     failureSummary: "",
     finishedAt: null,
     harnessId: "harness",
@@ -138,7 +137,6 @@ function activeRun(
     status: "running",
     taskId: `task-${runId}`,
     version: "1",
-    worktreePath: null,
   };
 }
 

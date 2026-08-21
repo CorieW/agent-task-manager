@@ -378,7 +378,6 @@ export class NotionProvider implements AgentTaskProvider {
           "Restart Of": relation(restart === null ? [] : [restart.id]),
           "Retry Key": richText(input.retryKey),
           Attempt: { number: input.attempt },
-          Branch: richText(input.branch ?? ""),
           Status: select("Running"),
           "Harness ID": richText(input.harnessId),
           "Started At": date(input.startedAt),
@@ -386,7 +385,6 @@ export class NotionProvider implements AgentTaskProvider {
           "Finished At": date(null),
           Outcome: richText(""),
           "Failure Summary": richText(""),
-          Worktree: richText(input.worktreePath ?? ""),
         },
       },
       method: "POST",
@@ -796,7 +794,6 @@ export class NotionProvider implements AgentTaskProvider {
         agentVersion: textValue(props["Agent Version"]),
         archived: archived(page),
         attempt: numberValue(props.Attempt) ?? 0,
-        branch: nullableTextValue(props.Branch),
         failureSummary: textValue(props["Failure Summary"]),
         finishedAt: dateValue(props["Finished At"]),
         harnessId: textValue(props["Harness ID"]),
@@ -815,7 +812,6 @@ export class NotionProvider implements AgentTaskProvider {
         ).toLowerCase() as ActiveAgentRecord["status"],
         taskId: first("Task") ?? textValue(props["Task ID"]),
         version: version(page),
-        worktreePath: nullableTextValue(props.Worktree),
       };
     });
   }
@@ -1020,10 +1016,6 @@ function textValue(value: JsonValue | undefined): string {
       return typeof item.plain_text === "string" ? item.plain_text : "";
     })
     .join("");
-}
-function nullableTextValue(value: JsonValue | undefined): string | null {
-  const text = textValue(value);
-  return text === "" ? null : text;
 }
 function selectValue(value: JsonValue | undefined): string {
   if (value === undefined) return "";

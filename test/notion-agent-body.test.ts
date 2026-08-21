@@ -256,7 +256,6 @@ test("Notion Active Agent creation persists historical Task identity", async () 
     agentId: ids.agent,
     agentVersion: "agent-version",
     attempt: 1,
-    branch: "atm/child",
     harnessId: "harness",
     parentRunId: null,
     restartOfRunId: null,
@@ -264,7 +263,6 @@ test("Notion Active Agent creation persists historical Task identity", async () 
     runId: "child",
     startedAt: "2026-08-17T12:00:00.000Z",
     taskId: ids.task,
-    worktreePath: "C:\\worktrees\\child",
   });
 
   assert.equal(created.taskId, ids.task);
@@ -275,14 +273,6 @@ test("Notion Active Agent creation persists historical Task identity", async () 
   assert.deepEqual(
     transport.createdProperties?.["Task ID"],
     requestRichText(ids.task),
-  );
-  assert.deepEqual(
-    transport.createdProperties?.Branch,
-    requestRichText("atm/child"),
-  );
-  assert.deepEqual(
-    transport.createdProperties?.Worktree,
-    requestRichText("C:\\worktrees\\child"),
   );
 });
 

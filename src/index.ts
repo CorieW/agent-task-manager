@@ -3,7 +3,6 @@ export * from "./config/environment.js";
 export * from "./core/agent-system-prompt.js";
 export * from "./core/command-proxy.js";
 export * from "./core/coordinator.js";
-export * from "./core/git-worktree.js";
 export * from "./domain/commands.js";
 export * from "./domain/json.js";
 export * from "./domain/provider.js";

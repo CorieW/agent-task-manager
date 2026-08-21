@@ -1,6 +1,5 @@
 /** Command-policy parsing, authorization, and shell-free proxy coverage. */
 import assert from "node:assert/strict";
-import { resolve } from "node:path";
 import test from "node:test";
 
 import {
@@ -15,10 +14,6 @@ import {
 import { commandProxySystemPrompt } from "../src/core/agent-system-prompt.js";
 import { AgentCoordinator } from "../src/core/coordinator.js";
 import {
-  NO_WORKTREES,
-  type RunWorktreeAllocator,
-} from "../src/core/git-worktree.js";
-import {
   commandIsAllowed,
   type AgentCommandPolicy,
   normalizeCommandName,
@@ -32,23 +27,8 @@ import type {
 import { parseAgentDefinition } from "../src/domain/records.js";
 import { InMemoryProvider } from "../src/provider/in-memory-provider.js";
 
-const testWorktrees: RunWorktreeAllocator = {
-  async prepare(_agentKey, runId) {
-    return {
-      branch: `atm/${runId}`,
-      path: resolve("test-worktrees", runId),
-    };
-  },
-  async verify(_agentKey, run) {
-    if (run.worktreePath === null) throw new Error("missing test worktree");
-  },
-};
-
 /** Creates a running Agent and proxy for one command policy. */
-async function setup(
-  policy: AgentCommandPolicy,
-  worktrees: RunWorktreeAllocator = testWorktrees,
-) {
+async function setup(policy: AgentCommandPolicy) {
   const task: TaskRecord = {
     archived: false,
     body: "Task",
@@ -95,11 +75,7 @@ async function setup(
     resources: [resource("prompt", "Prompt"), resource("policy", "Policy")],
     tasks: [task],
   });
-  const coordinator = new AgentCoordinator(
-    provider,
-    () => new Date(),
-    worktrees,
-  );
+  const coordinator = new AgentCoordinator(provider);
   const context = await coordinator.start({
     agentKey: "coder",
     harnessId: "harness-1",
@@ -223,8 +199,7 @@ test("command proxy enforces inclusion, ownership, and path-free names", async (
       command: "git",
       commands: { inclusion: ["git"] },
       runId: "run-1",
-      schema: "agent-command-broker-request-v3",
-      workingDirectory: resolve("test-worktrees", "run-1"),
+      schema: "agent-command-broker-request-v2",
     },
   ]);
   await assert.rejects(
@@ -263,14 +238,6 @@ test("command prompt leaves run identity to the trusted harness", () => {
   assert.doesNotMatch(prompt, /--run-id|--harness-id/u);
 });
 
-test("command proxy fails closed when worktree configuration is disabled", async () => {
-  const { coordinator } = await setup({ inclusion: ["git"] }, NO_WORKTREES);
-  await assert.rejects(
-    coordinator.commandAuthorization("run-1", "harness-1"),
-    /disabled without a configured Git working directory/u,
-  );
-});
-
 test("command proxy exclusion denies only configured commands", async () => {
   const { coordinator } = await setup(
     parseAgentCommandPolicy({ exclusion: ["rm"] }),
@@ -305,18 +272,14 @@ test("command proxy exclusion denies only configured commands", async () => {
   );
 });
 
-test("command authorization does not enumerate unrelated Agents", async () => {
+test("command policy lookup does not enumerate unrelated Agents", async () => {
   const { coordinator, provider } = await setup({ inclusion: ["git"] });
   provider.listAgents = async () => {
     throw new Error("unrelated Agent body is malformed");
   };
-  assert.deepEqual(
-    await coordinator.commandAuthorization("run-1", "harness-1"),
-    {
-      commands: { inclusion: ["git"] },
-      workingDirectory: resolve("test-worktrees", "run-1"),
-    },
-  );
+  assert.deepEqual(await coordinator.commandPolicy("run-1", "harness-1"), {
+    inclusion: ["git"],
+  });
 });
 
 test("sandbox broker receives literal arguments without manager secrets", async () => {
@@ -341,13 +304,11 @@ test("sandbox broker receives literal arguments without manager secrets", async 
             stderr: "",
             stdout: JSON.stringify({
               arguments: request.arguments,
-              brokerCwd: process.cwd(),
               commands: request.commands,
               locale: process.env.LANG,
               livenessChannelOpen: !process.stdin.readableEnded,
               runId: request.runId,
               schema: request.schema,
-              workingDirectory: request.workingDirectory,
               secret: process.env.${secretName},
               tempLeaked: process.env.TEMP === "manager-temp-sentinel",
               tmpLeaked: process.env.TMP === "manager-tmp-sentinel",
@@ -375,21 +336,18 @@ test("sandbox broker receives literal arguments without manager secrets", async 
       command: "git",
       commands: { inclusion: ["git"] },
       runId: "run-1",
-      schema: "agent-command-broker-request-v3",
-      workingDirectory: process.cwd(),
+      schema: "agent-command-broker-request-v2",
     });
     assert.deepEqual(JSON.parse(result.stdout), {
       arguments: ["status", "&&", "node"],
-      brokerCwd: process.cwd(),
       commands: { inclusion: ["git"] },
       locale: "broker-locale",
       livenessChannelOpen: true,
       runId: "run-1",
-      schema: "agent-command-broker-request-v3",
+      schema: "agent-command-broker-request-v2",
       tempLeaked: false,
       tmpLeaked: false,
       tmpdirLeaked: false,
-      workingDirectory: process.cwd(),
     });
   } finally {
     if (previous === undefined) delete process.env[secretName];
@@ -583,8 +541,7 @@ test("command gate releases the global mutex while retaining the run lease", asy
         command: "git",
         commands: { inclusion: ["git"] },
         runId: "run-1",
-        schema: "agent-command-broker-request-v3",
-        workingDirectory: resolve("test-worktrees", "run-1"),
+        schema: "agent-command-broker-request-v2",
       };
     },
     async () => {
@@ -627,7 +584,6 @@ function brokerRequest(): BrokerCommandRequest {
     command: "git",
     commands: { inclusion: ["git"] },
     runId: "run-1",
-    schema: "agent-command-broker-request-v3",
-    workingDirectory: process.cwd(),
+    schema: "agent-command-broker-request-v2",
   };
 }

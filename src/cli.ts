@@ -11,7 +11,6 @@ import {
   type EnvironmentConfig,
 } from "./config/environment.js";
 import { AgentCoordinator, type SweepResult } from "./core/coordinator.js";
-import { GitWorktreeAllocator, NO_WORKTREES } from "./core/git-worktree.js";
 import {
   CommandProxy,
   createCommandBrokerExecutor,
@@ -140,18 +139,7 @@ export async function runCli(
 
   const configuration = await loadEnvironment(parsed.flags.environment, env);
   const provider = providerFor(configuration, env);
-  const worktrees =
-    configuration.worktree === null
-      ? NO_WORKTREES
-      : new GitWorktreeAllocator(
-          configuration.environmentId,
-          configuration.worktree,
-        );
-  const coordinator = new AgentCoordinator(
-    provider,
-    () => new Date(),
-    worktrees,
-  );
+  const coordinator = new AgentCoordinator(provider);
   let mutexRoot: string | undefined;
   const coordinationRoot = (): string =>
     (mutexRoot ??= coordinationDirectory(env));

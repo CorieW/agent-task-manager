@@ -1,6 +1,5 @@
 /** Strict configuration, schema, identifier, and payload parsing coverage. */
 import assert from "node:assert/strict";
-import { resolve } from "node:path";
 import test from "node:test";
 
 import {
@@ -52,7 +51,7 @@ test("decoded Agent transitions validate without a JSON round trip", () => {
   );
 });
 
-test("v3 environment accepts only the five simplified tables", () => {
+test("v2 environment accepts only the five simplified tables", () => {
   const value = parseEnvironmentConfig(
     toJsonValue({
       environmentId: "management-v2",
@@ -68,8 +67,7 @@ test("v3 environment accepts only the five simplified tables", () => {
         },
         type: "notion",
       },
-      schema: "agent-task-manager-environment-v3",
-      worktree: null,
+      schema: "agent-task-manager-environment-v2",
     }),
   );
   assert.deepEqual(Object.keys(value.provider.tables).sort(), [
@@ -82,54 +80,6 @@ test("v3 environment accepts only the five simplified tables", () => {
   assert.throws(
     () => parseEnvironmentConfig(toJsonValue({ ...value.raw, runtime: {} })),
     EnvironmentConfigError,
-  );
-});
-
-test("v3 environment validates explicit worktree isolation", () => {
-  const base = {
-    environmentId: "project",
-    provider: {
-      bootstrapParent: null,
-      connection: {},
-      tables: {
-        activeAgents: null,
-        agents: null,
-        errors: null,
-        resources: null,
-        tasks: null,
-      },
-      type: "notion",
-    },
-    schema: "agent-task-manager-environment-v3",
-  };
-  const configured = parseEnvironmentConfig(
-    toJsonValue({
-      ...base,
-      worktree: {
-        baseRef: "main",
-        branchPrefix: "atm/",
-        repository: resolve("projects", "app"),
-        requiredAgentKeys: ["coder"],
-        root: resolve("worktrees", "app"),
-      },
-    }),
-  );
-  assert.deepEqual(configured.worktree?.requiredAgentKeys, ["coder"]);
-  assert.throws(
-    () =>
-      parseEnvironmentConfig(
-        toJsonValue({
-          ...base,
-          worktree: {
-            baseRef: "main",
-            branchPrefix: "atm",
-            repository: "relative",
-            requiredAgentKeys: ["coder", "coder"],
-            root: "relative",
-          },
-        }),
-      ),
-    /branchPrefix.*ending|must be absolute|duplicates/u,
   );
 });
 
@@ -153,14 +103,6 @@ test("Notion schema has only Tasks, Agents, Resources, Active Agents, and Errors
   );
   assert.equal(
     active.properties.find((property) => property.name === "Task ID")?.type,
-    "rich_text",
-  );
-  assert.equal(
-    active.properties.find((property) => property.name === "Branch")?.type,
-    "rich_text",
-  );
-  assert.equal(
-    active.properties.find((property) => property.name === "Worktree")?.type,
     "rich_text",
   );
   assert.deepEqual(
