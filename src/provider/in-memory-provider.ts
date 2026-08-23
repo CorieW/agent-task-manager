@@ -20,34 +20,45 @@ import type {
 
 /** Optional records used to initialize an isolated in-memory provider. */
 export interface InMemorySeed {
+  /** Initial Active Agent records for the in-memory provider. */
   readonly activeAgents?: readonly ActiveAgentRecord[];
+  /** Initial Agent records for the in-memory provider. */
   readonly agents?: readonly AgentRecord[];
+  /** Initial Error records for the in-memory provider. */
   readonly errors?: readonly ErrorRecord[];
+  /** Ordered Resources supplied as immutable Agent context. */
   readonly resources?: readonly ResourceRecord[];
+  /** Initial Task records for the in-memory provider. */
   readonly tasks?: readonly TaskRecord[];
 }
 
 /** In-process AgentTaskProvider implementation for hosts and tests. */
 export class InMemoryProvider implements AgentTaskProvider {
+  /** Active-agent records indexed by run ID. */
   readonly #activeAgents = new Map<string, ActiveAgentRecord>();
+  /** Agent definitions indexed by record ID. */
   readonly #agents = new Map<string, AgentRecord>();
+  /** Error records indexed by error key. */
   readonly #errors = new Map<string, ErrorRecord>();
+  /** Resource records indexed by record ID. */
   readonly #resources = new Map<string, ResourceRecord>();
+  /** Task records indexed by task ID. */
   readonly #tasks = new Map<string, TaskRecord>();
+  /** Monotonic counter used for optimistic-concurrency versions. */
   #clock = 0;
 
   /** Copies the supplied seed into independent mutable maps. */
   public constructor(seed: InMemorySeed = {}) {
     for (const value of seed.tasks ?? [])
-      this.#tasks.set(value.id, clone(value));
+      this.#tasks.set(value.id, cloneRecord(value));
     for (const value of seed.agents ?? [])
-      this.#agents.set(value.id, clone(value));
+      this.#agents.set(value.id, cloneRecord(value));
     for (const value of seed.resources ?? [])
-      this.#resources.set(value.id, clone(value));
+      this.#resources.set(value.id, cloneRecord(value));
     for (const value of seed.activeAgents ?? [])
-      this.#activeAgents.set(value.runId, clone(value));
+      this.#activeAgents.set(value.runId, cloneRecord(value));
     for (const value of seed.errors ?? [])
-      this.#errors.set(value.errorKey, clone(value));
+      this.#errors.set(value.errorKey, cloneRecord(value));
   }
 
   /** @inheritdoc */
@@ -60,6 +71,7 @@ export class InMemoryProvider implements AgentTaskProvider {
   }
   /** @inheritdoc */
   public async planWorkspace(environmentId: string): Promise<WorkspacePlan> {
+    /** Serialized fields covered by the deterministic digest. */
     const core = {
       environmentId,
       schema: "workspace-plan-v1" as const,
@@ -82,18 +94,20 @@ export class InMemoryProvider implements AgentTaskProvider {
         (entry) =>
           !entry.archived && (status === undefined || entry.status === status),
       )
-      .map(clone);
+      .map(cloneRecord);
   }
   /** @inheritdoc */
   public async getTask(id: string): Promise<TaskRecord | null> {
-    return nullable(this.#tasks.get(id));
+    return cloneOrNull(this.#tasks.get(id));
   }
   /** @inheritdoc */
   public async setTaskStatus(id: string, status: string): Promise<TaskRecord> {
-    const current = required(this.#tasks.get(id), `Task not found: ${id}`);
-    const next = { ...current, status, version: this.version() };
+    /** Current provider record loaded before applying a mutation. */
+    const current = requireRecord(this.#tasks.get(id), `Task not found: ${id}`);
+    /** Updated immutable record to persist after the mutation. */
+    const next = { ...current, status, version: this.nextMemoryVersion() };
     this.#tasks.set(id, next);
-    return clone(next);
+    return cloneRecord(next);
   }
   /** @inheritdoc */
   public async updateTaskBody(
@@ -101,26 +115,28 @@ export class InMemoryProvider implements AgentTaskProvider {
     expectedBody: string,
     body: string,
   ): Promise<TaskRecord> {
-    const current = required(this.#tasks.get(id), `Task not found: ${id}`);
+    /** Current provider record loaded before applying a mutation. */
+    const current = requireRecord(this.#tasks.get(id), `Task not found: ${id}`);
     if (current.body !== expectedBody)
       throw new Error("Task description changed before update");
-    const next = { ...current, body, version: this.version() };
+    /** Updated immutable record to persist after the mutation. */
+    const next = { ...current, body, version: this.nextMemoryVersion() };
     this.#tasks.set(id, next);
-    return clone(next);
+    return cloneRecord(next);
   }
   /** @inheritdoc */
   public async listAgents(): Promise<readonly AgentRecord[]> {
     return [...this.#agents.values()]
       .filter((entry) => !entry.archived)
-      .map(clone);
+      .map(cloneRecord);
   }
   /** @inheritdoc */
   public async getAgent(id: string): Promise<AgentRecord | null> {
-    return nullable(this.#agents.get(id));
+    return cloneOrNull(this.#agents.get(id));
   }
   /** @inheritdoc */
   public async getAgentByKey(key: string): Promise<AgentRecord | null> {
-    return nullable(
+    return cloneOrNull(
       [...this.#agents.values()].find((entry) => entry.key === key),
     );
   }
@@ -128,11 +144,11 @@ export class InMemoryProvider implements AgentTaskProvider {
   public async listResources(): Promise<readonly ResourceRecord[]> {
     return [...this.#resources.values()]
       .filter((entry) => !entry.archived)
-      .map(clone);
+      .map(cloneRecord);
   }
   /** @inheritdoc */
   public async getResourceByKey(key: string): Promise<ResourceRecord | null> {
-    return nullable(
+    return cloneOrNull(
       [...this.#resources.values()].find((entry) => entry.key === key),
     );
   }
@@ -140,13 +156,13 @@ export class InMemoryProvider implements AgentTaskProvider {
   public async listActiveAgents(): Promise<readonly ActiveAgentRecord[]> {
     return [...this.#activeAgents.values()]
       .filter((entry) => !entry.archived)
-      .map(clone);
+      .map(cloneRecord);
   }
   /** @inheritdoc */
   public async getActiveAgent(
     runId: string,
   ): Promise<ActiveAgentRecord | null> {
-    return nullable(this.#activeAgents.get(runId));
+    return cloneOrNull(this.#activeAgents.get(runId));
   }
   /** @inheritdoc */
   public async createActiveAgent(
@@ -154,6 +170,7 @@ export class InMemoryProvider implements AgentTaskProvider {
   ): Promise<ActiveAgentRecord> {
     if (this.#activeAgents.has(input.runId))
       throw new Error(`Run ID already exists: ${input.runId}`);
+    /** Strict record projected from the untyped boundary value. */
     const record: ActiveAgentRecord = {
       agentId: input.agentId,
       agentVersion: input.agentVersion,
@@ -172,89 +189,103 @@ export class InMemoryProvider implements AgentTaskProvider {
       startedAt: input.startedAt,
       status: "running",
       taskId: input.taskId,
-      version: this.version(),
+      version: this.nextMemoryVersion(),
       workingDirectory: input.workingDirectory,
     };
     this.#activeAgents.set(record.runId, record);
-    return clone(record);
+    return cloneRecord(record);
   }
   /** @inheritdoc */
   public async updateActiveAgent(
     runId: string,
     patch: ActiveAgentPatch,
   ): Promise<ActiveAgentRecord> {
-    const current = required(
+    /** Current provider record loaded before applying a mutation. */
+    const current = requireRecord(
       this.#activeAgents.get(runId),
       `Active Agent not found: ${runId}`,
     );
-    const next = { ...current, ...patch, version: this.version() };
+    /** Updated immutable record to persist after the mutation. */
+    const next = { ...current, ...patch, version: this.nextMemoryVersion() };
     this.#activeAgents.set(runId, next);
-    return clone(next);
+    return cloneRecord(next);
   }
   /** @inheritdoc */
   public async archiveActiveAgent(runId: string): Promise<void> {
-    const current = required(
+    /** Current provider record loaded before applying a mutation. */
+    const current = requireRecord(
       this.#activeAgents.get(runId),
       `Active Agent not found: ${runId}`,
     );
     this.#activeAgents.set(runId, {
       ...current,
       archived: true,
-      version: this.version(),
+      version: this.nextMemoryVersion(),
     });
   }
   /** @inheritdoc */
   public async listErrors(): Promise<readonly ErrorRecord[]> {
     return [...this.#errors.values()]
       .filter((entry) => !entry.archived)
-      .map(clone);
+      .map(cloneRecord);
   }
   /** @inheritdoc */
   public async getErrorByKey(key: string): Promise<ErrorRecord | null> {
-    return nullable(this.#errors.get(key));
+    return cloneOrNull(this.#errors.get(key));
   }
   /** @inheritdoc */
   public async reportError(input: ReportErrorInput): Promise<ErrorRecord> {
+    /** Existing record selected for an idempotent update. */
     const existing = this.#errors.get(input.errorKey);
+    /** Strict record projected from the untyped boundary value. */
     const record: ErrorRecord = {
       ...input,
       archived: false,
       id: existing?.id ?? randomUUID(),
       status: "open",
-      version: this.version(),
+      version: this.nextMemoryVersion(),
     };
     this.#errors.set(record.errorKey, record);
-    return clone(record);
+    return cloneRecord(record);
   }
   /** @inheritdoc */
   public async resolveError(
     key: string,
     resolution: string,
   ): Promise<ErrorRecord> {
-    const current = required(this.#errors.get(key), `Error not found: ${key}`);
+    /** Current provider record loaded before applying a mutation. */
+    const current = requireRecord(
+      this.#errors.get(key),
+      `Error not found: ${key}`,
+    );
+    /** Updated immutable record to persist after the mutation. */
     const next = {
       ...current,
       resolution,
       status: "resolved" as const,
-      version: this.version(),
+      version: this.nextMemoryVersion(),
     };
     this.#errors.set(key, next);
-    return clone(next);
+    return cloneRecord(next);
   }
 
-  private version(): string {
+  /** Derives a stable optimistic-concurrency version. */
+  private nextMemoryVersion(): string {
     this.#clock += 1;
     return `memory-${this.#clock}`;
   }
 }
 
-function clone<T>(value: T): T {
+/** Deep-clones a stored record before it crosses the provider boundary. */
+function cloneRecord<T>(value: T): T {
   return structuredClone(value);
 }
-function nullable<T>(value: T | undefined): T | null {
-  return value === undefined ? null : clone(value);
+/** Copies a value or preserves null without sharing mutable state. */
+function cloneOrNull<T>(value: T | undefined): T | null {
+  return value === undefined ? null : cloneRecord(value);
 }
-function required<T>(value: T | undefined, message: string): T {
+/** Returns a stored record or throws the supplied not-found error. */
+function requireRecord<T>(value: T | undefined, message: string): T {
   if (value === undefined) throw new Error(message);
   return value;
 }

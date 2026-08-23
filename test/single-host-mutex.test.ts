@@ -23,13 +23,16 @@ test("mutex requires an explicit absolute coordination root", () => {
 });
 
 test("abandon closes the handle while preserving a durable fence", async () => {
+  /** Test fixture for root. */
   const root = await mkdtemp(join(tmpdir(), "agent-task-manager-mutex-"));
   try {
+    /** Test fixture for identity. */
     const identity = {
       environmentId: "environment",
       runId: "run-1",
       scope: "command",
     } as const;
+    /** Release callback for the acquired lease or mutex. */
     const release = await new SingleHostMutex(identity, root).lock({
       reclaimable: false,
     });
@@ -143,12 +146,14 @@ test("concurrent stale recovery admits exactly one mutex owner", async () => {
   /** Isolated directory containing the shared stale primary. */
   const root = await mkdtemp(join(tmpdir(), "agent-task-manager-mutex-"));
   try {
+    /** Test fixture for identity. */
     const identity = {
       environmentId: "environment",
       scope: "environment",
     } as const;
     /** Mutex used to discover its primary lock path. */
     const seed = new SingleHostMutex(identity, root);
+    /** Test fixture for release seed. */
     const releaseSeed = await seed.lock();
     /** Exact primary path shared by every contender. */
     const path = join(root, (await readdir(root))[0]!);
@@ -163,11 +168,13 @@ test("concurrent stale recovery admits exactly one mutex owner", async () => {
       "utf8",
     );
 
+    /** Test fixture for attempts. */
     const attempts = await Promise.allSettled(
       Array.from({ length: 8 }, () =>
         new SingleHostMutex(identity, root).lock(),
       ),
     );
+    /** Test fixture for acquired. */
     const acquired = attempts.filter(
       (result): result is PromiseFulfilledResult<SingleHostMutexRelease> =>
         result.status === "fulfilled",
@@ -188,11 +195,14 @@ test("an abandoned recovery guard fails closed", async () => {
   /** Isolated directory containing the primary and recovery guard. */
   const root = await mkdtemp(join(tmpdir(), "agent-task-manager-mutex-"));
   try {
+    /** Test fixture for identity. */
     const identity = {
       environmentId: "environment",
       scope: "environment",
     } as const;
+    /** Test fixture for mutex. */
     const mutex = new SingleHostMutex(identity, root);
+    /** Release callback for the acquired lease or mutex. */
     const release = await mutex.lock();
     /** Exact primary path used to derive its sidecar guard path. */
     const path = join(root, (await readdir(root))[0]!);
@@ -239,6 +249,7 @@ test("dead command owners remain fenced until verified recovery", async () => {
       runId: "run-1",
       scope: "command",
     } as const;
+    /** Test fixture for mutex. */
     const mutex = new SingleHostMutex(identity, root);
     /** Release callback for the temporary path-discovery acquisition. */
     const release = await mutex.lock({ reclaimable: false });

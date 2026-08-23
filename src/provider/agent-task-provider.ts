@@ -11,24 +11,40 @@ import type { ValidationReport, WorkspacePlan } from "../domain/provider.js";
 
 /** Complete immutable input required to create a running Active Agent. */
 export interface CreateActiveAgentRecord {
+  /** Provider record ID of the related Agent. */
   readonly agentId: string;
+  /** Agent record version pinned when the run starts. */
   readonly agentVersion: string;
+  /** One-based attempt number within the retry chain. */
   readonly attempt: number;
+  /** Identity of the harness that owns the run. */
   readonly harnessId: string;
+  /** Run ID of the parent run, or null for a root. */
   readonly parentRunId: string | null;
+  /** Run ID of the terminated attempt being replaced. */
   readonly restartOfRunId: string | null;
+  /** Stable identity shared by attempts in one retry chain. */
   readonly retryKey: string;
+  /** Harness-supplied idempotency identity of the run attempt. */
   readonly runId: string;
+  /** ISO timestamp when the run attempt started. */
   readonly startedAt: string;
+  /** Provider record ID of the assigned Task. */
   readonly taskId: string;
+  /** Absolute execution directory, or null for the host default. */
   readonly workingDirectory: string | null;
 }
 /** Mutable lifecycle fields accepted when updating an Active Agent. */
 export interface ActiveAgentPatch {
+  /** Terminal failure explanation recorded for the run. */
   readonly failureSummary?: string;
+  /** ISO timestamp when the run reached a terminal state. */
   readonly finishedAt?: string | null;
+  /** ISO timestamp of the run's most recent heartbeat. */
   readonly lastHeartbeat?: string;
+  /** Agent-declared terminal outcome. */
   readonly outcome?: string;
+  /** Current lifecycle status of the record or process. */
   readonly status?: ActiveAgentRecord["status"];
 }
 

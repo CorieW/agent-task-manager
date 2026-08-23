@@ -5,19 +5,29 @@ import type { TableKind } from "../../domain/provider.js";
 
 /** Canonical shape of one Notion database property. */
 export interface NotionPropertyDescriptor {
+  /** Human-readable display name. */
   readonly name: string;
+  /** Allowed select values for the Notion property. */
   readonly options: readonly string[];
+  /** Managed table targeted by a Notion relation property. */
   readonly relation: TableKind | null;
+  /** Whether the property must exist in a configured table. */
   readonly required: boolean;
+  /** Name of the reverse relation created by Notion. */
   readonly syncedName?: string;
+  /** Notion property type. */
   readonly type: string;
 }
 /** Canonical title and properties for one managed Notion table. */
 export interface NotionTableDescriptor {
+  /** Domain or protocol classification of the record. */
   readonly kind: TableKind;
+  /** Canonical properties in deterministic schema order. */
   readonly properties: readonly NotionPropertyDescriptor[];
+  /** Human-readable Notion database title. */
   readonly title: string;
 }
+/** Builds a non-relation canonical property descriptor. */
 const property = (
   name: string,
   type: string,
@@ -30,6 +40,7 @@ const property = (
   required,
   type,
 });
+/** Builds a canonical relation property descriptor. */
 const relationProperty = (
   name: string,
   relation: TableKind,
@@ -135,6 +146,7 @@ export const NOTION_SCHEMA_DIGEST = digestJson(
 );
 /** Returns the canonical descriptor for a provider table kind. */
 export function notionTable(kind: TableKind): NotionTableDescriptor {
+  /** Canonical managed-table descriptor for this operation. */
   const table = NOTION_TABLES.find((entry) => entry.kind === kind);
   if (table === undefined) throw new Error(`Unknown Notion table: ${kind}`);
   return table;

@@ -28,13 +28,20 @@ import { NotionProvider } from "./provider/notion/notion-provider.js";
 import { NotionHttpTransport } from "./provider/notion/notion-transport.js";
 import { SingleHostMutex } from "./provider/notion/single-host-mutex.js";
 
+/** Flags accepted before a command family and action. */
 const GLOBAL_FLAGS = ["environment", "help", "json"] as const;
+/** Flags that do not consume a following value. */
 const BOOLEAN_FLAGS = new Set(["apply", "help", "json", "plan"]);
+/** Declarative syntax for one CLI command. */
 interface CommandSpec {
+  /** Command-specific flags accepted by the parser. */
   readonly flags: readonly string[];
+  /** Space-separated command family and action. */
   readonly name: string;
+  /** Help text showing the command's invocation syntax. */
   readonly usage: string;
 }
+/** Supported command shapes and their accepted flags. */
 const COMMAND_SPECS: readonly CommandSpec[] = [
   { flags: [], name: "help", usage: "help" },
   {
@@ -113,9 +120,11 @@ const COMMAND_SPECS: readonly CommandSpec[] = [
   },
   { flags: [], name: "providers", usage: "providers" },
 ];
+/** Command specifications indexed by `family action`. */
 const COMMAND_SPEC_BY_NAME = new Map(
   COMMAND_SPECS.map((spec) => [spec.name, spec] as const),
 );
+/** Complete CLI usage text. */
 const HELP = `agent-task-manager
 
 Commands:
@@ -131,9 +140,13 @@ export async function runCli(
   argv: readonly string[],
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<JsonValue> {
+  /** Parsed flags, positionals, and proxied command arguments. */
   const parsed = parseArguments(argv);
+  /** Command family and optional action selected by the caller. */
   const [family, action] = parsed.positionals;
+  /** Whether invocation should short-circuit to help output. */
   const helpRequested = family === undefined || parsed.flags.help === true;
+  /** Normalized lookup key for flag validation and dispatch. */
   const command = helpRequested ? "help" : parsed.positionals.join(" ");
   validateFlags(command, parsed.flags);
   if (parsed.commandArguments.length !== 0 && command !== "command proxy")
@@ -144,17 +157,24 @@ export async function runCli(
       providers: [{ connectionSecret: "NOTION_TOKEN", type: "notion" }],
     };
 
+  /** Validated environment configuration for the requested command. */
   const configuration = await loadEnvironment(parsed.flags.environment, env);
+  /** Provider implementation that owns persistence for this invocation. */
   const provider = providerFor(configuration, env);
+  /** Lifecycle coordinator bound to this invocation's provider and hooks. */
   const coordinator = new AgentCoordinator(
     provider,
     () => new Date(),
     new ConfiguredLifecycleCommands(configuration.environmentId, env),
   );
+  /** Lazily resolved coordination directory shared by all invocation locks. */
   let mutexRoot: string | undefined;
+  /** Resolves and caches the trusted coordination directory. */
   const coordinationRoot = (): string =>
     (mutexRoot ??= coordinationDirectory(env));
+  /** Lazily created environment-wide mutex. */
   let mutex: SingleHostMutex | undefined;
+  /** Returns the invocation's environment-wide mutex. */
   const environmentMutex = (): SingleHostMutex =>
     (mutex ??= new SingleHostMutex(
       {
@@ -163,10 +183,14 @@ export async function runCli(
       },
       coordinationRoot(),
     ));
+  /** Per-run mutex instances reused throughout this invocation. */
   const runMutexes = new Map<string, SingleHostMutex>();
+  /** Returns the cached mutex for a run, creating it when necessary. */
   const runMutex = (runId: string): SingleHostMutex => {
+    /** Existing record selected for an idempotent update. */
     const existing = runMutexes.get(runId);
     if (existing !== undefined) return existing;
+    /** New command-scope mutex for the requested run. */
     const created = new SingleHostMutex(
       {
         environmentId: configuration.environmentId,
@@ -180,13 +204,16 @@ export async function runCli(
   };
 
   if (family === "command" && action === "proxy") {
+    /** Brokered executable and its uninterpreted argument vector. */
     const [executable, ...arguments_] = parsed.commandArguments;
     if (executable === undefined)
       throw new Error("command proxy requires a command after --");
+    /** Run identity injected by the trusted command harness. */
     const runId = requiredEnvironmentValue(
       env,
       "AGENT_TASK_MANAGER_COMMAND_RUN_ID",
     );
+    /** Harness identity injected by the trusted command harness. */
     const harnessId = requiredEnvironmentValue(
       env,
       "AGENT_TASK_MANAGER_COMMAND_HARNESS_ID",
@@ -206,7 +233,9 @@ export async function runCli(
   }
 
   if (family === "validate") {
+    /** Environment-configuration validation result. */
     const environment = await provider.validateEnvironment();
+    /** Remote-workspace validation result. */
     const workspace = await provider.validateWorkspace();
     return toJsonValue({
       environment,
@@ -215,22 +244,24 @@ export async function runCli(
     });
   }
   if (family === "init") {
+    /** Deterministic workspace plan produced before either preview or apply. */
     const plan = await provider.planWorkspace(configuration.environmentId);
     if (parsed.flags.plan === true && parsed.flags.apply !== true)
-      return plan as unknown as JsonValue;
+      return toJsonValue(plan);
     if (parsed.flags.apply !== true)
       throw new Error("init requires --plan or --apply");
+    /** Caller-authorized digest required before any workspace mutation. */
     const expected = requiredFlag(parsed.flags, "expected-plan-digest");
     if (plan.digest !== expected)
       throw new Error(
         `Workspace plan drifted: expected ${expected}, observed ${plan.digest}`,
       );
-    return {
+    return toJsonValue({
       plan,
       tables: await environmentMutex().run(() =>
         provider.applyWorkspacePlan(plan),
       ),
-    } as unknown as JsonValue;
+    });
   }
   if (family === "task") {
     if (action === "list")
@@ -300,6 +331,7 @@ export async function runCli(
         ),
       );
     if (action === "update-task-section") {
+      /** Replacement section content read from the requested input source. */
       const content = await readTextInput(requiredFlag(parsed.flags, "input"));
       return toJsonValue(
         await withRunLeases(
@@ -359,6 +391,7 @@ export async function runCli(
         await provider.getErrorByKey(requiredFlag(parsed.flags, "key")),
       );
     if (action === "report") {
+      /** Strictly parsed error report payload. */
       const input = await readErrorInput(requiredFlag(parsed.flags, "input"));
       return toJsonValue(
         await environmentMutex().run(() => coordinator.reportError(input)),
@@ -377,31 +410,44 @@ export async function runCli(
   throw new Error(`Unknown command: ${parsed.positionals.join(" ")}`);
 }
 
+/** Parsed CLI tokens split by their dispatch role. */
 interface ParsedArguments {
+  /** Tokens following `--`, passed unchanged to the command broker. */
   readonly commandArguments: readonly string[];
+  /** Parsed long flags keyed without their leading `--`. */
   readonly flags: Readonly<Record<string, boolean | string>>;
+  /** Positional tokens that identify the command family and action. */
   readonly positionals: readonly string[];
 }
+/** Rejects flags outside the selected command's allowlist. */
 function validateFlags(
   command: string,
   flags: Readonly<Record<string, boolean | string>>,
 ): void {
+  /** Declared syntax for the selected command. */
   const spec = COMMAND_SPEC_BY_NAME.get(command);
   if (spec === undefined) throw new Error(`Unknown command: ${command}`);
+  /** Global flags available to this command boundary. */
   const globalFlags =
     command === "command proxy"
       ? GLOBAL_FLAGS.filter((name) => name !== "environment")
       : GLOBAL_FLAGS;
+  /** Complete allowlist for the selected command. */
   const allowed = new Set([...globalFlags, ...spec.flags]);
   for (const name of Object.keys(flags))
     if (!allowed.has(name))
       throw new Error(`Flag --${name} is not allowed for ${command}`);
 }
+/** Splits CLI tokens into positionals, flags, and broker arguments. */
 function parseArguments(argv: readonly string[]): ParsedArguments {
+  /** Long flags accumulated from the argument vector. */
   const flags: Record<string, boolean | string> = {};
+  /** Non-flag command tokens before the `--` boundary. */
   const positionals: string[] = [];
+  /** Unparsed command tokens after the `--` boundary. */
   let commandArguments: readonly string[] = [];
   for (let index = 0; index < argv.length; index += 1) {
+    /** Current argument token. */
     const value = argv[index]!;
     if (value === "--") {
       commandArguments = argv.slice(index + 1);
@@ -411,19 +457,23 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
       positionals.push(value);
       continue;
     }
+    /** Offset of an inline `--name=value` separator. */
     const equals = value.indexOf("=");
     if (equals !== -1) {
+      /** Flag name extracted from an inline assignment. */
       const name = value.slice(2, equals);
       if (BOOLEAN_FLAGS.has(name))
         throw new Error(`Boolean flag --${name} does not accept a value`);
       flags[name] = value.slice(equals + 1);
       continue;
     }
+    /** Flag name extracted from a standalone long option. */
     const name = value.slice(2);
     if (BOOLEAN_FLAGS.has(name)) {
       flags[name] = true;
       continue;
     }
+    /** Possible value token following a non-boolean flag. */
     const next = argv[index + 1];
     if (next !== undefined && !next.startsWith("--")) {
       flags[name] = next;
@@ -432,10 +482,12 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
   }
   return { commandArguments, flags, positionals };
 }
+/** Loads and validates the selected environment configuration file. */
 async function loadEnvironment(
   flag: boolean | string | undefined,
   env: NodeJS.ProcessEnv,
 ): Promise<EnvironmentConfig> {
+  /** Configuration path chosen from flag, environment, or default. */
   const path =
     optionalString(flag) ??
     env.AGENT_TASK_MANAGER_ENVIRONMENT ??
@@ -444,16 +496,19 @@ async function loadEnvironment(
     toJsonValue(JSON.parse(await readFile(path, "utf8")) as unknown),
   );
 }
+/** Creates the configured provider after resolving its credentials. */
 function providerFor(
   configuration: EnvironmentConfig,
   env: NodeJS.ProcessEnv,
 ): AgentTaskProvider {
   if (configuration.provider.type !== "notion")
     throw new Error(`Unsupported provider: ${configuration.provider.type}`);
+  /** Environment-variable name holding the Notion token. */
   const tokenVariable =
     typeof configuration.provider.connection.tokenEnv === "string"
       ? configuration.provider.connection.tokenEnv
       : "NOTION_TOKEN";
+  /** Notion token resolved from the configured environment variable. */
   const token = env[tokenVariable];
   if (token === undefined || token.trim() === "")
     throw new Error(`Missing Notion token in ${tokenVariable}`);
@@ -465,19 +520,23 @@ function providerFor(
 
 /** Loads the mandatory host-owned sandbox broker used for Agent commands. */
 function commandBrokerExecutor(env: NodeJS.ProcessEnv) {
+  /** Absolute executable path for the trusted sandbox broker. */
   const executable = env.AGENT_TASK_MANAGER_COMMAND_BROKER;
   if (executable === undefined || executable.trim() === "")
     throw new Error(
       "AGENT_TASK_MANAGER_COMMAND_BROKER must name an absolute sandbox broker executable",
     );
+  /** Optional cap on combined command output. */
   const maxOutputBytes = optionalPositiveInteger(
     env.AGENT_TASK_MANAGER_COMMAND_MAX_OUTPUT_BYTES,
     "AGENT_TASK_MANAGER_COMMAND_MAX_OUTPUT_BYTES",
   );
+  /** Optional command execution timeout. */
   const timeoutMilliseconds = optionalPositiveInteger(
     env.AGENT_TASK_MANAGER_COMMAND_TIMEOUT_MS,
     "AGENT_TASK_MANAGER_COMMAND_TIMEOUT_MS",
   );
+  /** Optional grace period between termination signals. */
   const terminationGraceMilliseconds = optionalPositiveInteger(
     env.AGENT_TASK_MANAGER_COMMAND_TERMINATION_GRACE_MS,
     "AGENT_TASK_MANAGER_COMMAND_TERMINATION_GRACE_MS",
@@ -498,6 +557,7 @@ function optionalPositiveInteger(
   name: string,
 ): number | undefined {
   if (value === undefined) return undefined;
+  /** Numeric representation of the environment setting. */
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed) || parsed <= 0)
     throw new Error(`${name} must be a positive integer`);
@@ -513,21 +573,49 @@ async function withRunLeases<T>(
   operation: () => Promise<T>,
 ): Promise<T> {
   return globalMutex.run(async () => {
+    /** Active Agent snapshot used to determine the protected run set. */
     const active = await provider.listActiveAgents();
+    /** Sorted run subtree protected by this terminal mutation. */
     const runIds = affectedRunIds(active, roots);
+    /** Release callbacks in acquisition order. */
     const releases: Array<() => Promise<void>> = [];
     try {
       for (const runId of runIds) releases.push(await runMutex(runId).lock());
       return await operation();
     } finally {
-      for (const release of releases.reverse()) await release();
+      await releaseAllInReverse(releases);
     }
   });
 }
 
+/** Releases every acquired lease in reverse order before rethrowing the first cleanup failure. */
+async function releaseAllInReverse(
+  releases: ReadonlyArray<() => Promise<void>>,
+): Promise<void> {
+  /** Whether at least one release has thrown, including a thrown `undefined`. */
+  let hasFailure = false;
+  /** First cleanup failure in reverse execution order. */
+  let firstFailure: unknown;
+
+  for (const release of releases.toReversed()) {
+    try {
+      await release();
+    } catch (error) {
+      if (!hasFailure) {
+        hasFailure = true;
+        firstFailure = error;
+      }
+    }
+  }
+
+  if (hasFailure) throw firstFailure;
+}
+
 /** Structured sweep result that reports independently fenced stale subtrees. */
 export interface SweepBatchResult {
+  /** Stale subtree roots skipped because another command owns a lease. */
   readonly blockedRunIds: readonly string[];
+  /** Successfully swept subtree results. */
   readonly swept: readonly SweepResult[];
 }
 
@@ -538,10 +626,14 @@ export async function sweepWithRunLeases(
   coordinator: AgentCoordinator,
 ): Promise<SweepBatchResult> {
   return globalMutex.run(async () => {
+    /** Independently leasable stale subtrees proposed by the coordinator. */
     const plans = await coordinator.planSweep();
+    /** Root IDs skipped because their subtree could not be fully leased. */
     const blockedRunIds: string[] = [];
+    /** Results from subtrees swept during this batch. */
     const swept: SweepResult[] = [];
     for (const plan of plans) {
+      /** Release callbacks for this subtree in acquisition order. */
       const releases: Array<() => Promise<void>> = [];
       try {
         try {
@@ -554,7 +646,7 @@ export async function sweepWithRunLeases(
         }
         swept.push(...(await coordinator.sweep([plan.rootRunId])));
       } finally {
-        for (const release of releases.reverse()) await release();
+        await releaseAllInReverse(releases);
       }
     }
     return { blockedRunIds, swept };
@@ -573,7 +665,9 @@ function affectedRunIds(
 ): readonly string[] {
   if (roots === null)
     return [...new Set(active.map((run) => run.runId))].sort();
+  /** Growing set seeded with the requested roots. */
   const result = new Set(roots);
+  /** Whether the previous traversal discovered another descendant. */
   let changed = true;
   while (changed) {
     changed = false;
@@ -589,24 +683,32 @@ function affectedRunIds(
   }
   return [...result].sort();
 }
+/** Reads and strictly parses an error-report payload. */
 async function readErrorInput(path: string): Promise<ReportErrorInput> {
+  /** Untrusted environment or provider payload before strict parsing. */
   const raw = await readTextInput(path);
+  /** JSON-safe representation passed to domain validation. */
   const value = toJsonValue(JSON.parse(raw) as unknown);
   return parseReportErrorInput(value);
 }
+/** Reads UTF-8 text from a file or standard input. */
 async function readTextInput(path: string): Promise<string> {
   return path === "-" ? readStdin() : readFile(path, "utf8");
 }
+/** Collects standard input as UTF-8 text. */
 async function readStdin(): Promise<string> {
+  /** Binary chunks collected from the input stream. */
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin)
     chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
   return Buffer.concat(chunks).toString("utf8");
 }
+/** Reads a required string-valued CLI flag. */
 function requiredFlag(
   flags: Readonly<Record<string, boolean | string>>,
   name: string,
 ): string {
+  /** String value supplied for the named flag. */
   const value = optionalString(flags[name]);
   if (value === undefined || value === "") throw new Error(`Missing --${name}`);
   return value;
@@ -616,6 +718,7 @@ function requiredEnvironmentValue(
   env: NodeJS.ProcessEnv,
   name: string,
 ): string {
+  /** Raw value supplied by the trusted harness environment. */
   const value = env[name];
   if (value === undefined || value.trim() === "")
     throw new Error(`Missing ${name}`);
@@ -623,6 +726,7 @@ function requiredEnvironmentValue(
 }
 /** Resolves manager-only lock storage provisioned outside Agent sandboxes. */
 function coordinationDirectory(env: NodeJS.ProcessEnv): string {
+  /** Required manager-owned coordination path. */
   const path = requiredEnvironmentValue(
     env,
     "AGENT_TASK_MANAGER_COORDINATION_DIRECTORY",
@@ -633,6 +737,7 @@ function coordinationDirectory(env: NodeJS.ProcessEnv): string {
     );
   return path;
 }
+/** Narrows an optional flag value to a string. */
 function optionalString(
   value: boolean | string | undefined,
 ): string | undefined {
@@ -643,6 +748,7 @@ if (isDirectExecution(import.meta.url, process.argv[1])) {
   runCli(process.argv.slice(2)).then(
     (result) => {
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      /** Process exit code derived from the thrown value. */
       const exitCode = proxyExitCode(result);
       if (exitCode !== null) process.exitCode = exitCode;
     },
@@ -662,7 +768,9 @@ export function isDirectExecution(
 ): boolean {
   if (argumentPath === undefined) return false;
   try {
+    /** Canonical path of this module. */
     const modulePath = realpathSync(fileURLToPath(moduleUrl));
+    /** Canonical path used to invoke the process. */
     const invokedPath = realpathSync(argumentPath);
     return process.platform === "win32"
       ? modulePath.toLowerCase() === invokedPath.toLowerCase()

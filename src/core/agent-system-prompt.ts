@@ -5,6 +5,7 @@ import type { AgentTaskDescriptionConfig } from "../domain/task-description.js";
 export function commandProxySystemPrompt(
   taskDescription: AgentTaskDescriptionConfig,
 ): string {
+  /** Run-bound Task-section instructions appended to the command prompt. */
   const taskDescriptionPolicy =
     taskDescription.writableSections.length === 0
       ? "- Never modify a Task directly or select another Task."

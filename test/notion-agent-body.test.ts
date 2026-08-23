@@ -10,7 +10,9 @@ import type {
   NotionRequest,
   NotionTransport,
 } from "../src/provider/notion/notion-transport.js";
+import { NotionApiError } from "../src/provider/notion/notion-transport.js";
 
+/** Stable Notion IDs used across transport fixtures. */
 const ids = {
   activeAgents: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   agent: "11111111111111111111111111111111",
@@ -28,6 +30,7 @@ const ids = {
 } as const;
 
 test("Notion Agent records derive configuration and Resources from the page body", async () => {
+  /** Provider implementation that owns persistence for this invocation. */
   const provider = new NotionProvider(
     {
       bootstrapParent: "ffffffffffffffffffffffffffffffff",
@@ -44,6 +47,7 @@ test("Notion Agent records derive configuration and Resources from the page body
     new AgentBodyTransport(),
   );
 
+  /** Agent definition resolved for the current run. */
   const agent = await provider.getAgentByKey("code-reviewer");
   assert.ok(agent);
   assert.equal(agent.enabled, true);
@@ -58,6 +62,7 @@ test("Notion Agent records derive configuration and Resources from the page body
 });
 
 test("Notion Agent record lookup isolates unrelated malformed bodies", async () => {
+  /** Provider implementation that owns persistence for this invocation. */
   const provider = new NotionProvider(
     {
       bootstrapParent: "ffffffffffffffffffffffffffffffff",
@@ -82,7 +87,34 @@ test("Notion Agent record lookup isolates unrelated malformed bodies", async () 
   );
 });
 
+test("Notion page lookup treats only typed HTTP 404 as absence", async () => {
+  /** Typed provider failure representing an absent page. */
+  const missing = new NotionApiError("gone", 404, "object_not_found", null);
+  /** Provider whose page lookup receives the typed absence. */
+  const provider = lifecycleProvider(new FailingTransport(missing));
+
+  assert.equal(await provider.getTask(ids.task), null);
+});
+
+test("Notion page lookup propagates every non-404 failure", async () => {
+  /** Failures whose text must not be interpreted as page absence. */
+  const failures = [
+    new Error("not found"),
+    new NotionApiError("not found", 500, "internal_error", null),
+  ];
+
+  for (const failure of failures) {
+    /** Provider configured to throw the current failure unchanged. */
+    const provider = lifecycleProvider(new FailingTransport(failure));
+    await assert.rejects(
+      provider.getTask(ids.task),
+      (error) => error === failure,
+    );
+  }
+});
+
 test("Notion Agent loading retries a body and metadata torn read", async () => {
+  /** Provider implementation that owns persistence for this invocation. */
   const provider = new NotionProvider(
     {
       bootstrapParent: "ffffffffffffffffffffffffffffffff",
@@ -99,6 +131,7 @@ test("Notion Agent loading retries a body and metadata torn read", async () => {
     new TornAgentBodyTransport(),
   );
 
+  /** Agent definition resolved for the current run. */
   const agent = await provider.getAgentByKey("code-reviewer");
   assert.match(agent?.version ?? "", /^[0-9a-f]{64}$/u);
   assert.deepEqual(agent?.restartCompatibleVersions, [
@@ -107,7 +140,9 @@ test("Notion Agent loading retries a body and metadata torn read", async () => {
 });
 
 test("Notion Agent versions bind same-timestamp command policy changes", async () => {
+  /** Test fixture for transport. */
   const transport = new SameTimestampAgentBodyTransport();
+  /** Provider implementation that owns persistence for this invocation. */
   const provider = new NotionProvider(
     {
       bootstrapParent: "ffffffffffffffffffffffffffffffff",
@@ -124,8 +159,10 @@ test("Notion Agent versions bind same-timestamp command policy changes", async (
     transport,
   );
 
+  /** Test fixture for restricted. */
   const restricted = await provider.getAgentByKey("code-reviewer");
   transport.permissive = true;
+  /** Test fixture for permissive. */
   const permissive = await provider.getAgentByKey("code-reviewer");
 
   assert.notEqual(restricted?.version, permissive?.version);
@@ -134,6 +171,7 @@ test("Notion Agent versions bind same-timestamp command policy changes", async (
 });
 
 test("Notion workspace validation reports malformed Agent bodies", async () => {
+  /** Provider implementation that owns persistence for this invocation. */
   const provider = new NotionProvider(
     {
       bootstrapParent: "ffffffffffffffffffffffffffffffff",
@@ -150,6 +188,7 @@ test("Notion workspace validation reports malformed Agent bodies", async () => {
     new AgentBodyTransport(),
   );
 
+  /** Test fixture for report. */
   const report = await provider.validateWorkspace();
   assert.equal(report.valid, false);
   assert.ok(
@@ -162,6 +201,7 @@ test("Notion workspace validation reports malformed Agent bodies", async () => {
 });
 
 test("workspace planning rejects property types found invalid by validation", async () => {
+  /** Provider implementation that owns persistence for this invocation. */
   const provider = new NotionProvider(
     {
       bootstrapParent: "ffffffffffffffffffffffffffffffff",
@@ -182,6 +222,7 @@ test("workspace planning rejects property types found invalid by validation", as
     }),
   );
 
+  /** Test fixture for report. */
   const report = await provider.validateWorkspace();
   assert.ok(
     report.issues.some(
@@ -196,6 +237,7 @@ test("workspace planning rejects property types found invalid by validation", as
 });
 
 test("Notion Active Agent lookup preserves parent and restart Run IDs", async () => {
+  /** Provider implementation that owns persistence for this invocation. */
   const provider = new NotionProvider(
     {
       bootstrapParent: "ffffffffffffffffffffffffffffffff",
@@ -212,6 +254,7 @@ test("Notion Active Agent lookup preserves parent and restart Run IDs", async ()
     new AgentBodyTransport(),
   );
 
+  /** Test fixture for run. */
   const run = await provider.getActiveAgent("child");
   assert.equal(run?.parentRunId, "root");
   assert.equal(run?.restartOfRunId, "failed");
@@ -219,8 +262,11 @@ test("Notion Active Agent lookup preserves parent and restart Run IDs", async ()
 
 test("Notion terminal Active Agents detach from Tasks without losing retry identity", async () => {
   for (const status of ["completed", "failed", "stale", "stopped"] as const) {
+    /** Test fixture for transport. */
     const transport = new ActiveAgentLifecycleTransport();
+    /** Provider implementation that owns persistence for this invocation. */
     const provider = lifecycleProvider(transport);
+    /** Test fixture for terminal. */
     const terminal = await provider.updateActiveAgent("child", {
       finishedAt: "2026-08-17T12:01:00.000Z",
       status,
@@ -238,7 +284,9 @@ test("Notion terminal Active Agents detach from Tasks without losing retry ident
     });
   }
 
+  /** Test fixture for transport. */
   const transport = new ActiveAgentLifecycleTransport();
+  /** Provider implementation that owns persistence for this invocation. */
   const provider = lifecycleProvider(transport);
   await provider.archiveActiveAgent("child");
   assert.deepEqual(transport.patches[0], {
@@ -251,7 +299,9 @@ test("Notion terminal Active Agents detach from Tasks without losing retry ident
 });
 
 test("Notion Active Agent creation persists historical Task identity", async () => {
+  /** Test fixture for transport. */
   const transport = new ActiveAgentCreationTransport();
+  /** Test fixture for created. */
   const created = await lifecycleProvider(transport).createActiveAgent({
     agentId: ids.agent,
     agentVersion: "agent-version",
@@ -282,7 +332,9 @@ test("Notion Active Agent creation persists historical Task identity", async () 
 });
 
 test("Notion Task body updates require and replace exact Markdown", async () => {
+  /** Test fixture for transport. */
   const transport = new TaskBodyTransport();
+  /** Test fixture for updated. */
   const updated = await lifecycleProvider(transport).updateTaskBody(
     ids.task,
     "## Context\n\nOriginal.\n",
@@ -302,6 +354,7 @@ test("Notion Task body updates require and replace exact Markdown", async () => 
   });
 });
 
+/** Creates a Notion provider configured for Active Agent lifecycle tests. */
 function lifecycleProvider(transport: NotionTransport): NotionProvider {
   return new NotionProvider(
     {
@@ -320,23 +373,43 @@ function lifecycleProvider(transport: NotionTransport): NotionProvider {
   );
 }
 
+/** Transport that rejects every request with one exact error object. */
+class FailingTransport implements NotionTransport {
+  /** Creates a transport around the failure expected by the scenario. */
+  public constructor(private readonly failure: Error) {}
+
+  /** Rejects without wrapping so tests can assert error identity. */
+  public async request(_request: NotionRequest): Promise<JsonObject> {
+    throw this.failure;
+  }
+}
+
+/** Serves deterministic Agent metadata, body, and Resource responses. */
 class AgentBodyTransport implements NotionTransport {
+  /** Creates an instance with its required collaborators. */
   public constructor(
     private readonly propertyOverride?: {
+      /** Name captured by the record fixture. */
       readonly name: string;
+      /** Canonical managed-table descriptor for the current operation. */
       readonly table: TableKind;
+      /** Type captured by the record fixture. */
       readonly type: string;
     },
   ) {}
 
+  /** Routes the Notion requests used to hydrate an Agent record. */
   public async request(request: NotionRequest): Promise<JsonObject> {
     if (
       request.method === "GET" &&
       request.path.startsWith("/v1/data_sources/")
     ) {
+      /** Source ID captured by the request fixture. */
       const sourceId = request.path.split("/").at(-1);
+      /** Canonical managed-table descriptor for the current operation. */
       const table = NOTION_TABLES.find((entry) => ids[entry.kind] === sourceId);
       if (table !== undefined) {
+        /** Properties captured by the request fixture. */
         const properties: JsonObject = Object.fromEntries(
           table.properties.map((property) => [
             property.name,
@@ -394,7 +467,9 @@ class AgentBodyTransport implements NotionTransport {
   }
 }
 
+/** Simulates metadata changing between the body read and consistency check. */
 class TornAgentBodyTransport extends AgentBodyTransport {
+  /** Returns a changed Agent version after the first metadata read. */
   public override async request(request: NotionRequest): Promise<JsonObject> {
     if (request.path === `/v1/pages/${ids.agent}`)
       return {
@@ -407,9 +482,12 @@ class TornAgentBodyTransport extends AgentBodyTransport {
   }
 }
 
+/** Changes an Agent body without changing its Notion timestamp. */
 class SameTimestampAgentBodyTransport extends AgentBodyTransport {
+  /** Whether subsequent body reads return the permissive command policy. */
   public permissive = false;
 
+  /** Switches the served command policy while retaining metadata timestamps. */
   public override async request(request: NotionRequest): Promise<JsonObject> {
     if (request.path === `/v1/pages/${ids.agent}/markdown`)
       return {
@@ -421,10 +499,14 @@ class SameTimestampAgentBodyTransport extends AgentBodyTransport {
   }
 }
 
+/** Captures Active Agent terminal updates and Task detachment. */
 class ActiveAgentLifecycleTransport implements NotionTransport {
+  /** Active Agent property patches received by the transport. */
   public readonly patches: JsonObject[] = [];
+  /** Whether the served Active Agent no longer relates to its Task. */
   private detached = false;
 
+  /** Routes lifecycle query and patch requests for one Active Agent. */
   public async request(request: NotionRequest): Promise<JsonObject> {
     if (request.path === `/v1/data_sources/${ids.activeAgents}/query`)
       return pageResults([
@@ -450,9 +532,12 @@ class ActiveAgentLifecycleTransport implements NotionTransport {
   }
 }
 
+/** Captures the properties used to create an Active Agent page. */
 class ActiveAgentCreationTransport implements NotionTransport {
+  /** Properties from the most recent Active Agent creation request. */
   public createdProperties: JsonObject | null = null;
 
+  /** Routes Active Agent lookup and creation requests. */
   public async request(request: NotionRequest): Promise<JsonObject> {
     if (request.path === `/v1/data_sources/${ids.activeAgents}/query`)
       return pageResults(
@@ -467,6 +552,7 @@ class ActiveAgentCreationTransport implements NotionTransport {
           typeof request.body === "object" &&
           !Array.isArray(request.body),
       );
+      /** Properties captured by the request fixture. */
       const properties = request.body.properties;
       assert.ok(
         properties !== undefined &&
@@ -483,10 +569,14 @@ class ActiveAgentCreationTransport implements NotionTransport {
   }
 }
 
+/** Captures optimistic Task-property and Markdown-body updates. */
 class TaskBodyTransport implements NotionTransport {
+  /** Task property patch received before the Markdown update. */
   public patch: JsonObject | null = null;
+  /** Current Markdown body served by the transport. */
   private markdown = "## Context\n\nOriginal.\n";
 
+  /** Routes the reads and writes required by a Task body update. */
   public async request(request: NotionRequest): Promise<JsonObject> {
     if (request.method === "GET" && request.path === `/v1/pages/${ids.task}`)
       return page(ids.task, {
@@ -506,6 +596,7 @@ class TaskBodyTransport implements NotionTransport {
           !Array.isArray(request.body),
       );
       this.patch = request.body;
+      /** Update captured by the request fixture. */
       const update = request.body.update_content;
       assert.ok(
         update !== undefined &&
@@ -513,8 +604,10 @@ class TaskBodyTransport implements NotionTransport {
           typeof update === "object" &&
           !Array.isArray(update),
       );
+      /** Content updates captured by the request fixture. */
       const contentUpdates = update.content_updates;
       assert.ok(Array.isArray(contentUpdates) && contentUpdates.length === 1);
+      /** Replacement captured by the request fixture. */
       const replacement = contentUpdates[0];
       assert.ok(
         replacement !== undefined &&
@@ -533,6 +626,7 @@ class TaskBodyTransport implements NotionTransport {
   }
 }
 
+/** Renders an Agent-definition section with a chosen command policy. */
 function agentMarkdown(commands: string): string {
   return `## Agent definition
 
@@ -542,6 +636,7 @@ function agentMarkdown(commands: string): string {
 `;
 }
 
+/** Builds a Notion page for an Active Agent hierarchy test. */
 function activeAgentPage(
   id: string,
   runId: string,
@@ -555,6 +650,7 @@ function activeAgentPage(
   });
 }
 
+/** Builds the running Active Agent page used by lifecycle tests. */
 function activeAgentLifecyclePage(taskIds: readonly string[]): JsonObject {
   return page(ids.childRun, {
     "Finished At": dateProperty(null),
@@ -568,6 +664,7 @@ function activeAgentLifecyclePage(taskIds: readonly string[]): JsonObject {
   });
 }
 
+/** Builds a Notion Resource page fixture. */
 function resourcePage(id: string, key: string, kind: string): JsonObject {
   return page(id, {
     Kind: selectProperty(kind),
@@ -576,6 +673,7 @@ function resourcePage(id: string, key: string, kind: string): JsonObject {
   });
 }
 
+/** Wraps properties in a minimal Notion page object. */
 function page(id: string, properties: JsonObject): JsonObject {
   return {
     archived: false,
@@ -585,10 +683,12 @@ function page(id: string, properties: JsonObject): JsonObject {
   };
 }
 
+/** Wraps pages in a terminal Notion pagination response. */
 function pageResults(results: readonly JsonObject[]): JsonObject {
   return { has_more: false, next_cursor: null, results: [...results] };
 }
 
+/** Builds a typed Notion title or rich-text response property. */
 function richTextProperty(
   type: "rich_text" | "title",
   value: string,
@@ -599,30 +699,37 @@ function richTextProperty(
   };
 }
 
+/** Builds a Notion select response property. */
 function selectProperty(value: string): JsonObject {
   return { select: { name: value }, type: "select" };
 }
 
+/** Builds a canonical descriptor for a Notion relation. */
 function relationProperty(ids: readonly string[]): JsonObject {
   return { relation: ids.map((id) => ({ id })), type: "relation" };
 }
 
+/** Builds a nullable Notion date response property. */
 function dateProperty(value: string | null): JsonObject {
   return { date: value === null ? null : { start: value }, type: "date" };
 }
 
+/** Encodes a Notion date request value. */
 function requestDate(value: string): JsonObject {
   return { date: { start: value } };
 }
 
+/** Encodes Notion relation IDs for a request. */
 function requestRelation(ids: readonly string[]): JsonObject {
   return { relation: ids.map((id) => ({ id })) };
 }
 
+/** Encodes plain text as a Notion rich-text request value. */
 function requestRichText(value: string): JsonObject {
   return { rich_text: [{ text: { content: value }, type: "text" }] };
 }
 
+/** Encodes a Notion select request value. */
 function requestSelect(value: string): JsonObject {
   return { select: { name: value } };
 }

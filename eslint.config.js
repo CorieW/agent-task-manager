@@ -20,10 +20,6 @@ export default tseslint.config(
           ignoreRestSiblings: true,
         },
       ],
-      // Cleanup deliberately aggregates and can supersede a primary failure.
-      "no-unsafe-finally": "off",
-      // AggregateError retains both failures even when its primary cause differs from the caught cleanup error.
-      "preserve-caught-error": "off",
     },
   },
 );

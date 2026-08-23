@@ -117,26 +117,39 @@ export const LEGACY_PROPERTIES_BY_TABLE: Readonly<
 
 /** Captured page body, identity, properties, and title used for planning. */
 export interface MigrationRow {
+  /** Authoritative Markdown body of the provider record. */
   readonly body: string;
+  /** Provider-owned record identifier. */
   readonly id: string;
+  /** Provider-specific properties retained at the domain boundary. */
   readonly properties: JsonObject;
+  /** Human-readable title of the record or command. */
   readonly title: string;
 }
 /** Captured data-source schema and rows used for planning. */
 export interface MigrationTable {
   /** Notion data-source ID, not its containing database page ID. */
   readonly id: string;
+  /** Provider-specific properties retained at the domain boundary. */
   readonly properties: Readonly<Record<string, string>>;
+  /** Rows read from the table in provider order. */
   readonly rows: readonly MigrationRow[];
 }
 /** Complete authorized snapshot of the legacy Management v2 workspace. */
 export interface ManagementInventory {
+  /** Initial Active Agent records for the in-memory provider. */
   readonly activeAgents: MigrationTable | null;
+  /** Initial Agent records for the in-memory provider. */
   readonly agents: MigrationTable;
+  /** Initial Error records for the in-memory provider. */
   readonly errors: MigrationTable;
+  /** Optional legacy Operations table. */
   readonly operations: MigrationTable | null;
+  /** Stable parent ID. */
   readonly parentId: string;
+  /** Ordered Resources supplied as immutable Agent context. */
   readonly resources: MigrationTable;
+  /** Initial Task records for the in-memory provider. */
   readonly tasks: MigrationTable;
 }
 /** Supported ordered operation kinds in a Management v2 migration. */
@@ -152,18 +165,24 @@ export type MigrationActionKind =
   | "verify";
 /** One deterministic migration operation and its exact target. */
 export interface MigrationAction {
+  /** Provider-owned record identifier. */
   readonly id: string;
+  /** Domain or protocol classification of the record. */
   readonly kind: MigrationActionKind;
+  /** Provider record or data-source ID targeted by the migration action. */
   readonly targetId: string;
 }
 /** Digest-bound migration plan derived from one inventory snapshot. */
 export interface ManagementMigrationPlan {
+  /** Ordered mutations authorized by this plan. */
   readonly actions: readonly MigrationAction[];
   /** Digest of the plan core, including actions and inventory authorization. */
   readonly digest: string;
   /** Digest of the complete normalized inventory snapshot. */
   readonly inventoryDigest: string;
+  /** Stable parent ID. */
   readonly parentId: string;
+  /** Versioned schema identifier for the serialized object. */
   readonly schema: "management-v2-migration-plan-v1";
 }
 
@@ -173,7 +192,9 @@ export function planManagementV2Migration(
 ): ManagementMigrationPlan {
   inventory = orderedInventory(inventory);
   assertManagementV2Inventory(inventory);
+  /** Ordered actions used by plan management v2 migration. */
   const actions: MigrationAction[] = [];
+  /** Whether the inventory still requires additive schema convergence. */
   const needsAdditive =
     inventory.activeAgents === null || !hasTargetProperties(inventory);
   if (needsAdditive)
@@ -188,10 +209,12 @@ export function planManagementV2Migration(
       kind: "create_active_agents",
       targetId: inventory.parentId,
     });
+  /** Resources resolved in the Agent definition's declared order. */
   const resources = new Map(
     inventory.resources.rows.map((row) => [row.title, row]),
   );
   for (const key of RETAINED_RESOURCE_KEYS) {
+    /** Migration inventory row currently planned or validated. */
     const row = resources.get(key)!;
     if (!row.body.includes("## Simplified coordination contract"))
       actions.push({
@@ -201,6 +224,7 @@ export function planManagementV2Migration(
       });
   }
   for (const key of ARCHIVED_RESOURCE_KEYS) {
+    /** Migration inventory row currently planned or validated. */
     const row = resources.get(key);
     if (row !== undefined)
       actions.push({
@@ -240,7 +264,9 @@ export function planManagementV2Migration(
     kind: "verify",
     targetId: inventory.parentId,
   });
+  /** Digest binding the exact pre-migration inventory. */
   const inventoryDigest = digestInventory(inventory);
+  /** Serialized fields covered by the deterministic digest. */
   const core = {
     actions,
     inventoryDigest,
@@ -250,7 +276,9 @@ export function planManagementV2Migration(
   return { ...core, digest: digestJson(toJsonValue(core)) };
 }
 
+/** Returns a deterministically ordered copy of the migration inventory. */
 function orderedInventory(inventory: ManagementInventory): ManagementInventory {
+  /** Canonical managed-table descriptor for this operation. */
   const table = (value: MigrationTable): MigrationTable => ({
     ...value,
     rows: [...value.rows].sort((left, right) =>
@@ -274,10 +302,12 @@ function orderedInventory(inventory: ManagementInventory): ManagementInventory {
 export function assertManagementV2Inventory(
   inventory: ManagementInventory,
 ): void {
+  /** Ordered validation failures accumulated before rejection. */
   const failures: string[] = [];
   if (normalizeNotionId(inventory.parentId) !== MANAGEMENT_V2_PARENT)
     failures.push("parent is not the exact Management v2 page");
   for (const [kind, id] of Object.entries(MANAGEMENT_V2_DATABASES)) {
+    /** Canonical managed-table descriptor for this operation. */
     const table =
       inventory[
         kind as keyof Pick<
@@ -296,8 +326,10 @@ export function assertManagementV2Inventory(
     EXPECTED_AGENT_NAMES,
     failures,
   );
+  /** Resources resolved in the Agent definition's declared order. */
   const resources = new Set(inventory.resources.rows.map((row) => row.title));
   for (const key of resources) {
+    /** Number of legacy rows matching the required key. */
     const count = inventory.resources.rows.filter(
       (row) => row.title === key,
     ).length;
@@ -314,6 +346,7 @@ export function assertManagementV2Inventory(
     )
       failures.push(`unexpected Resource: ${key}`);
   assertAgentDefinitionParity(inventory, failures);
+  /** Distinct values tracked by assert management v2 inventory. */
   const errors = new Set(
     inventory.errors.rows.map((row) =>
       String(row.properties["Error Key"] ?? row.title),
@@ -325,6 +358,7 @@ export function assertManagementV2Inventory(
   if (inventory.operations !== null) {
     if (inventory.operations.rows.length > 1)
       failures.push("Operations contains more than its one empty row");
+    /** Migration inventory row currently planned or validated. */
     const row = inventory.operations.rows[0];
     if (
       row !== undefined &&
@@ -337,6 +371,7 @@ export function assertManagementV2Inventory(
   if (inventory.activeAgents !== null) {
     if (inventory.activeAgents.rows.length !== 0)
       failures.push("Active Agents must contain 0 live rows during migration");
+    /** Observed Active Agent schema properties. */
     const activeProperties = Object.fromEntries(
       notionTable("activeAgents").properties.map((property) => [
         property.name,
@@ -403,10 +438,12 @@ export function assertManagementV2Inventory(
     );
 }
 
+/** Records Agent-definition mismatches between legacy rows and converted bodies. */
 function assertAgentDefinitionParity(
   inventory: ManagementInventory,
   failures: string[],
 ): void {
+  /** Lookup used by assert agent definition parity. */
   const resourceKeyById = new Map(
     inventory.resources.rows.map((row) => [
       normalizeNotionId(row.id),
@@ -414,21 +451,25 @@ function assertAgentDefinitionParity(
     ]),
   );
   for (const row of inventory.agents.rows) {
+    /** Strict Agent definition parsed from authoritative Markdown. */
     let definition;
     try {
       definition = parseAgentDefinition(row.body);
     } catch {
       continue;
     }
+    /** Conflicting managed Agent definition found during parity validation. */
     const conflict = (field: string): void => {
       failures.push(`Agent ${row.title} body conflicts with legacy ${field}`);
     };
+    /** Field comparator that appends deterministic parity failures. */
     const compareText = (
       property: string,
       actual: string,
       skipBlank = false,
     ): void => {
       if (!Object.hasOwn(row.properties, property)) return;
+      /** Caller-supplied digest or value required to authorize the operation. */
       const expected = stringProperty(row.properties[property], property);
       if (skipBlank && expected === "") return;
       if (actual !== expected) conflict(property);
@@ -443,8 +484,10 @@ function assertAgentDefinitionParity(
       definition.enabled !== booleanProperty(row.properties.Enabled, "Enabled")
     )
       conflict("Enabled");
+    /** Mapping from Agent outcomes to destination Task statuses. */
     const transitions = row.properties.Transitions;
     if (typeof transitions === "string" && transitions !== "") {
+      /** Legacy Agent manifest retained for parity conversion. */
       const legacy = parseAgentTransitions(transitions);
       if (
         digestJson(toJsonValue(legacy)) !==
@@ -452,13 +495,16 @@ function assertAgentDefinitionParity(
       )
         conflict("Transitions");
     }
+    /** Managed table targeted by a Notion relation property. */
     const relation = row.properties.Resources;
     if (Array.isArray(relation) && relation.length > 0) {
+      /** Allowlisted keys accepted by the current boundary. */
       const keys = relation.map((value) =>
         resourceKeyById.get(normalizeNotionId(String(value))),
       );
       if (keys.some((key) => key === undefined)) conflict("Resources");
       else {
+        /** Managed Markdown content isolated from surrounding operator text. */
         const managed = keys
           .filter(
             (key): key is string =>
@@ -478,22 +524,30 @@ function assertAgentDefinitionParity(
 
 /** Legacy body fields retained while converting an Agent definition. */
 export interface LegacyAgentManifest {
+  /** Provider-owned record identifier. */
   readonly id: string;
+  /** Resource selectors declared by the legacy Agent manifest. */
   readonly inputResourceSelectors: readonly string[];
+  /** Prompt Resources selected by the Agent definition. */
   readonly promptResources: readonly string[];
+  /** Reasoning-effort setting requested by the Agent definition. */
   readonly reasoning: string;
+  /** Mapping from Agent outcomes to destination Task statuses. */
   readonly transitions: AgentTransitions;
 }
 /** Parses the heading-scoped JSON manifest from a legacy Agent body. */
 export function parseLegacyAgentManifest(
   markdown: string,
 ): LegacyAgentManifest {
+  /** Managed Markdown section located by its exact heading. */
   const section = agentDefinitionSection(markdown);
   if (section === null)
     throw new Error("Agent page does not contain a legacy JSON manifest");
+  /** Parsed legacy manifest before strict shape validation. */
   const value = JSON.parse(section.content) as unknown;
   if (value === null || typeof value !== "object" || Array.isArray(value))
     throw new TypeError("Agent manifest must be an object");
+  /** Strict legacy Agent manifest parsed from the managed section. */
   const manifest = value as Record<string, unknown>;
   return {
     id: requiredText(manifest.id, "Agent manifest id"),
@@ -510,6 +564,7 @@ export function parseLegacyAgentManifest(
 export function retainedManifestResourceKeys(
   manifest: LegacyAgentManifest,
 ): readonly string[] {
+  /** Distinct values tracked by retained manifest resource keys. */
   const retained = new Set<string>(RETAINED_RESOURCE_KEYS);
   return [
     ...new Set([
@@ -526,13 +581,18 @@ export function agentDefinitionMarkdown(
   row: MigrationRow,
   relatedResourceKeys: readonly string[] = [],
 ): string {
+  /** Managed Markdown section located by its exact heading. */
   const section = agentDefinitionSection(row.body);
+  /** Legacy Agent manifest retained for parity conversion. */
   const legacy =
     section === null
       ? definitionFromProperties(row, relatedResourceKeys)
       : parseDefinitionObject(section.content);
+  /** Harness identity allowed to invoke this Agent. */
   const calledBy = stringProperty(row.properties["Called By"], "Called By");
+  /** Optional operator-facing Agent notes. */
   const notes = stringProperty(row.properties.Notes, "Notes");
+  /** Strict Agent definition parsed from authoritative Markdown. */
   const definition = {
     ...legacy,
     schema: "agent-definition-v1",
@@ -555,7 +615,9 @@ export function agentDefinitionMarkdown(
     ...(legacy.calledBy === undefined && calledBy !== "" ? { calledBy } : {}),
     ...(legacy.notes === undefined && notes !== "" ? { notes } : {}),
   };
+  /** Canonical Agent-definition section rendered for validation. */
   const definitionMarkdown = `## Agent definition\n\n\`\`\`json\n${JSON.stringify(definition, null, 2)}\n\`\`\`\n`;
+  /** Canonical Markdown rendered for the provider page. */
   const markdown =
     section === null
       ? `${definitionMarkdown}\n${row.body}`
@@ -564,10 +626,12 @@ export function agentDefinitionMarkdown(
   return markdown;
 }
 
+/** Converts legacy Agent columns into a v1 definition object. */
 function definitionFromProperties(
   row: MigrationRow,
   resourceKeys: readonly string[],
 ): Record<string, unknown> {
+  /** Mapping from Agent outcomes to destination Task statuses. */
   const transitions = parseAgentTransitions(
     requiredText(row.properties.Transitions, "Transitions"),
   );
@@ -582,7 +646,9 @@ function definitionFromProperties(
   };
 }
 
+/** Parses and validates definition object. */
 function parseDefinitionObject(value: string): Record<string, unknown> {
+  /** Untyped serialized input after JSON or argument parsing. */
   const parsed = JSON.parse(value) as unknown;
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed))
     throw new TypeError("Agent manifest must be an object");
@@ -600,6 +666,7 @@ export function renderManagedResourceMarkdown(
 export function auditManagedResourceContract(
   markdown: string,
 ): readonly string[] {
+  /** Ordered forbidden used by audit managed resource contract. */
   const forbidden = [
     "operations database",
     "resource pin",
@@ -608,13 +675,17 @@ export function auditManagedResourceContract(
     "lease",
     "attestation",
   ];
+  /** Managed Markdown boundary separating retained and governed content. */
   const boundary = markdown.indexOf(
     "\n## Preserved role and project guidance\n",
   );
+  /** Managed Markdown content isolated from surrounding operator text. */
   const managed = boundary === -1 ? markdown : markdown.slice(0, boundary);
   return forbidden.filter((term) => managed.toLowerCase().includes(term));
 }
+/** Produces the deterministic digest of an ordered migration inventory. */
 function digestInventory(inventory: ManagementInventory): string {
+  /** Canonical managed-table descriptor for this operation. */
   const table = (value: MigrationTable | null) =>
     value === null
       ? null
@@ -640,6 +711,7 @@ function digestInventory(inventory: ManagementInventory): string {
     }),
   );
 }
+/** Reports whether target properties. */
 function hasTargetProperties(inventory: ManagementInventory): boolean {
   return (
     inventory.agents.properties.Name === "title" &&
@@ -649,6 +721,7 @@ function hasTargetProperties(inventory: ManagementInventory): boolean {
     )
   );
 }
+/** Reports whether legacy properties. */
 function hasLegacyProperties(inventory: ManagementInventory): boolean {
   return Object.entries(LEGACY_PROPERTIES_BY_TABLE).some(([kind, names]) =>
     names.some(
@@ -659,6 +732,7 @@ function hasLegacyProperties(inventory: ManagementInventory): boolean {
     ),
   );
 }
+/** Records required property-type mismatches for a migration table. */
 function assertPropertyTypes(
   table: MigrationTable,
   expected: Readonly<Record<string, string>>,
@@ -670,12 +744,14 @@ function assertPropertyTypes(
         `${table.id}.${name} expected ${type}, observed ${String(table.properties[name])}`,
       );
 }
+/** Records type mismatches for optional properties that are present. */
 function assertOptionalPropertyTypes(
   table: MigrationTable,
   expected: Readonly<Record<string, string>>,
   failures: string[],
 ): void {
   for (const [name, type] of Object.entries(expected)) {
+    /** Observed provider value compared with the canonical expectation. */
     const observed = table.properties[name];
     if (observed !== undefined && observed !== type)
       failures.push(
@@ -683,6 +759,7 @@ function assertOptionalPropertyTypes(
       );
   }
 }
+/** Appends a deterministic failure when two value sets differ. */
 function compareExact(
   label: string,
   actual: readonly string[],
@@ -694,31 +771,38 @@ function compareExact(
   )
     failures.push(`${label} inventory differs from the expected baseline`);
 }
+/** Requires a non-empty string from untrusted migration input. */
 function requiredText(value: unknown, label: string): string {
   if (typeof value !== "string" || value === "")
     throw new TypeError(`${label} must be a non-empty string`);
   return value;
 }
+/** Parses a normalized string array at an untyped boundary. */
 function stringArray(value: unknown, label: string): readonly string[] {
   if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string"))
     throw new TypeError(`${label} must be a string array`);
   return value as string[];
 }
+/** Reads an optional legacy string property. */
 function stringProperty(value: unknown, label: string): string {
   if (value === undefined || value === null) return "";
   if (typeof value !== "string")
     throw new TypeError(`${label} must be a string`);
   return value;
 }
+/** Requires a boolean migration property value. */
 function booleanProperty(value: unknown, label: string): boolean {
   if (typeof value !== "boolean")
     throw new TypeError(`${label} must be a boolean`);
   return value;
 }
+/** Reports whether agent definition. */
 function hasAgentDefinition(markdown: string): boolean {
+  /** Managed Markdown section located by its exact heading. */
   const section = agentDefinitionSection(markdown);
   if (section === null) return false;
   try {
+    /** Strict Agent definition parsed from authoritative Markdown. */
     const definition = parseDefinitionObject(section.content);
     if (definition.schema !== "agent-definition-v1") return false;
     parseAgentDefinition(markdown);

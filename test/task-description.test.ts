@@ -53,7 +53,9 @@ test("Task-description config binds writable sections to declared outcomes", () 
 });
 
 test("Task sections append and update in place without changing neighbours", () => {
+  /** Test fixture for initial. */
   const initial = "## Context\n\nOriginal request.\n\n## Notes\n\nKeep me.\n";
+  /** Test fixture for appended. */
   const appended = upsertTaskDescriptionSection(
     initial,
     "Planning",
@@ -64,6 +66,7 @@ test("Task sections append and update in place without changing neighbours", () 
     `${initial}\n## Planning\n\n### Scope\n\nFirst plan.\n`,
   );
   assert.equal(taskDescriptionHasSection(appended, "Planning"), true);
+  /** Test fixture for updated. */
   const updated = upsertTaskDescriptionSection(
     appended,
     "Planning",
@@ -76,6 +79,7 @@ test("Task sections append and update in place without changing neighbours", () 
 });
 
 test("Task section boundaries ignore headings inside fenced code", () => {
+  /** Test fixture for markdown. */
   const markdown =
     "## Context\n\n```\n## Planning\n```\n\n## Planning\n\nReal plan.\n";
   assert.equal(taskDescriptionHasSection(markdown, "Planning"), true);

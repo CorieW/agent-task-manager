@@ -22,6 +22,7 @@ import { EMPTY_AGENT_LIFECYCLE } from "../src/domain/lifecycle.js";
 import { EMPTY_AGENT_TASK_DESCRIPTION } from "../src/domain/task-description.js";
 import { InMemoryProvider } from "../src/provider/in-memory-provider.js";
 
+/** Decodes a Task record from its Notion page and Markdown. */
 function task(): TaskRecord {
   return {
     archived: false,
@@ -36,6 +37,7 @@ function task(): TaskRecord {
     version: "1",
   };
 }
+/** Decodes a Resource record from its Notion page and Markdown. */
 function resource(
   id: string,
   kind = "Prompt",
@@ -52,6 +54,7 @@ function resource(
     version: "1",
   };
 }
+/** Decodes an Agent record from a stable Notion page and body. */
 function agent(): AgentRecord {
   return {
     allowedStatuses: ["Planned", "Blocked", "In review"],
@@ -79,20 +82,25 @@ function agent(): AgentRecord {
     version: "1",
   };
 }
+/** Creates a coordinator fixture with deterministic records and clock. */
 function setup(
   now = new Date("2026-08-17T12:00:00.000Z"),
   lifecycle: AgentLifecycleCommands = NO_LIFECYCLE_COMMANDS,
 ) {
+  /** Clock captured by the setup fixture. */
   let clock = now;
+  /** Provider implementation that owns persistence for this invocation. */
   const provider = new InMemoryProvider({
     agents: [agent()],
     resources: [resource("prompt"), resource("policy", "Policy")],
     tasks: [task()],
   });
+  /** Coordinator captured by the setup fixture. */
   const coordinator = new AgentCoordinator(provider, () => clock, lifecycle);
   return {
     coordinator,
     provider,
+    /** Updates clock. */
     setClock(value: Date) {
       clock = value;
     },
@@ -100,21 +108,29 @@ function setup(
 }
 
 test("configured lifecycle commands surround duties and replay only once", async () => {
+  /** Test fixture for events. */
   const events: string[] = [];
+  /** Test fixture for fail after. */
   let failAfter = false;
+  /** Test fixture for lifecycle. */
   const lifecycle: AgentLifecycleCommands = {
+    /** Runs configured post-Agent lifecycle commands in declaration order. */
     async after(_config, context) {
       events.push(`after:${context.status}:${context.outcome}`);
       if (failAfter) throw new Error("cleanup failed");
     },
+    /** Runs configured pre-Agent lifecycle commands in declaration order. */
     async before(_config, context) {
       events.push(`before:${context.runId}`);
     },
+    /** Resolves the configured absolute working directory for a run. */
     workingDirectory(_config, context) {
       return resolve("runs", context.runId);
     },
   };
+  /** Test fixture for state. */
   const state = setup(new Date("2026-08-17T12:00:00.000Z"), lifecycle);
+  /** Test fixture for input. */
   const input = {
     agentKey: "coder",
     harnessId: "host-1",
@@ -122,6 +138,7 @@ test("configured lifecycle commands surround duties and replay only once", async
     runId: "run-hooks",
     taskId: "task-1",
   };
+  /** Test fixture for started. */
   const started = await state.coordinator.start(input);
   assert.equal(started.run.workingDirectory, resolve("runs", "run-hooks"));
   await state.coordinator.start(input);
@@ -154,15 +171,20 @@ test("configured lifecycle commands surround duties and replay only once", async
 });
 
 test("a before command failure creates no Active Agent", async () => {
+  /** Test fixture for lifecycle. */
   const lifecycle: AgentLifecycleCommands = {
+    /** Runs configured post-Agent lifecycle commands in declaration order. */
     async after() {},
+    /** Runs configured pre-Agent lifecycle commands in declaration order. */
     async before() {
       throw new Error("preparation failed");
     },
+    /** Resolves the configured absolute working directory for a run. */
     workingDirectory() {
       return null;
     },
   };
+  /** Test fixture for state. */
   const state = setup(new Date("2026-08-17T12:00:00.000Z"), lifecycle);
   await assert.rejects(
     state.coordinator.start({
@@ -178,16 +200,22 @@ test("a before command failure creates no Active Agent", async () => {
 });
 
 test("after commands run for stopped descendants and their failed root", async () => {
+  /** Test fixture for terminal. */
   const terminal: string[] = [];
+  /** Test fixture for lifecycle. */
   const lifecycle: AgentLifecycleCommands = {
+    /** Runs configured post-Agent lifecycle commands in declaration order. */
     async after(_config, context) {
       terminal.push(`${context.runId}:${context.status}`);
     },
+    /** Runs configured pre-Agent lifecycle commands in declaration order. */
     async before() {},
+    /** Resolves the configured absolute working directory for a run. */
     workingDirectory() {
       return null;
     },
   };
+  /** Test fixture for state. */
   const state = setup(new Date("2026-08-17T12:00:00.000Z"), lifecycle);
   await state.coordinator.start({
     agentKey: "coder",
@@ -208,7 +236,9 @@ test("after commands run for stopped descendants and their failed root", async (
 });
 
 test("start returns current context, replays a matching Run ID, and enforces one root", async () => {
+  /** Test fixture for coordinator. */
   const { coordinator } = setup();
+  /** Test fixture for input. */
   const input = {
     agentKey: "coder",
     harnessId: "host-1",
@@ -216,6 +246,7 @@ test("start returns current context, replays a matching Run ID, and enforces one
     runId: "run-1",
     taskId: "task-1",
   };
+  /** First Active Agent record used to verify relation consistency. */
   const first = await coordinator.start(input);
   assert.equal(first.task.body, "Task context");
   assert.deepEqual(
@@ -234,6 +265,7 @@ test("start returns current context, replays a matching Run ID, and enforces one
 });
 
 test("children require a running same-Task parent and a root cannot complete over them", async () => {
+  /** Test fixture for coordinator, provider. */
   const { coordinator, provider } = setup();
   await coordinator.start({
     agentKey: "coder",
@@ -262,6 +294,7 @@ test("children require a running same-Task parent and a root cannot complete ove
 });
 
 test("configured Agents persist required Task sections before completion", async () => {
+  /** Test fixture for planner. */
   const planner = {
     ...agent(),
     key: "task-planner",
@@ -270,12 +303,15 @@ test("configured Agents persist required Task sections before completion", async
       writableSections: ["Planning"],
     },
   };
+  /** Provider implementation that owns persistence for this invocation. */
   const provider = new InMemoryProvider({
     agents: [planner],
     resources: [resource("prompt"), resource("policy", "Policy")],
     tasks: [task()],
   });
+  /** Test fixture for coordinator. */
   const coordinator = new AgentCoordinator(provider);
+  /** Test fixture for context. */
   const context = await coordinator.start({
     agentKey: planner.key,
     harnessId: "h",
@@ -292,6 +328,7 @@ test("configured Agents persist required Task sections before completion", async
     coordinator.updateTaskSection("planner", "h", "Review", "No."),
     /not allowed to write/u,
   );
+  /** First Active Agent record used to verify relation consistency. */
   const first = await coordinator.updateTaskSection(
     "planner",
     "h",
@@ -302,6 +339,7 @@ test("configured Agents persist required Task sections before completion", async
     first.body,
     "Task context\n\n## Planning\n\n### Scope\n\nImplementation-ready.\n",
   );
+  /** Test fixture for revised. */
   const revised = await coordinator.updateTaskSection(
     "planner",
     "h",
@@ -315,6 +353,7 @@ test("configured Agents persist required Task sections before completion", async
 });
 
 test("Task section updates enforce run ownership and description drift", async () => {
+  /** Test fixture for planner. */
   const planner = {
     ...agent(),
     taskDescription: {
@@ -322,11 +361,13 @@ test("Task section updates enforce run ownership and description drift", async (
       writableSections: ["Planning"],
     },
   };
+  /** Provider implementation that owns persistence for this invocation. */
   const provider = new InMemoryProvider({
     agents: [planner],
     resources: [resource("prompt"), resource("policy", "Policy")],
     tasks: [task()],
   });
+  /** Test fixture for coordinator. */
   const coordinator = new AgentCoordinator(provider);
   await coordinator.start({
     agentKey: planner.key,
@@ -339,6 +380,7 @@ test("Task section updates enforce run ownership and description drift", async (
     coordinator.updateTaskSection("planner", "other", "Planning", "Plan."),
     /Harness does not own/u,
   );
+  /** Test fixture for current. */
   const current = (await provider.getTask("task-1"))!;
   await provider.updateTaskBody("task-1", current.body, "Changed externally.");
   await assert.rejects(
@@ -348,6 +390,7 @@ test("Task section updates enforce run ownership and description drift", async (
 });
 
 test("heartbeats expire only after five minutes and stale parents stop their subtree", async () => {
+  /** Test fixture for state. */
   const state = setup();
   await state.coordinator.start({
     agentKey: "coder",
@@ -372,6 +415,7 @@ test("heartbeats expire only after five minutes and stale parents stop their sub
       Date.parse("2026-08-17T12:00:00.000Z") + STALE_AFTER_MILLISECONDS + 1,
     ),
   );
+  /** Test fixture for result. */
   const result = await state.coordinator.sweep();
   assert.equal(result.length, 1);
   assert.equal(result[0]!.run.status, "stale");
@@ -384,6 +428,7 @@ test("heartbeats expire only after five minutes and stale parents stop their sub
 });
 
 test("third infrastructure failure blocks retry until its Error is resolved, then resets the chain", async () => {
+  /** Test fixture for coordinator, provider. */
   const { coordinator, provider } = setup();
   await coordinator.start({
     agentKey: "coder",
@@ -392,8 +437,10 @@ test("third infrastructure failure blocks retry until its Error is resolved, the
     runId: "attempt-1",
     taskId: "task-1",
   });
+  /** Test fixture for run. */
   let run = await coordinator.fail("attempt-1", "h", "infra");
   for (let attempt = 2; attempt <= MAX_ATTEMPTS; attempt += 1) {
+    /** Run ID selected by the restart scenario. */
     const id = `attempt-${attempt}`;
     await coordinator.restart({
       restartOfRunId: run.runId,
@@ -402,6 +449,7 @@ test("third infrastructure failure blocks retry until its Error is resolved, the
     });
     run = await coordinator.fail(id, "h", "infra");
   }
+  /** Test fixture for error key. */
   const errorKey = retryErrorKey("attempt-1");
   assert.equal((await provider.getErrorByKey(errorKey))?.status, "open");
   await assert.rejects(
@@ -413,6 +461,7 @@ test("third infrastructure failure blocks retry until its Error is resolved, the
     /blocked/,
   );
   await coordinator.resolveError(errorKey, "Human approved a clean retry");
+  /** Test fixture for restarted. */
   const restarted = await coordinator.restart({
     restartOfRunId: run.runId,
     harnessId: "h",
@@ -423,6 +472,7 @@ test("third infrastructure failure blocks retry until its Error is resolved, the
 });
 
 test("ordinary open Errors are informational and inactive Resources block start", async () => {
+  /** Test fixture for state. */
   const state = setup();
   await state.coordinator.reportError({
     activeAgentId: null,
@@ -447,6 +497,7 @@ test("ordinary open Errors are informational and inactive Resources block start"
     ).run.status,
     "running",
   );
+  /** Test fixture for unavailable. */
   const unavailable = new InMemoryProvider({
     agents: [agent()],
     resources: [
@@ -469,6 +520,7 @@ test("ordinary open Errors are informational and inactive Resources block start"
 });
 
 test("Agent Task type and status allowlists guard assignment", async () => {
+  /** Test fixture for denied type. */
   const deniedType = new InMemoryProvider({
     agents: [agent()],
     resources: [resource("prompt"), resource("policy", "Policy")],
@@ -485,6 +537,7 @@ test("Agent Task type and status allowlists guard assignment", async () => {
     /not allowed to use Task type: Vulnerability/u,
   );
 
+  /** Test fixture for denied status. */
   const deniedStatus = new InMemoryProvider({
     agents: [agent()],
     resources: [resource("prompt"), resource("policy", "Policy")],
@@ -501,15 +554,18 @@ test("Agent Task type and status allowlists guard assignment", async () => {
     /not allowed to use Task status: Ready/u,
   );
 
+  /** Test fixture for transition agent. */
   const transitionAgent = {
     ...agent(),
     allowedStatuses: ["Planned"],
   };
+  /** Test fixture for transition provider. */
   const transitionProvider = new InMemoryProvider({
     agents: [transitionAgent],
     resources: [resource("prompt"), resource("policy", "Policy")],
     tasks: [task()],
   });
+  /** Test fixture for coordinator. */
   const coordinator = new AgentCoordinator(transitionProvider);
   await coordinator.start({
     agentKey: "coder",
@@ -526,6 +582,7 @@ test("Agent Task type and status allowlists guard assignment", async () => {
 });
 
 test("completion rejects Agent definition drift before mutating its Task", async () => {
+  /** Provider implementation that owns persistence for this invocation. */
   const provider = new InMemoryProvider({
     activeAgents: [
       {
@@ -562,11 +619,13 @@ test("completion rejects Agent definition drift before mutating its Task", async
 });
 
 test("legacy Agent versions fail closed until a canonical restart", async () => {
+  /** Test fixture for canonical agent. */
   const canonicalAgent = {
     ...agent(),
     restartCompatibleVersions: ["legacy-timestamp"],
     version: "body-digest",
   };
+  /** Test fixture for legacy run. */
   const legacyRun = {
     agentId: canonicalAgent.id,
     agentVersion: "legacy-timestamp",
@@ -588,12 +647,14 @@ test("legacy Agent versions fail closed until a canonical restart", async () => 
     version: "run-version",
     workingDirectory: null,
   };
+  /** Provider implementation that owns persistence for this invocation. */
   const provider = new InMemoryProvider({
     activeAgents: [legacyRun],
     agents: [canonicalAgent],
     resources: [resource("prompt"), resource("policy", "Policy")],
     tasks: [task()],
   });
+  /** Test fixture for coordinator. */
   const coordinator = new AgentCoordinator(provider);
 
   await assert.rejects(
@@ -616,6 +677,7 @@ test("legacy Agent versions fail closed until a canonical restart", async () => 
   );
   assert.equal((await provider.getTask("task-1"))?.status, "Planned");
   await coordinator.fail(legacyRun.runId, "h", "infra");
+  /** Test fixture for restarted. */
   const restarted = await coordinator.restart({
     harnessId: "h",
     restartOfRunId: legacyRun.runId,
@@ -626,6 +688,7 @@ test("legacy Agent versions fail closed until a canonical restart", async () => 
 });
 
 test("completion rejects inherited transition property names", async () => {
+  /** Test fixture for coordinator, provider. */
   const { coordinator, provider } = setup();
   await coordinator.start({
     agentKey: "coder",

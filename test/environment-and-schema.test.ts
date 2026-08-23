@@ -16,6 +16,7 @@ import { normalizeNotionId } from "../src/provider/notion/notion-id.js";
 import { NOTION_TABLES } from "../src/provider/notion/notion-schema.js";
 
 test("Notion identifiers share one strict normalization boundary", () => {
+  /** Dash-free Notion identifier used for strict validation. */
   const compact = "6269a6efcd5882168fb5016fb99ff102";
   assert.equal(normalizeNotionId(compact.toUpperCase()), compact);
   assert.equal(
@@ -52,6 +53,7 @@ test("decoded Agent transitions validate without a JSON round trip", () => {
 });
 
 test("v1 environment contains provider configuration only", () => {
+  /** Test fixture for value. */
   const value = parseEnvironmentConfig(
     toJsonValue({
       environmentId: "management-v2",
@@ -101,11 +103,13 @@ test("Notion schema has only Tasks, Agents, Resources, Active Agents, and Errors
     "resources",
     "tasks",
   ]);
+  /** Initial Agent records for the in-memory provider. */
   const agents = NOTION_TABLES.find((table) => table.kind === "agents")!;
   assert.deepEqual(
     agents.properties.map((property) => property.name),
     ["Name"],
   );
+  /** Active Agent snapshot used to determine the protected run set. */
   const active = NOTION_TABLES.find((table) => table.kind === "activeAgents")!;
   assert.equal(
     active.properties.find((property) => property.name === "Task")?.syncedName,
@@ -129,6 +133,7 @@ test("Notion schema has only Tasks, Agents, Resources, Active Agents, and Errors
 });
 
 test("Agent configuration is parsed from the page body", () => {
+  /** Strict Agent definition parsed from authoritative Markdown. */
   const definition = parseAgentDefinition(`## Agent definition
 
 \`\`\`json
@@ -191,6 +196,7 @@ test("Agent configuration is parsed from the page body", () => {
 });
 
 test("Agent definitions accept only the complete v1 schema", () => {
+  /** Test fixture for valid. */
   const valid = {
     allowedStatuses: ["In progress"],
     allowedTaskTypes: ["Feature"],
@@ -204,6 +210,7 @@ test("Agent definitions accept only the complete v1 schema", () => {
     schema: "agent-definition-v1",
     transitions: { succeeded: "In progress" },
   };
+  /** Test fixture for markdown. */
   const markdown = (definition: object): string =>
     `## Agent definition\n\n\`\`\`json\n${JSON.stringify(definition)}\n\`\`\`\n`;
 
@@ -242,6 +249,7 @@ test("Agent definitions accept only the complete v1 schema", () => {
 });
 
 test("Agent v1 requires unique user-defined Task type and status allowlists", () => {
+  /** Strict Agent definition parsed from authoritative Markdown. */
   const definition = {
     allowedStatuses: ["Planning"],
     allowedTaskTypes: ["Bug"],
@@ -255,6 +263,7 @@ test("Agent v1 requires unique user-defined Task type and status allowlists", ()
     schema: "agent-definition-v1",
     transitions: { succeeded: "Planning" },
   };
+  /** Test fixture for markdown. */
   const markdown = (value: object): string =>
     `## Agent definition\n\n\`\`\`json\n${JSON.stringify(value)}\n\`\`\`\n`;
 
@@ -275,6 +284,7 @@ test("Agent v1 requires unique user-defined Task type and status allowlists", ()
 });
 
 test("Agent definitions require explicit Prompt and Policy resources", () => {
+  /** Test fixture for valid. */
   const valid = {
     allowedStatuses: ["In progress"],
     allowedTaskTypes: ["Feature"],
@@ -288,6 +298,7 @@ test("Agent definitions require explicit Prompt and Policy resources", () => {
     schema: "agent-definition-v1",
     transitions: { succeeded: "In progress" },
   };
+  /** Test fixture for markdown. */
   const markdown = (definition: object): string =>
     `## Agent definition\n\n\`\`\`json\n${JSON.stringify(definition)}\n\`\`\`\n`;
 
@@ -311,6 +322,7 @@ test("Agent definitions require explicit Prompt and Policy resources", () => {
 });
 
 test("Error report input rejects unknown fields and invalid enums", () => {
+  /** Test fixture for valid. */
   const valid = {
     activeAgentId: null,
     agentId: "agent",
@@ -331,6 +343,7 @@ test("Error report input rejects unknown fields and invalid enums", () => {
     () => parseReportErrorInput({ ...valid, unexpected: true }),
     /unsupported fields: unexpected/u,
   );
+  /** Invalid task-properties fixture with no title property. */
   const { title: _title, ...missingTitle } = valid;
   assert.throws(
     () => parseReportErrorInput(missingTitle),

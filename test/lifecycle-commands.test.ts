@@ -24,6 +24,7 @@ import {
   type LifecycleCommandInvocation,
 } from "../src/core/lifecycle-commands.js";
 
+/** Test fixture for command. */
 const command = (executable: string) => ({
   arguments: ["{{runId}}", "{{workingDirectory}}", "{{status}}"],
   environment: {
@@ -37,12 +38,15 @@ const command = (executable: string) => ({
 });
 
 test("lifecycle commands render trusted context in configured order", async () => {
+  /** Test fixture for config. */
   const config: AgentLifecycleConfig = {
     afterAgent: [command("cleanup")],
     beforeAgent: [command("prepare")],
     workingDirectory: resolve("runs", "{{runId}}"),
   };
+  /** Test fixture for calls. */
   const calls: LifecycleCommandInvocation[] = [];
+  /** Test fixture for lifecycle. */
   const lifecycle = new ConfiguredLifecycleCommands(
     "project",
     { FORWARDED: "yes", PATH: "test-path", SECRET: "must-not-leak" },
@@ -50,7 +54,9 @@ test("lifecycle commands render trusted context in configured order", async () =
       calls.push(invocation);
     },
   );
+  /** Test fixture for start. */
   const start = baseContext();
+  /** Test fixture for working directory. */
   const workingDirectory = lifecycle.workingDirectory(config, start);
   assert.equal(workingDirectory, resolve("runs", "run-1"));
   await lifecycle.before(config, { ...start, workingDirectory });
@@ -84,11 +90,13 @@ test("lifecycle commands render trusted context in configured order", async () =
 });
 
 test("lifecycle command failures identify phase and run without leaking output", async () => {
+  /** Test fixture for config. */
   const config: AgentLifecycleConfig = {
     afterAgent: [],
     beforeAgent: [command("prepare")],
     workingDirectory: null,
   };
+  /** Test fixture for lifecycle. */
   const lifecycle = new ConfiguredLifecycleCommands("project", {}, async () => {
     throw new Error("secret command output");
   });
@@ -106,6 +114,7 @@ test("lifecycle command failures identify phase and run without leaking output",
 });
 
 test("Agent lifecycle configuration rejects filters and unsafe templates", () => {
+  /** Test fixture for base. */
   const base = {
     afterAgent: [],
     beforeAgent: [],
@@ -143,6 +152,7 @@ test("Agent lifecycle configuration rejects filters and unsafe templates", () =>
 });
 
 test("the no-op host fails closed for Agent-owned lifecycle commands", () => {
+  /** Test fixture for config. */
   const config: AgentLifecycleConfig = {
     afterAgent: [],
     beforeAgent: [],
@@ -155,8 +165,11 @@ test("the no-op host fails closed for Agent-owned lifecycle commands", () => {
 });
 
 test("generic before and after commands can manage a Git worktree", async () => {
+  /** Test fixture for root. */
   const root = await mkdtemp(join(tmpdir(), "atm-lifecycle-git-"));
+  /** Test fixture for repository. */
   const repository = join(root, "repository");
+  /** Test fixture for runs. */
   const runs = join(root, "runs");
   await mkdir(repository);
   try {
@@ -168,6 +181,7 @@ test("generic before and after commands can manage a Git worktree", async () => 
     await git(repository, ["commit", "-m", "test: seed"]);
     await writeFile(join(repository, "local-only.txt"), "local\n", "utf8");
 
+    /** Test fixture for config. */
     const config: AgentLifecycleConfig = {
       beforeAgent: [
         {
@@ -198,8 +212,11 @@ test("generic before and after commands can manage a Git worktree", async () => 
       ],
       workingDirectory: join(runs, "{{runId}}"),
     };
+    /** Test fixture for lifecycle. */
     const lifecycle = new ConfiguredLifecycleCommands("project");
+    /** Test fixture for start. */
     const start = baseContext();
+    /** Test fixture for working directory. */
     const workingDirectory = lifecycle.workingDirectory(config, start);
     assert.notEqual(workingDirectory, null);
     await lifecycle.before(config, { ...start, workingDirectory });
@@ -225,6 +242,7 @@ test("generic before and after commands can manage a Git worktree", async () => 
   }
 });
 
+/** Builds the stable lifecycle context shared by command tests. */
 function baseContext(): Omit<LifecycleCommandContext, "workingDirectory"> {
   return {
     agentKey: "coder",
@@ -238,6 +256,7 @@ function baseContext(): Omit<LifecycleCommandContext, "workingDirectory"> {
   };
 }
 
+/** Runs Git without a shell and returns trimmed standard output. */
 function git(
   workingDirectory: string,
   arguments_: readonly string[],

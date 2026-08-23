@@ -4,13 +4,18 @@ import { TABLE_KINDS, type ProviderEnvironment } from "../domain/provider.js";
 
 /** Validated v1 environment configuration and its original JSON value. */
 export interface EnvironmentConfig {
+  /** Stable identity used to isolate one managed environment. */
   readonly environmentId: string;
+  /** Provider implementation that owns persistence for this invocation. */
   readonly provider: ProviderEnvironment;
+  /** Untrusted environment or provider payload before strict parsing. */
   readonly raw: JsonObject;
+  /** Versioned schema identifier for the serialized object. */
   readonly schema: "agent-task-manager-environment-v1";
 }
 /** Aggregates all problems found while parsing environment configuration. */
 export class EnvironmentConfigError extends TypeError {
+  /** Creates an aggregate error from all configuration issues. */
   public constructor(public readonly issues: readonly string[]) {
     super(`Invalid environment configuration:\n- ${issues.join("\n- ")}`);
   }
@@ -18,32 +23,58 @@ export class EnvironmentConfigError extends TypeError {
 
 /** Strictly parses v1 environment JSON, rejecting unknown or missing fields. */
 export function parseEnvironmentConfig(value: JsonValue): EnvironmentConfig {
+  /** Validation issues accumulated without failing the remaining checks. */
   const issues: string[] = [];
-  const root = object(value, "root", issues);
-  rejectUnknown(root, ["schema", "environmentId", "provider"], "root", issues);
+  /** Root object at the untrusted JSON boundary. */
+  const root = configObject(value, "root", issues);
+  rejectUnknownConfigKeys(
+    root,
+    ["schema", "environmentId", "provider"],
+    "root",
+    issues,
+  );
   if (root.schema !== "agent-task-manager-environment-v1")
     issues.push("schema must equal agent-task-manager-environment-v1");
-  const environmentId = string(root.environmentId, "environmentId", issues);
-  const provider = object(root.provider, "provider", issues);
-  rejectUnknown(
+  /** Stable identity used to isolate one managed environment. */
+  const environmentId = configString(
+    root.environmentId,
+    "environmentId",
+    issues,
+  );
+  /** Unvalidated provider settings object. */
+  const provider = configObject(root.provider, "provider", issues);
+  rejectUnknownConfigKeys(
     provider,
     ["type", "connection", "bootstrapParent", "tables"],
     "provider",
     issues,
   );
-  const type = string(provider.type, "provider.type", issues);
-  const connection = object(provider.connection, "provider.connection", issues);
-  const parent = nullableString(
+  /** Provider implementation discriminator. */
+  const type = configString(provider.type, "provider.type", issues);
+  /** Provider connection settings retained as strict JSON. */
+  const connection = configObject(
+    provider.connection,
+    "provider.connection",
+    issues,
+  );
+  /** Optional Notion page under which managed databases may be created. */
+  const parent = nullableConfigString(
     provider.bootstrapParent,
     "provider.bootstrapParent",
     issues,
   );
-  const tableObject = object(provider.tables, "provider.tables", issues);
-  rejectUnknown(tableObject, TABLE_KINDS, "provider.tables", issues);
+  /** Untyped table mapping before strict ID validation. */
+  const tableObject = configObject(provider.tables, "provider.tables", issues);
+  rejectUnknownConfigKeys(tableObject, TABLE_KINDS, "provider.tables", issues);
+  /** Configured Notion data-source IDs keyed by managed table. */
   const tables = Object.fromEntries(
     TABLE_KINDS.map((kind) => [
       kind,
-      nullableString(tableObject[kind], `provider.tables.${kind}`, issues),
+      nullableConfigString(
+        tableObject[kind],
+        `provider.tables.${kind}`,
+        issues,
+      ),
     ]),
   ) as Record<(typeof TABLE_KINDS)[number], string | null>;
   if (issues.length > 0) throw new EnvironmentConfigError(issues);
@@ -55,7 +86,8 @@ export function parseEnvironmentConfig(value: JsonValue): EnvironmentConfig {
   };
 }
 
-function object(
+/** Requires and returns a plain object at an untyped boundary. */
+function configObject(
   value: JsonValue | undefined,
   path: string,
   issues: string[],
@@ -66,7 +98,8 @@ function object(
   }
   return value;
 }
-function string(
+/** Requires and NFC-normalizes a non-empty configuration string. */
+function configString(
   value: JsonValue | undefined,
   path: string,
   issues: string[],
@@ -77,20 +110,23 @@ function string(
   }
   return value;
 }
-function nullableString(
+/** Parses an optional nullable configuration string. */
+function nullableConfigString(
   value: JsonValue | undefined,
   path: string,
   issues: string[],
 ): string | null {
   if (value === null) return null;
-  return string(value, path, issues);
+  return configString(value, path, issues);
 }
-function rejectUnknown(
+/** Rejects object keys outside the boundary's explicit allowlist. */
+function rejectUnknownConfigKeys(
   value: JsonObject,
   allowed: readonly string[],
   path: string,
   issues: string[],
 ): void {
+  /** Allowlisted keys accepted by the current boundary. */
   const keys = new Set(allowed);
   for (const key of Object.keys(value))
     if (!keys.has(key)) issues.push(`${path}.${key} is not allowed`);

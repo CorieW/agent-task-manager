@@ -5,30 +5,37 @@ import { isAbsolute, join } from "node:path";
 
 /** Controls whether a dead owning process is sufficient to recover a lock. */
 export interface SingleHostMutexLockOptions {
+  /** Whether a dead owning process permits automatic lock recovery. */
   readonly reclaimable?: boolean;
 }
 
 /** Releases a mutex normally or abandons its durable file as a fence. */
 export interface SingleHostMutexRelease {
   (): Promise<void>;
+  /** Closes local ownership while preserving the durable mutex fence. */
   abandon(): Promise<void>;
 }
 
 /** Domain-separated identity used to coordinate one environment or command run. */
 export type SingleHostMutexIdentity =
   | {
+      /** Stable identity used to isolate one managed environment. */
       readonly environmentId: string;
+      /** Environment-wide lock scope. */
       readonly scope: "environment";
     }
   | {
+      /** Stable identity used to isolate one managed environment. */
       readonly environmentId: string;
+      /** Harness-supplied idempotency identity of the run attempt. */
       readonly runId: string;
+      /** Run-specific lock scope. */
       readonly scope: "command";
     };
 
-/** Implements single-host mutex. */
+/** Serializes local processes with recoverable filesystem lock files. */
 export class SingleHostMutex {
-  /** Provider-relative request path. */
+  /** Absolute path of the primary lock file. */
   readonly #path: string;
   /** Fail-closed sidecar that serializes stale-primary recovery. */
   readonly #recoveryPath: string;
@@ -45,6 +52,7 @@ export class SingleHostMutex {
 
   /** Runs one callback under in-process ordering and the same-host lock file. */
   public async run<T>(operation: () => Promise<T>): Promise<T> {
+    /** Release callback for the acquired lease or mutex. */
     const release = await this.lock();
     try {
       return await operation();
@@ -65,7 +73,7 @@ export class SingleHostMutex {
       releaseQueue = resolve;
     });
     await previous;
-    /** Holds the exclusive lock-file handle owned by this caller. */
+    /** Exclusive primary-lock handle owned until release or abandonment. */
     let handle: Awaited<ReturnType<typeof open>>;
     try {
       handle = await this.acquireFile(options.reclaimable ?? true);
@@ -73,7 +81,9 @@ export class SingleHostMutex {
       releaseQueue();
       throw error;
     }
+    /** Whether this lock release has already completed. */
     let finished = false;
+    /** Idempotent finalizer for the lock handle and queue position. */
     const finish = async (remove: boolean): Promise<void> => {
       if (finished) return;
       finished = true;
