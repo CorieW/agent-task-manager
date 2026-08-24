@@ -7,6 +7,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import process from "node:process";
 
 import {
+  EnvironmentConfigError,
   parseEnvironmentConfig,
   type EnvironmentConfig,
 } from "./config/environment.js";
@@ -41,6 +42,7 @@ interface CommandSpec {
   /** Help text showing the command's invocation syntax. */
   readonly usage: string;
 }
+
 /** Supported command shapes and their accepted flags. */
 const COMMAND_SPECS: readonly CommandSpec[] = [
   { flags: [], name: "help", usage: "help" },
@@ -308,7 +310,7 @@ export async function runCli(
       );
     if (action === "heartbeat")
       return toJsonValue(
-        await environmentMutex().run(() =>
+        await runMutex(requiredFlag(parsed.flags, "run-id")).run(() =>
           coordinator.heartbeat(
             requiredFlag(parsed.flags, "run-id"),
             requiredFlag(parsed.flags, "harness-id"),
@@ -419,6 +421,7 @@ interface ParsedArguments {
   /** Positional tokens that identify the command family and action. */
   readonly positionals: readonly string[];
 }
+
 /** Rejects flags outside the selected command's allowlist. */
 function validateFlags(
   command: string,
@@ -438,6 +441,7 @@ function validateFlags(
     if (!allowed.has(name))
       throw new Error(`Flag --${name} is not allowed for ${command}`);
 }
+
 /** Splits CLI tokens into positionals, flags, and broker arguments. */
 function parseArguments(argv: readonly string[]): ParsedArguments {
   /** Long flags accumulated from the argument vector. */
@@ -482,6 +486,7 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
   }
   return { commandArguments, flags, positionals };
 }
+
 /** Loads and validates the selected environment configuration file. */
 async function loadEnvironment(
   flag: boolean | string | undefined,
@@ -496,6 +501,7 @@ async function loadEnvironment(
     toJsonValue(JSON.parse(await readFile(path, "utf8")) as unknown),
   );
 }
+
 /** Creates the configured provider after resolving its credentials. */
 function providerFor(
   configuration: EnvironmentConfig,
@@ -683,6 +689,7 @@ function affectedRunIds(
   }
   return [...result].sort();
 }
+
 /** Reads and strictly parses an error-report payload. */
 async function readErrorInput(path: string): Promise<ReportErrorInput> {
   /** Untrusted environment or provider payload before strict parsing. */
@@ -691,10 +698,12 @@ async function readErrorInput(path: string): Promise<ReportErrorInput> {
   const value = toJsonValue(JSON.parse(raw) as unknown);
   return parseReportErrorInput(value);
 }
+
 /** Reads UTF-8 text from a file or standard input. */
 async function readTextInput(path: string): Promise<string> {
   return path === "-" ? readStdin() : readFile(path, "utf8");
 }
+
 /** Collects standard input as UTF-8 text. */
 async function readStdin(): Promise<string> {
   /** Binary chunks collected from the input stream. */
@@ -703,6 +712,7 @@ async function readStdin(): Promise<string> {
     chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
   return Buffer.concat(chunks).toString("utf8");
 }
+
 /** Reads a required string-valued CLI flag. */
 function requiredFlag(
   flags: Readonly<Record<string, boolean | string>>,
@@ -713,6 +723,7 @@ function requiredFlag(
   if (value === undefined || value === "") throw new Error(`Missing --${name}`);
   return value;
 }
+
 /** Reads a non-empty identity value injected by the trusted harness. */
 function requiredEnvironmentValue(
   env: NodeJS.ProcessEnv,
@@ -724,6 +735,7 @@ function requiredEnvironmentValue(
     throw new Error(`Missing ${name}`);
   return value;
 }
+
 /** Resolves manager-only lock storage provisioned outside Agent sandboxes. */
 function coordinationDirectory(env: NodeJS.ProcessEnv): string {
   /** Required manager-owned coordination path. */
@@ -737,6 +749,7 @@ function coordinationDirectory(env: NodeJS.ProcessEnv): string {
     );
   return path;
 }
+
 /** Narrows an optional flag value to a string. */
 function optionalString(
   value: boolean | string | undefined,
@@ -754,11 +767,27 @@ if (isDirectExecution(import.meta.url, process.argv[1])) {
     },
     (error: unknown) => {
       process.stderr.write(
-        `${error instanceof Error ? error.message : String(error)}\n`,
+        `${JSON.stringify(cliErrorPayload(error), null, 2)}\n`,
       );
       process.exitCode = 1;
     },
   );
+}
+
+/** Converts a rejected CLI invocation into its stable machine-readable envelope. */
+export function cliErrorPayload(error: unknown): JsonValue {
+  /** Human-readable failure text preserved without serializing sensitive causes. */
+  const message = error instanceof Error ? error.message : String(error);
+  /** Structured validation details available for aggregate configuration errors. */
+  const issues =
+    error instanceof EnvironmentConfigError ? [...error.issues] : undefined;
+  return {
+    error: {
+      ...(issues === undefined ? {} : { issues }),
+      message,
+      name: error instanceof Error ? error.name : "Error",
+    },
+  };
 }
 
 /** Identifies a CLI entry point after resolving package-manager links. */

@@ -31,7 +31,7 @@ import type {
   NotionTransport,
 } from "../src/provider/notion/notion-transport.js";
 
-/** Test fixture for outcomes. */
+/** Canonical outcome maps expected from each legacy Agent manifest. */
 const outcomes: Readonly<Record<string, Readonly<Record<string, string>>>> = {
   "Code Reviewer": {
     succeeded: "In progress",
@@ -69,13 +69,14 @@ const outcomes: Readonly<Record<string, Readonly<Record<string, string>>>> = {
 };
 
 test("expected Management v2 baseline produces a deterministic complete plan", () => {
-  /** Test fixture for inventory. */
+  /** Inventory supplied to "expected Management v2 baseline produces a deterministic complete plan". */
   const inventory = expectedLegacyInventory();
   /** First Active Agent record used to verify relation consistency. */
   const first = planManagementV2Migration(inventory);
-  /** Test fixture for second. */
+  /** Independently generated plan used to prove determinism. */
   const second = planManagementV2Migration(inventory);
   assert.equal(first.digest, second.digest);
+  assert.match(first.outputsDigest, /^[a-f0-9]{64}$/u);
   assert.equal(
     first.actions.filter((entry) => entry.kind === "convert_agent").length,
     8,
@@ -98,13 +99,13 @@ test("expected Management v2 baseline produces a deterministic complete plan", (
 });
 
 test("incomplete Agent bodies still schedule persisted v1 conversion", () => {
-  /** Test fixture for original. */
+  /** Original supplied to "incomplete Agent bodies still schedule persisted v1 conversion". */
   const original = expectedLegacyInventory();
   /** First Active Agent record used to verify relation consistency. */
   const first = original.agents.rows[0]!;
   /** Strict legacy Agent manifest parsed from the managed section. */
   const manifest = parseLegacyAgentManifest(first.body);
-  /** Test fixture for converted. */
+  /** Converted state observed by "incomplete Agent bodies still schedule persisted v1 conversion". */
   const converted = parseAgentDefinition(
     agentDefinitionMarkdown(
       {
@@ -114,7 +115,7 @@ test("incomplete Agent bodies still schedule persisted v1 conversion", () => {
       retainedManifestResourceKeys(manifest),
     ),
   );
-  /** Test fixture for v1 body. */
+  /** V1 body supplied to "incomplete Agent bodies still schedule persisted v1 conversion". */
   const v1Body = `## Agent definition\n\n\`\`\`json\n${JSON.stringify({
     calledBy: converted.calledBy,
     enabled: converted.enabled,
@@ -130,7 +131,7 @@ test("incomplete Agent bodies still schedule persisted v1 conversion", () => {
     schema: "agent-definition-v1",
     transitions: converted.transitions,
   })}\n\`\`\`\n`;
-  /** Test fixture for inventory. */
+  /** Inventory supplied to "incomplete Agent bodies still schedule persisted v1 conversion". */
   const inventory: ManagementInventory = {
     ...original,
     agents: {
@@ -149,9 +150,9 @@ test("incomplete Agent bodies still schedule persisted v1 conversion", () => {
 });
 
 test("Management v2 plan digest is independent of Notion row order", () => {
-  /** Test fixture for original. */
+  /** Original supplied to "Management v2 plan digest is independent of Notion row order". */
   const original = expectedLegacyInventory();
-  /** Test fixture for reversed. */
+  /** Flag recording reversed during "Management v2 plan digest is independent of Notion row order". */
   const reversed: ManagementInventory = {
     ...original,
     agents: { ...original.agents, rows: [...original.agents.rows].reverse() },
@@ -193,7 +194,7 @@ test("legacy manifests retain exact outcome maps and only active Prompt/Policy R
 });
 
 test("column-backed Agent descriptions migrate into body definitions", () => {
-  /** Test fixture for body. */
+  /** Body supplied to "column-backed Agent descriptions migrate into body definitions". */
   const body = agentDefinitionMarkdown(
     row(
       "agent",
@@ -227,9 +228,9 @@ test("column-backed Agent descriptions migrate into body definitions", () => {
 });
 
 test("Agent definition conversion preserves content outside the managed section", () => {
-  /** Test fixture for original. */
+  /** Original supplied to "Agent definition conversion preserves content outside the managed section". */
   const original = expectedLegacyInventory().agents.rows[0]!;
-  /** Test fixture for decoy. */
+  /** Decoy case exercised by "Agent definition conversion preserves content outside the managed section". */
   const decoy = JSON.stringify({
     id: "wrong-agent",
     inputResourceSelectors: ["policy/project-governance"],
@@ -237,7 +238,7 @@ test("Agent definition conversion preserves content outside the managed section"
     reasoning: "low",
     transitions: { wrong: "Wrong" },
   });
-  /** Test fixture for body. */
+  /** Body supplied to "Agent definition conversion preserves content outside the managed section". */
   const body = agentDefinitionMarkdown({
     ...original,
     body: `## JSON example\n\n\`\`\`json\n${decoy}\n\`\`\`\n\n${original.body}\n## Operator guidance\n\nKeep this prose verbatim.\n`,
@@ -252,7 +253,7 @@ test("managed Resource contracts explain the harness boundary", () => {
   /** Legacy Agent manifest retained for parity conversion. */
   const legacy =
     "# Coder\nAcquire a lease.\n\n```sh\n# Keep this exact\necho 'Operations database'\n```";
-  /** Test fixture for value. */
+  /** Managed Resource Markdown audited for forbidden legacy guidance. */
   const value = renderManagedResourceMarkdown("prompt/coder", legacy);
   assert.match(value, /external harness owns conversation history/);
   assert.match(value, /heartbeat at least once every five minutes/);
@@ -261,16 +262,16 @@ test("managed Resource contracts explain the harness boundary", () => {
 });
 
 test("planning after partial additive progress is safe and omits completed actions", () => {
-  /** Test fixture for original. */
+  /** Original supplied to "planning after partial additive progress is safe and omits completed actions". */
   const original = expectedLegacyInventory();
-  /** Test fixture for retained. */
+  /** Retained state observed by "planning after partial additive progress is safe and omits completed actions". */
   const retained = original.resources.rows
     .filter((row) => RETAINED_RESOURCE_KEYS.includes(row.title as never))
     .map((row) => ({
       ...row,
       body: renderManagedResourceMarkdown(row.title, row.body),
     }));
-  /** Initial Agent records for the in-memory provider. */
+  /** Agent rows rewritten to reference the canonical Resource bodies. */
   const agents = original.agents.rows.map((row) => ({
     ...row,
     body: agentDefinitionMarkdown({
@@ -278,7 +279,7 @@ test("planning after partial additive progress is safe and omits completed actio
       properties: { ...row.properties, Enabled: true, Model: "gpt-5.6-sol" },
     }),
   }));
-  /** Test fixture for partial. */
+  /** Partial state observed by "planning after partial additive progress is safe and omits completed actions". */
   const partial: ManagementInventory = {
     ...original,
     activeAgents: table(
@@ -318,18 +319,18 @@ test("planning after partial additive progress is safe and omits completed actio
       [],
     ),
   };
-  /** Test fixture for plan. */
+  /** Plan supplied to "planning after partial additive progress is safe and omits completed actions". */
   const plan = planManagementV2Migration(partial);
   assert.deepEqual(
     plan.actions.map((entry) => entry.kind),
-    ["verify"],
+    ["add_schema", "verify"],
   );
 });
 
 test("every legacy Task property authorizes legacy schema cleanup", () => {
-  /** Test fixture for original. */
+  /** Original supplied to "every legacy Task property authorizes legacy schema cleanup". */
   const original = expectedLegacyInventory();
-  /** Test fixture for partial. */
+  /** Partial state observed by "every legacy Task property authorizes legacy schema cleanup". */
   const partial = {
     ...original,
     tasks: {
@@ -351,9 +352,9 @@ test("every legacy Task property authorizes legacy schema cleanup", () => {
 });
 
 test("migration preflight rejects duplicate Resource keys", () => {
-  /** Test fixture for original. */
+  /** Original supplied to "migration preflight rejects duplicate Resource keys". */
   const original = expectedLegacyInventory();
-  /** Test fixture for duplicate. */
+  /** Duplicate case exercised by "migration preflight rejects duplicate Resource keys". */
   const duplicate = {
     ...original.resources.rows[0]!,
     id: testNotionId("duplicate-resource"),
@@ -372,10 +373,30 @@ test("migration preflight rejects duplicate Resource keys", () => {
   );
 });
 
+test("migration preflight preserves non-empty Operations content", () => {
+  /** Expected legacy inventory supplied to "migration preflight preserves non-empty Operations content". */
+  const original = expectedLegacyInventory();
+  assert.ok(original.operations !== null);
+  /** Legacy Operations row containing instructions that cannot be discarded. */
+  const operation = original.operations.rows[0]!;
+
+  assert.throws(
+    () =>
+      planManagementV2Migration({
+        ...original,
+        operations: {
+          ...original.operations!,
+          rows: [{ ...operation, body: "Retain these operator instructions." }],
+        },
+      }),
+    /Operations row is not empty/u,
+  );
+});
+
 test("migration body updates require the inventoried Markdown to match", async () => {
-  /** Test fixture for requests. */
+  /** Captured requests used to verify "migration body updates require the inventoried Markdown to match". */
   const requests: NotionRequest[] = [];
-  /** Test fixture for transport. */
+  /** Transport boundary exercised by "migration body updates require the inventoried Markdown to match". */
   const transport: NotionTransport = {
     /** Captures schema mutation requests. */
     request(request) {
@@ -395,8 +416,12 @@ test("migration body updates require the inventoried Markdown to match", async (
       body: {
         type: "update_content",
         update_content: {
-          new_str: "migrated body",
-          old_str: "original body",
+          content_updates: [
+            {
+              new_str: "migrated body",
+              old_str: "original body",
+            },
+          ],
         },
       },
       method: "PATCH",
@@ -406,16 +431,16 @@ test("migration body updates require the inventoried Markdown to match", async (
 });
 
 test("migration preflight rejects conflicting Agent bodies and columns", () => {
-  /** Test fixture for original. */
+  /** Original supplied to "migration preflight rejects conflicting Agent bodies and columns". */
   const original = expectedLegacyInventory();
   /** First Active Agent record used to verify relation consistency. */
   const first = original.agents.rows[0]!;
-  /** Test fixture for converted. */
+  /** Converted state observed by "migration preflight rejects conflicting Agent bodies and columns". */
   const converted = agentDefinitionMarkdown({
     ...first,
     properties: { ...first.properties, Enabled: true, Model: "body-model" },
   });
-  /** Initial Agent records for the in-memory provider. */
+  /** Agent rows containing the conflicting column/body definition. */
   const agents = original.agents.rows.map((entry, index) =>
     index === 0
       ? {
@@ -441,7 +466,7 @@ test("migration preflight rejects conflicting Agent bodies and columns", () => {
 });
 
 test("migration preflight rejects incompatible additive schema", () => {
-  /** Test fixture for original. */
+  /** Original supplied to "migration preflight rejects incompatible additive schema". */
   const original = expectedLegacyInventory();
   assert.throws(
     () =>
@@ -470,11 +495,11 @@ test("migration preflight rejects incompatible additive schema", () => {
 });
 
 test("migration discovers and verifies the exact Active Agents database", async () => {
-  /** Test fixture for database ID. */
+  /** Database ID supplied to "migration discovers and verifies the exact Active Agents database". */
   const databaseId = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-  /** Test fixture for source ID. */
+  /** Source ID supplied to "migration discovers and verifies the exact Active Agents database". */
   const sourceId = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-  /** Test fixture for transport. */
+  /** Transport boundary exercised by "migration discovers and verifies the exact Active Agents database". */
   const transport: NotionTransport = {
     /** Routes discovery requests for the legacy Active Agents database. */
     request(request) {
@@ -521,6 +546,8 @@ function expectedLegacyInventory(): ManagementInventory {
       name,
       {
         "Called By": "external harness",
+        Enabled: true,
+        Model: "gpt-5.6-sol",
         Notes: "",
         "Error Key": null,
       },
@@ -537,7 +564,7 @@ function expectedLegacyInventory(): ManagementInventory {
         `# ${key}\nLegacy role responsibilities.`,
       ),
   );
-  /** Initial Error records for the in-memory provider. */
+  /** Complete expected legacy Error inventory used by the baseline. */
   const errors = EXPECTED_ERROR_KEYS.map((key, index) =>
     row(`error-${index}`, `Error ${index}`, { "Error Key": key }, "Error"),
   );
@@ -601,6 +628,7 @@ function expectedLegacyInventory(): ManagementInventory {
     ),
   };
 }
+
 /** Returns the configured data-source ID for a managed table. */
 function table(
   id: string,
@@ -609,6 +637,7 @@ function table(
 ): MigrationTable {
   return { id, properties, rows };
 }
+
 /** Builds one migration row fixture. */
 function row(
   id: string,

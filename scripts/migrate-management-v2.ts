@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 /** One-time Management v2 migration entry point. */
+import { isAbsolute } from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
 
@@ -9,14 +10,13 @@ import {
   type JsonValue,
 } from "../src/domain/json.js";
 import {
-  agentDefinitionMarkdown,
   auditManagedResourceContract,
   LEGACY_PROPERTIES_BY_TABLE,
   MANAGEMENT_V2_DATABASES,
   MANAGEMENT_V2_DATABASE_PAGES,
   MANAGEMENT_V2_PARENT,
+  materializeMigrationBodies,
   planManagementV2Migration,
-  renderManagedResourceMarkdown,
   type ManagementInventory,
   type ManagementMigrationPlan,
   type MigrationRow,
@@ -24,6 +24,7 @@ import {
 } from "../src/migration/management-v2.js";
 import { normalizeNotionId } from "../src/provider/notion/notion-id.js";
 import { NotionProvider } from "../src/provider/notion/notion-provider.js";
+import { SingleHostMutex } from "../src/provider/notion/single-host-mutex.js";
 import {
   NOTION_SCHEMA_DIGEST,
   notionTable,
@@ -31,6 +32,7 @@ import {
 import {
   asObject,
   collectNotionPages,
+  decodeCompletePageMarkdown,
   NotionApiError,
   NotionHttpTransport,
   type NotionTransport,
@@ -62,24 +64,36 @@ async function main(): Promise<void> {
     throw new Error("NOTION_TOKEN is required");
   /** Authenticated Notion transport for the migration. */
   const transport = new NotionHttpTransport({ token });
-  /** Authorized snapshot of the current management workspace. */
-  const inventory = await readManagementInventory(
-    transport,
-    args.activeAgentsId,
-  );
-  /** Digest-bound mutations derived from the inventory snapshot. */
-  const plan = planManagementV2Migration(inventory);
-  if (args.plan) {
-    write(toJsonValue({ mode: "plan", plan, summary: summarize(inventory) }));
-    return;
-  }
-  if (plan.digest !== args.expectedDigest)
-    throw new Error(
-      `Migration plan drifted: expected ${args.expectedDigest}, observed ${plan.digest}`,
+  /** Reads, authorizes, and optionally applies one internally consistent snapshot. */
+  const execute = async (): Promise<void> => {
+    /** Authorized snapshot of the current management workspace. */
+    const inventory = await readManagementInventory(
+      transport,
+      args.activeAgentsId,
     );
-  /** Post-apply validation report returned to the operator. */
-  const report = await applyMigration(transport, inventory, plan);
-  write(report);
+    /** Digest-bound mutations derived from the inventory snapshot. */
+    const plan = planManagementV2Migration(inventory);
+    if (args.plan) {
+      write(toJsonValue({ mode: "plan", plan, summary: summarize(inventory) }));
+      return;
+    }
+    if (plan.digest !== args.expectedDigest)
+      throw new Error(
+        `Migration plan drifted: expected ${args.expectedDigest}, observed ${plan.digest}`,
+      );
+    /** Post-apply validation report returned to the operator. */
+    const report = await applyMigration(transport, inventory, plan);
+    write(report);
+  };
+  if (args.plan) await execute();
+  else {
+    /** Environment mutex shared with the management-v2 runtime CLI. */
+    const mutex = new SingleHostMutex(
+      { environmentId: "management-v2", scope: "environment" },
+      migrationCoordinationDirectory(process.env),
+    );
+    await mutex.run(execute);
+  }
 }
 
 /** Reads and normalizes every table required for migration planning. */
@@ -239,7 +253,7 @@ async function activeAgentsDatabase(
   return database;
 }
 
-/** Updates migration. */
+/** Applies the authorized migration plan in its fail-closed phase order. */
 async function applyMigration(
   transport: NotionTransport,
   inventory: ManagementInventory,
@@ -283,56 +297,38 @@ async function applyMigration(
   if (activeAgentsId === undefined)
     throw new Error("Active Agents was not created or discovered");
 
-  /** Resource keys indexed by their legacy provider IDs. */
-  const resourceKeyById = new Map(
-    inventory.resources.rows.map((row) => [
-      normalizeNotionId(row.id),
-      row.title,
-    ]),
-  );
   /** Canonical Agent bodies expected after conversion. */
   const expectedBodies = new Map<string, string>();
 
-  for (const action of authorizedPlan.actions.filter(
-    (entry) => entry.kind === "rewrite_resource",
+  for (const artifact of materializeMigrationBodies(
+    inventory,
+    authorizedPlan.actions.filter((entry) => entry.kind === "rewrite_resource"),
   )) {
-    /** Migration inventory row currently planned or validated. */
-    const row = inventory.resources.rows.find(
-      (entry) => entry.id === action.targetId,
-    )!;
-    /** Converted management-v2 Agent body. */
-    const body = renderManagedResourceMarkdown(row.title, row.body);
     /** Legacy property labels that must not survive conversion. */
-    const forbidden = auditManagedResourceContract(body);
+    const forbidden = auditManagedResourceContract(artifact.markdown);
     if (forbidden.length > 0)
       throw new Error(
-        `Managed Resource contract audit failed for ${row.title}: ${forbidden.join(", ")}`,
+        `Managed Resource contract audit failed for ${artifact.title}: ${forbidden.join(", ")}`,
       );
-    expectedBodies.set(normalizeNotionId(row.id), body);
-    await replaceMarkdown(transport, row.id, row.body, body);
+    expectedBodies.set(normalizeNotionId(artifact.targetId), artifact.markdown);
+    await replaceMarkdown(
+      transport,
+      artifact.targetId,
+      artifact.sourceBody,
+      artifact.markdown,
+    );
   }
-  for (const action of authorizedPlan.actions.filter(
-    (entry) => entry.kind === "convert_agent",
+  for (const artifact of materializeMigrationBodies(
+    inventory,
+    authorizedPlan.actions.filter((entry) => entry.kind === "convert_agent"),
   )) {
-    /** Migration inventory row currently planned or validated. */
-    const row = inventory.agents.rows.find(
-      (entry) => entry.id === action.targetId,
-    )!;
-    /** Raw Resource relation IDs from the legacy Agent row. */
-    const relationValue = row.properties.Resources;
-    /** Stable Resource keys replacing provider-specific relation IDs. */
-    const resourceKeys = Array.isArray(relationValue)
-      ? relationValue.map((value) =>
-          requirePresent(
-            resourceKeyById.get(normalizeNotionId(jsonText(value))),
-            `Missing related Resource ${jsonText(value)}`,
-          ),
-        )
-      : [];
-    /** Agent body with the canonical resource-key list. */
-    const body = agentDefinitionMarkdown(row, resourceKeys);
-    expectedBodies.set(normalizeNotionId(row.id), body);
-    await replaceMarkdown(transport, row.id, row.body, body);
+    expectedBodies.set(normalizeNotionId(artifact.targetId), artifact.markdown);
+    await replaceMarkdown(
+      transport,
+      artifact.targetId,
+      artifact.sourceBody,
+      artifact.markdown,
+    );
   }
 
   await assertInventoryState(
@@ -467,7 +463,8 @@ async function readTable(
   );
   return { id: normalizeNotionId(id), properties, rows };
 }
-/** Returns optional table. */
+
+/** Reads a migration table, treating only a typed Notion 404 as absence. */
 async function readOptionalTable(
   transport: NotionTransport,
   id: string,
@@ -479,6 +476,7 @@ async function readOptionalTable(
     throw error;
   }
 }
+
 /** Decodes a Notion page and its markdown body into a migration row. */
 async function pageToRow(
   transport: NotionTransport,
@@ -506,15 +504,18 @@ async function pageToRow(
     path: `/v1/pages/${normalizeNotionId(jsonText(page.id))}/markdown`,
   });
   return {
-    body: jsonText(bodyResult.markdown)
-      .replace(/\r\n?/gu, "\n")
-      .normalize("NFC"),
+    body: decodeCompletePageMarkdown(bodyResult, {
+      incomplete: "Notion returned incomplete migration Markdown",
+      invalidMarkdown: "Migration Markdown must be a string",
+      invalidMetadata: "Notion returned incomplete migration Markdown",
+    }),
     id: jsonText(page.id),
     properties,
     title:
       titleEntry === undefined ? "" : decodeText(asObject(titleEntry, "Title")),
   };
 }
+
 /** Decodes a supported Notion property into a migration value. */
 function decodeProperty(property: JsonObject): JsonValue {
   /** Notion property type discriminator. */
@@ -531,11 +532,14 @@ function decodeProperty(property: JsonObject): JsonValue {
       : jsonText(asObject(value, "Select").name);
   }
   if (type === "relation")
-    return Array.isArray(property.relation)
-      ? property.relation.map((entry) =>
-          jsonText(asObject(entry, "Relation").id),
-        )
-      : [];
+    if (property.has_more === true)
+      throw new Error("Notion relation exceeds the inline reference limit");
+    else
+      return Array.isArray(property.relation)
+        ? property.relation.map((entry) =>
+            jsonText(asObject(entry, "Relation").id),
+          )
+        : [];
   if (type === "date") {
     /** Strict date payload, or null for an empty date. */
     const value = property.date;
@@ -545,6 +549,7 @@ function decodeProperty(property: JsonObject): JsonValue {
   }
   return null;
 }
+
 /** Concatenates plain text from a Notion rich-text array. */
 function decodeText(property: JsonObject): string {
   /** Rich-text entries before strict object decoding. */
@@ -566,6 +571,7 @@ async function configureSelects(transport: NotionTransport): Promise<void> {
     Kind: selectSchema("resources", "Kind"),
   });
 }
+
 /** Builds a Notion select schema from the canonical table descriptor. */
 function selectSchema(kind: "errors" | "resources", name: string): JsonObject {
   /** Canonical schema descriptor for the requested property. */
@@ -576,6 +582,7 @@ function selectSchema(kind: "errors" | "resources", name: string): JsonObject {
     throw new Error(`Canonical select property is missing: ${kind}.${name}`);
   return { select: { options: selectOptions(descriptor.options) } };
 }
+
 /** Removes properties that only belong to the legacy schema. */
 async function dropLegacyProperties(transport: NotionTransport): Promise<void> {
   for (const [kind, names] of Object.entries(LEGACY_PROPERTIES_BY_TABLE)) {
@@ -602,6 +609,7 @@ async function dropLegacyProperties(transport: NotionTransport): Promise<void> {
       await patchProperties(transport, sourceId, properties);
   }
 }
+
 /** Applies a property-schema patch to a Notion data source. */
 async function patchProperties(
   transport: NotionTransport,
@@ -614,6 +622,7 @@ async function patchProperties(
     path: `/v1/data_sources/${normalizeNotionId(sourceId)}`,
   });
 }
+
 /** Atomically replaces the exact inventoried page Markdown. */
 export async function replaceMarkdown(
   transport: NotionTransport,
@@ -624,7 +633,9 @@ export async function replaceMarkdown(
   await transport.request({
     body: {
       type: "update_content",
-      update_content: { new_str: markdown, old_str: expectedMarkdown },
+      update_content: {
+        content_updates: [{ new_str: markdown, old_str: expectedMarkdown }],
+      },
     },
     method: "PATCH",
     path: `/v1/pages/${normalizeNotionId(pageId)}/markdown`,
@@ -713,6 +724,7 @@ async function assertInventoryState(
     }
   }
 }
+
 /** Moves a migrated legacy page to the Notion trash. */
 async function archivePage(
   transport: NotionTransport,
@@ -736,6 +748,7 @@ function summarize(inventory: ManagementInventory): JsonObject {
     tasks: inventory.tasks.rows.length,
   };
 }
+
 /** Parses the migration mode and digest authorization flags. */
 function parseArguments(argv: readonly string[]): Arguments {
   /** Whether plan mode has been requested. */
@@ -759,19 +772,34 @@ function parseArguments(argv: readonly string[]): Arguments {
   }
   return { activeAgentsId, apply, expectedDigest, plan };
 }
+
+/** Resolves the manager-owned coordination directory required for apply mode. */
+function migrationCoordinationDirectory(env: NodeJS.ProcessEnv): string {
+  /** Absolute host-private lock root shared with the runtime CLI. */
+  const value = env.AGENT_TASK_MANAGER_COORDINATION_DIRECTORY;
+  if (value === undefined || value.trim() === "" || !isAbsolute(value))
+    throw new Error(
+      "AGENT_TASK_MANAGER_COORDINATION_DIRECTORY must be an absolute path",
+    );
+  return value;
+}
+
 /** Encodes select labels as Notion option objects. */
 function selectOptions(names: readonly string[]): JsonObject[] {
   return names.map((name) => ({ name }));
 }
+
 /** Requires a JSON string and preserves the empty-string contract. */
 function jsonText(value: JsonValue | undefined): string {
   return typeof value === "string" ? value : "";
 }
+
 /** Returns a value or throws the supplied message when it is absent. */
 function requirePresent<T>(value: T | null | undefined, message: string): T {
   if (value === null || value === undefined) throw new Error(message);
   return value;
 }
+
 /** Writes a formatted JSON result to standard output. */
 function write(value: JsonValue): void {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);

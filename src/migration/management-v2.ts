@@ -9,7 +9,10 @@ import {
   type AgentTransitions,
 } from "../domain/records.js";
 import { normalizeNotionId } from "../provider/notion/notion-id.js";
-import { notionTable } from "../provider/notion/notion-schema.js";
+import {
+  NOTION_SCHEMA_DIGEST,
+  notionTable,
+} from "../provider/notion/notion-schema.js";
 
 /** Exact Notion page that owns the legacy Management v2 databases. */
 export const MANAGEMENT_V2_PARENT = "3bf9a6efcd5880eeaf0edef3125a1534";
@@ -126,6 +129,7 @@ export interface MigrationRow {
   /** Human-readable title of the record or command. */
   readonly title: string;
 }
+
 /** Captured data-source schema and rows used for planning. */
 export interface MigrationTable {
   /** Notion data-source ID, not its containing database page ID. */
@@ -135,23 +139,25 @@ export interface MigrationTable {
   /** Rows read from the table in provider order. */
   readonly rows: readonly MigrationRow[];
 }
+
 /** Complete authorized snapshot of the legacy Management v2 workspace. */
 export interface ManagementInventory {
-  /** Initial Active Agent records for the in-memory provider. */
+  /** Optional Active Agents table observed in the migration workspace. */
   readonly activeAgents: MigrationTable | null;
-  /** Initial Agent records for the in-memory provider. */
+  /** Legacy Agents table and its inventoried rows. */
   readonly agents: MigrationTable;
-  /** Initial Error records for the in-memory provider. */
+  /** Legacy Errors table and its inventoried rows. */
   readonly errors: MigrationTable;
   /** Optional legacy Operations table. */
   readonly operations: MigrationTable | null;
   /** Stable parent ID. */
   readonly parentId: string;
-  /** Ordered Resources supplied as immutable Agent context. */
+  /** Legacy Resources table and its inventoried rows. */
   readonly resources: MigrationTable;
-  /** Initial Task records for the in-memory provider. */
+  /** Legacy Tasks table and its inventoried rows. */
   readonly tasks: MigrationTable;
 }
+
 /** Supported ordered operation kinds in a Management v2 migration. */
 export type MigrationActionKind =
   | "add_schema"
@@ -167,11 +173,28 @@ export type MigrationActionKind =
 export interface MigrationAction {
   /** Provider-owned record identifier. */
   readonly id: string;
-  /** Domain or protocol classification of the record. */
+  /** Ordered mutation operation authorized by the migration plan. */
   readonly kind: MigrationActionKind;
   /** Provider record or data-source ID targeted by the migration action. */
   readonly targetId: string;
 }
+
+/** Exact Markdown mutation derived from one body-conversion action. */
+export interface MigrationBodyArtifact {
+  /** Stable action identifier retained for digest projection. */
+  readonly actionId: string;
+  /** Body-conversion operation represented by the artifact. */
+  readonly kind: "convert_agent" | "rewrite_resource";
+  /** Exact inventoried Markdown required before replacement. */
+  readonly sourceBody: string;
+  /** Provider record targeted by the replacement. */
+  readonly targetId: string;
+  /** Human-readable source-row title used by contract audits. */
+  readonly title: string;
+  /** Exact Markdown authorized for the replacement. */
+  readonly markdown: string;
+}
+
 /** Digest-bound migration plan derived from one inventory snapshot. */
 export interface ManagementMigrationPlan {
   /** Ordered mutations authorized by this plan. */
@@ -180,6 +203,8 @@ export interface ManagementMigrationPlan {
   readonly digest: string;
   /** Digest of the complete normalized inventory snapshot. */
   readonly inventoryDigest: string;
+  /** Digest of every exact body/schema/archive output authorized by the plan. */
+  readonly outputsDigest: string;
   /** Stable parent ID. */
   readonly parentId: string;
   /** Versioned schema identifier for the serialized object. */
@@ -266,14 +291,121 @@ export function planManagementV2Migration(
   });
   /** Digest binding the exact pre-migration inventory. */
   const inventoryDigest = digestInventory(inventory);
+  /** Digest binding the exact content and schema mutations produced by this code. */
+  const outputsDigest = digestJson(
+    toJsonValue(plannedMutationOutputs(inventory, actions)),
+  );
   /** Serialized fields covered by the deterministic digest. */
   const core = {
     actions,
     inventoryDigest,
+    outputsDigest,
     parentId: inventory.parentId,
     schema: "management-v2-migration-plan-v1" as const,
   };
   return { ...core, digest: digestJson(toJsonValue(core)) };
+}
+
+/** Renders the exact mutation artifacts covered by plan authorization. */
+function plannedMutationOutputs(
+  inventory: ManagementInventory,
+  actions: readonly MigrationAction[],
+): readonly JsonObject[] {
+  /** Body artifacts emitted in the same relative order as their actions. */
+  const bodyArtifacts = materializeMigrationBodies(inventory, actions).values();
+  return actions.map((action) => {
+    if (action.kind === "rewrite_resource" || action.kind === "convert_agent") {
+      /** Next one-to-one body artifact for the current conversion action. */
+      const artifact = bodyArtifacts.next().value!;
+      return { actionId: artifact.actionId, markdown: artifact.markdown };
+    }
+    /** Whether this action authorizes moving its target to Notion trash. */
+    const archivesTarget =
+      action.kind === "archive_error" ||
+      action.kind === "archive_operations" ||
+      action.kind === "archive_resource";
+    /** Whether this action is bound to the canonical target schema digest. */
+    const bindsTargetSchema =
+      action.kind === "add_schema" ||
+      action.kind === "create_active_agents" ||
+      action.kind === "verify";
+    return {
+      actionId: action.id,
+      archivePayload: archivesTarget ? { in_trash: true } : null,
+      legacyProperties:
+        action.kind === "drop_legacy_schema"
+          ? Object.fromEntries(
+              Object.entries(LEGACY_PROPERTIES_BY_TABLE).map(
+                ([kind, names]) => [kind, [...names]],
+              ),
+            )
+          : null,
+      targetSchemaDigest: bindsTargetSchema ? NOTION_SCHEMA_DIGEST : null,
+    };
+  });
+}
+
+/** Materializes exact Markdown bodies for ordered conversion actions. */
+export function materializeMigrationBodies(
+  inventory: ManagementInventory,
+  actions: readonly MigrationAction[],
+): readonly MigrationBodyArtifact[] {
+  /** Resource keys indexed by their normalized legacy provider IDs. */
+  const resourceKeyById = new Map(
+    inventory.resources.rows.map((row) => [
+      normalizeNotionId(row.id),
+      row.title,
+    ]),
+  );
+  return actions.flatMap((action): MigrationBodyArtifact[] => {
+    if (action.kind === "rewrite_resource") {
+      /** Inventoried Resource row targeted by this Markdown rewrite. */
+      const row = inventory.resources.rows.find(
+        (entry) => entry.id === action.targetId,
+      )!;
+      return [
+        {
+          actionId: action.id,
+          kind: action.kind,
+          markdown: renderManagedResourceMarkdown(row.title, row.body),
+          sourceBody: row.body,
+          targetId: action.targetId,
+          title: row.title,
+        },
+      ];
+    }
+    if (action.kind === "convert_agent") {
+      /** Inventoried Agent row targeted by this definition conversion. */
+      const row = inventory.agents.rows.find(
+        (entry) => entry.id === action.targetId,
+      )!;
+      /** Untrusted Resource relation values from the legacy Agent row. */
+      const relationValue = row.properties.Resources;
+      /** Stable Resource keys resolved in legacy relation order. */
+      const resourceKeys = Array.isArray(relationValue)
+        ? relationValue.map((value) => {
+            /** Validated related Resource page ID. */
+            const id = requiredText(value, "Agent Resource relation");
+            /** Stable Resource key resolved from the normalized page ID. */
+            const key = resourceKeyById.get(normalizeNotionId(id));
+            if (key === undefined)
+              throw new Error(`Missing related Resource ${id}`);
+            return key;
+          })
+        : [];
+      return [
+        {
+          actionId: action.id,
+          kind: action.kind,
+          markdown: agentDefinitionMarkdown(row, resourceKeys),
+          sourceBody: row.body,
+          targetId: action.targetId,
+          title: row.title,
+        },
+      ];
+    }
+    return [];
+  });
 }
 
 /** Returns a deterministically ordered copy of the migration inventory. */
@@ -362,9 +494,10 @@ export function assertManagementV2Inventory(
     const row = inventory.operations.rows[0];
     if (
       row !== undefined &&
-      Object.values(row.properties).some(
-        (value) => value !== null && value !== "",
-      )
+      (row.body.trim() !== "" ||
+        Object.values(row.properties).some(
+          (value) => value !== null && value !== "",
+        ))
     )
       failures.push("Operations row is not empty");
   }
@@ -443,7 +576,7 @@ function assertAgentDefinitionParity(
   inventory: ManagementInventory,
   failures: string[],
 ): void {
-  /** Lookup used by assert agent definition parity. */
+  /** Stable Resource keys indexed by normalized legacy relation IDs. */
   const resourceKeyById = new Map(
     inventory.resources.rows.map((row) => [
       normalizeNotionId(row.id),
@@ -535,6 +668,7 @@ export interface LegacyAgentManifest {
   /** Mapping from Agent outcomes to destination Task statuses. */
   readonly transitions: AgentTransitions;
 }
+
 /** Parses the heading-scoped JSON manifest from a legacy Agent body. */
 export function parseLegacyAgentManifest(
   markdown: string,
@@ -560,6 +694,7 @@ export function parseLegacyAgentManifest(
     transitions: validateAgentTransitions(manifest.transitions),
   };
 }
+
 /** Returns sorted, unique manifest keys present in the retained baseline. */
 export function retainedManifestResourceKeys(
   manifest: LegacyAgentManifest,
@@ -646,7 +781,7 @@ function definitionFromProperties(
   };
 }
 
-/** Parses and validates definition object. */
+/** Parses the strict JSON object stored in a managed Agent-definition fence. */
 function parseDefinitionObject(value: string): Record<string, unknown> {
   /** Untyped serialized input after JSON or argument parsing. */
   const parsed = JSON.parse(value) as unknown;
@@ -662,6 +797,7 @@ export function renderManagedResourceMarkdown(
 ): string {
   return `## Simplified coordination contract\n\nThis Resource applies to **${key}**. Work from the current Task page and the current active Prompt and Policy Resources selected by the Agent definition.\n\nThe external harness owns conversation history, tool and command execution, browser and network access, Git and publication actions, repeat safety, and child-process spawning. Notion records only Tasks, Agent definitions, Resources, Active Agent metadata, and Errors.\n\nWhile running, refresh the Active Agent heartbeat at least once every five minutes. Finish with one outcome declared by the Agent definition's transitions object. Report detected problems in Errors. If a run fails or becomes stale, stop its descendants and restart that failed subtree from the beginning; do not reconstruct conversation state.\n\n## Preserved role and project guidance\n\n${legacy}`;
 }
+
 /** Reports forbidden legacy terms only within the managed contract section. */
 export function auditManagedResourceContract(
   markdown: string,
@@ -683,6 +819,7 @@ export function auditManagedResourceContract(
   const managed = boundary === -1 ? markdown : markdown.slice(0, boundary);
   return forbidden.filter((term) => managed.toLowerCase().includes(term));
 }
+
 /** Produces the deterministic digest of an ordered migration inventory. */
 function digestInventory(inventory: ManagementInventory): string {
   /** Canonical managed-table descriptor for this operation. */
@@ -711,9 +848,15 @@ function digestInventory(inventory: ManagementInventory): string {
     }),
   );
 }
-/** Reports whether target properties. */
+
+/** Reports whether every Management v2 target property is present. */
 function hasTargetProperties(inventory: ManagementInventory): boolean {
   return (
+    inventory.activeAgents !== null &&
+    notionTable("activeAgents").properties.every(
+      (property) =>
+        inventory.activeAgents?.properties[property.name] === property.type,
+    ) &&
     inventory.agents.properties.Name === "title" &&
     inventory.tasks.properties.Type === "select" &&
     ["Source", "Active Agent"].every(
@@ -721,7 +864,8 @@ function hasTargetProperties(inventory: ManagementInventory): boolean {
     )
   );
 }
-/** Reports whether legacy properties. */
+
+/** Reports whether any removable legacy property remains. */
 function hasLegacyProperties(inventory: ManagementInventory): boolean {
   return Object.entries(LEGACY_PROPERTIES_BY_TABLE).some(([kind, names]) =>
     names.some(
@@ -732,6 +876,7 @@ function hasLegacyProperties(inventory: ManagementInventory): boolean {
     ),
   );
 }
+
 /** Records required property-type mismatches for a migration table. */
 function assertPropertyTypes(
   table: MigrationTable,
@@ -744,6 +889,7 @@ function assertPropertyTypes(
         `${table.id}.${name} expected ${type}, observed ${String(table.properties[name])}`,
       );
 }
+
 /** Records type mismatches for optional properties that are present. */
 function assertOptionalPropertyTypes(
   table: MigrationTable,
@@ -759,6 +905,7 @@ function assertOptionalPropertyTypes(
       );
   }
 }
+
 /** Appends a deterministic failure when two value sets differ. */
 function compareExact(
   label: string,
@@ -771,18 +918,21 @@ function compareExact(
   )
     failures.push(`${label} inventory differs from the expected baseline`);
 }
+
 /** Requires a non-empty string from untrusted migration input. */
 function requiredText(value: unknown, label: string): string {
   if (typeof value !== "string" || value === "")
     throw new TypeError(`${label} must be a non-empty string`);
   return value;
 }
+
 /** Parses a normalized string array at an untyped boundary. */
 function stringArray(value: unknown, label: string): readonly string[] {
   if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string"))
     throw new TypeError(`${label} must be a string array`);
   return value as string[];
 }
+
 /** Reads an optional legacy string property. */
 function stringProperty(value: unknown, label: string): string {
   if (value === undefined || value === null) return "";
@@ -790,13 +940,15 @@ function stringProperty(value: unknown, label: string): string {
     throw new TypeError(`${label} must be a string`);
   return value;
 }
+
 /** Requires a boolean migration property value. */
 function booleanProperty(value: unknown, label: string): boolean {
   if (typeof value !== "boolean")
     throw new TypeError(`${label} must be a boolean`);
   return value;
 }
-/** Reports whether agent definition. */
+
+/** Reports whether Markdown already contains a parseable Agent definition. */
 function hasAgentDefinition(markdown: string): boolean {
   /** Managed Markdown section located by its exact heading. */
   const section = agentDefinitionSection(markdown);

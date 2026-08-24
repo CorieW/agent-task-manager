@@ -115,25 +115,24 @@ export function createCommandExecutionGate(
       authorize: () => Promise<BrokerCommandRequest>,
       execute: (request: BrokerCommandRequest) => Promise<T>,
     ): Promise<T> => {
-      /** Release callback for the acquired lease or mutex. */
-      let release: CommandLeaseRelease | undefined;
-      /** Broker request authorized while the global mutex is held. */
-      let request: BrokerCommandRequest | undefined;
-      await globalMutex.run(async () => {
-        release = await runMutex(runId).lock({ reclaimable: false });
+      /** Authorized request paired with the run lease acquired around it. */
+      const acquired = await globalMutex.run(async () => {
+        /** Non-reclaimable lease held until command containment is confirmed. */
+        const release = await runMutex(runId).lock({ reclaimable: false });
         try {
-          request = await authorize();
+          return { release, request: await authorize() };
         } catch (error) {
           await release();
-          release = undefined;
           throw error;
         }
       });
+      /** Mutable release handle cleared only after deliberate abandonment. */
+      let release: CommandLeaseRelease | undefined = acquired.release;
       try {
-        return await execute(request!);
+        return await execute(acquired.request);
       } catch (error) {
         if (error instanceof ContainmentShutdownUnconfirmedError) {
-          await release!.abandon();
+          await release.abandon();
           release = undefined;
         }
         throw error;
@@ -331,7 +330,7 @@ function parseBrokerResult(
   value: string,
   expectedCommand: string,
 ): ProxyCommandResult {
-  /** Validated result returned by the current operation. */
+  /** Parsed broker response before its closed-shape validation. */
   const result: unknown = JSON.parse(value);
   if (result === null || typeof result !== "object" || Array.isArray(result))
     throw new TypeError("Command broker result must be an object");

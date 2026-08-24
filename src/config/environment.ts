@@ -13,6 +13,7 @@ export interface EnvironmentConfig {
   /** Versioned schema identifier for the serialized object. */
   readonly schema: "agent-task-manager-environment-v1";
 }
+
 /** Aggregates all problems found while parsing environment configuration. */
 export class EnvironmentConfigError extends TypeError {
   /** Creates an aggregate error from all configuration issues. */
@@ -98,7 +99,8 @@ function configObject(
   }
   return value;
 }
-/** Requires and NFC-normalizes a non-empty configuration string. */
+
+/** Requires a non-empty configuration string. */
 function configString(
   value: JsonValue | undefined,
   path: string,
@@ -110,6 +112,7 @@ function configString(
   }
   return value;
 }
+
 /** Parses an optional nullable configuration string. */
 function nullableConfigString(
   value: JsonValue | undefined,
@@ -119,6 +122,7 @@ function nullableConfigString(
   if (value === null) return null;
   return configString(value, path, issues);
 }
+
 /** Rejects object keys outside the boundary's explicit allowlist. */
 function rejectUnknownConfigKeys(
   value: JsonObject,

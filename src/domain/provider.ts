@@ -33,6 +33,7 @@ export interface ValidationIssue {
   /** Configuration, validation, filesystem, or provider path for this value. */
   readonly path: string;
 }
+
 /** Aggregate result of a non-mutating validation pass. */
 export interface ValidationReport {
   /** Validation issues discovered for the environment or workspace. */
@@ -52,16 +53,26 @@ export interface WorkspaceStep {
   /** Managed table affected by the operation. */
   readonly table: TableKind;
 }
+
 /** Digest-bound additive workspace plan for one environment and target schema. */
 export interface WorkspacePlan {
   /** Digest of the complete plan used for apply-time drift checking. */
   readonly digest: string;
   /** Stable identity used to isolate one managed environment. */
   readonly environmentId: string;
+  /** Digest of the exact observed workspace schema used to derive the steps. */
+  readonly observedSchemaDigest: string;
   /** Versioned schema identifier for the serialized object. */
   readonly schema: "workspace-plan-v1";
   /** Ordered workspace mutations authorized by the plan. */
   readonly steps: readonly WorkspaceStep[];
   /** Digest of the canonical schema the plan converges on. */
   readonly targetSchemaDigest: string;
+  /** Exact provider target whose current state the plan authorizes mutating. */
+  readonly target: {
+    /** Normalized parent used to create missing tables. */
+    readonly bootstrapParent: string | null;
+    /** Normalized configured data-source IDs in canonical table order. */
+    readonly tables: Readonly<Record<TableKind, string | null>>;
+  };
 }

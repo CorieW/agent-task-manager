@@ -25,6 +25,31 @@ export interface NotionTransport {
   request(request: NotionRequest): Promise<JsonObject>;
 }
 
+/** Validates a complete page-Markdown response and returns normalized content. */
+export function decodeCompletePageMarkdown(
+  response: JsonObject,
+  messages: {
+    /** Error for absent or malformed completeness metadata. */
+    readonly invalidMetadata: string;
+    /** Error for a response known to omit page content. */
+    readonly incomplete: string;
+    /** TypeError for a non-string Markdown field. */
+    readonly invalidMarkdown: string;
+  },
+): string {
+  if (
+    typeof response.truncated !== "boolean" ||
+    !Array.isArray(response.unknown_block_ids) ||
+    !response.unknown_block_ids.every((id) => typeof id === "string")
+  )
+    throw new Error(messages.invalidMetadata);
+  if (response.truncated || response.unknown_block_ids.length !== 0)
+    throw new Error(messages.incomplete);
+  if (typeof response.markdown !== "string")
+    throw new TypeError(messages.invalidMarkdown);
+  return response.markdown.replace(/\r\n?/gu, "\n").normalize("NFC");
+}
+
 /** Inputs accepted by Notion HTTP transport. */
 export interface NotionHttpTransportOptions {
   /** Selects the Notion API version. */
@@ -44,7 +69,7 @@ export class NotionApiError extends Error {
   /** Initializes Notion API error. */
   public constructor(
     message: string,
-    /** Current workflow status. */ public readonly status: number,
+    /** HTTP response status, or zero for a local timeout/abort. */ public readonly status: number,
     /** Machine-readable outcome or failure code. */ public readonly code:
       string | null,
     /** Retry-After seconds when supplied by Notion. */ public readonly retryAfterSeconds:
@@ -156,9 +181,9 @@ export class NotionHttpTransport implements NotionTransport {
 
 /** Provider-neutral Notion page contract. */
 export interface NotionPage<T extends JsonObject> {
-  /** Reports whether has more. */
+  /** Whether Notion has another result page after this response. */
   readonly has_more: boolean;
-  /** Ordered next cursor used by Notion page. */
+  /** Cursor required to request the next page, or null at completion. */
   readonly next_cursor: string | null;
   /** Ordered records returned by this page. */
   readonly results: readonly T[];

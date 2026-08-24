@@ -167,6 +167,8 @@ export interface ActiveAgentRecord {
   readonly lastHeartbeat: string;
   /** Agent-declared terminal outcome. */
   readonly outcome: string;
+  /** Task status captured when resumable completion began. */
+  readonly completionTaskStatus?: string;
   /** Run ID of the parent attempt, or null for a root. */
   readonly parentRunId: string | null;
   /** Run ID of the preceding terminated attempt, or null initially. */
@@ -217,18 +219,51 @@ export interface ErrorRecord {
   readonly version: string;
 }
 
+/** Agent fields intentionally exposed to the external execution harness. */
+export type HarnessAgentContext = Pick<
+  AgentRecord,
+  | "allowedStatuses"
+  | "allowedTaskTypes"
+  | "id"
+  | "key"
+  | "model"
+  | "name"
+  | "notes"
+  | "reasoning"
+  | "taskDescription"
+  | "transitions"
+  | "version"
+>;
+/** Resource fields intentionally exposed to the external execution harness. */
+export type HarnessResourceContext = Pick<
+  ResourceRecord,
+  "body" | "id" | "key" | "kind" | "state" | "version"
+>;
+/** Task fields intentionally exposed to the external execution harness. */
+export type HarnessTaskContext = Pick<
+  TaskRecord,
+  | "body"
+  | "dependencies"
+  | "id"
+  | "priority"
+  | "status"
+  | "title"
+  | "type"
+  | "version"
+>;
+
 /** Immutable Task, Agent, Resource, and run context returned at start. */
 export interface ActiveAgentContext {
   /** Agent definition resolved for the current run. */
-  readonly agent: AgentRecord;
+  readonly agent: HarnessAgentContext;
   /** Ordered Resources supplied as immutable Agent context. */
-  readonly resources: readonly ResourceRecord[];
+  readonly resources: readonly HarnessResourceContext[];
   /** Active Agent run included in the immutable execution context. */
   readonly run: ActiveAgentRecord;
   /** Mandatory run-bound instructions supplied as a system prompt. */
   readonly systemPrompt: string;
   /** Task included in the immutable Agent execution context. */
-  readonly task: TaskRecord;
+  readonly task: HarnessTaskContext;
 }
 
 /** Caller-supplied identity and hierarchy required to start a run. */
@@ -363,7 +398,7 @@ export function validateAgentTransitions(value: unknown): AgentTransitions {
   const entries = Object.entries(value);
   if (entries.length === 0)
     throw new TypeError("Agent Transitions must not be empty");
-  /** Validated result returned by the current operation. */
+  /** Normalized outcome-to-status map after closed-shape validation. */
   const result: Record<string, string> = {};
   for (const [outcome, status] of entries) {
     /** NFC-normalized value used for equality and validation. */

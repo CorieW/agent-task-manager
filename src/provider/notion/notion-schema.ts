@@ -18,6 +18,7 @@ export interface NotionPropertyDescriptor {
   /** Notion property type. */
   readonly type: string;
 }
+
 /** Canonical title and properties for one managed Notion table. */
 export interface NotionTableDescriptor {
   /** Domain or protocol classification of the record. */
@@ -27,6 +28,7 @@ export interface NotionTableDescriptor {
   /** Human-readable Notion database title. */
   readonly title: string;
 }
+
 /** Builds a non-relation canonical property descriptor. */
 const property = (
   name: string,
@@ -89,6 +91,7 @@ export const NOTION_TABLES: readonly NotionTableDescriptor[] = [
     title: "Active Agents",
     properties: [
       property("Run ID", "title"),
+      property("Archived", "checkbox"),
       relationProperty("Agent", "agents"),
       property("Agent Version", "rich_text"),
       relationProperty("Task", "tasks", "Active Agents"),
@@ -107,9 +110,10 @@ export const NOTION_TABLES: readonly NotionTableDescriptor[] = [
       property("Harness ID", "rich_text"),
       property("Started At", "date"),
       property("Last Heartbeat", "date"),
-      property("Finished At", "date", false),
-      property("Outcome", "rich_text", false),
-      property("Failure Summary", "rich_text", false),
+      property("Finished At", "date"),
+      property("Outcome", "rich_text"),
+      property("Completion Task Status", "rich_text"),
+      property("Failure Summary", "rich_text"),
       property("Working Directory", "rich_text"),
     ],
   },
@@ -133,7 +137,7 @@ export const NOTION_TABLES: readonly NotionTableDescriptor[] = [
       property("Owner", "people", false),
       property("Created At", "created_time", false),
       property("Updated At", "last_edited_time", false),
-      property("Fixed At", "date", false),
+      property("Fixed At", "date"),
     ],
   },
 ];

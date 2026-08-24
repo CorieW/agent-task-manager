@@ -149,7 +149,7 @@ interface SectionMatch {
 function sectionMatches(markdown: string, section: string): SectionMatch[] {
   /** Ordered entries being validated or transformed. */
   const entries = headings(markdown);
-  /** Validated result returned by the current operation. */
+  /** Exact managed-section matches accumulated in source order. */
   const result: SectionMatch[] = [];
   for (let index = 0; index < entries.length; index += 1) {
     /** Current Markdown heading candidate. */
@@ -172,7 +172,7 @@ function sectionMatches(markdown: string, section: string): SectionMatch[] {
 
 /** Finds Markdown headings outside fenced code blocks with source offsets. */
 function headings(markdown: string): MarkdownHeading[] {
-  /** Validated result returned by the current operation. */
+  /** Parsed Markdown headings accumulated outside fenced code. */
   const result: MarkdownHeading[] = [];
   /** Active fenced-code delimiter, or null outside a fence. */
   let fence: {

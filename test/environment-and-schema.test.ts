@@ -29,6 +29,12 @@ test("Notion identifiers share one strict normalization boundary", () => {
     ),
     compact,
   );
+  assert.equal(
+    normalizeNotionId(
+      "https://app.notion.com/p/Code-Reviewer-6269a6efcd5882168fb5016fb99ff102?v=25e9a6efcd5882e5939c08d945cc76f5&source=copy_link",
+    ),
+    compact,
+  );
   assert.throws(
     () => normalizeNotionId("agent-0"),
     /Invalid Notion identifier/u,
@@ -53,7 +59,7 @@ test("decoded Agent transitions validate without a JSON round trip", () => {
 });
 
 test("v1 environment contains provider configuration only", () => {
-  /** Test fixture for value. */
+  /** Parsed provider-only environment compared with the source JSON. */
   const value = parseEnvironmentConfig(
     toJsonValue({
       environmentId: "management-v2",
@@ -103,7 +109,7 @@ test("Notion schema has only Tasks, Agents, Resources, Active Agents, and Errors
     "resources",
     "tasks",
   ]);
-  /** Initial Agent records for the in-memory provider. */
+  /** Canonical Agents-table descriptor inspected for relation targets. */
   const agents = NOTION_TABLES.find((table) => table.kind === "agents")!;
   assert.deepEqual(
     agents.properties.map((property) => property.name),
@@ -196,7 +202,7 @@ test("Agent configuration is parsed from the page body", () => {
 });
 
 test("Agent definitions accept only the complete v1 schema", () => {
-  /** Test fixture for valid. */
+  /** Valid case exercised by "Agent definitions accept only the complete v1 schema". */
   const valid = {
     allowedStatuses: ["In progress"],
     allowedTaskTypes: ["Feature"],
@@ -210,7 +216,7 @@ test("Agent definitions accept only the complete v1 schema", () => {
     schema: "agent-definition-v1",
     transitions: { succeeded: "In progress" },
   };
-  /** Test fixture for markdown. */
+  /** Markdown supplied to "Agent definitions accept only the complete v1 schema". */
   const markdown = (definition: object): string =>
     `## Agent definition\n\n\`\`\`json\n${JSON.stringify(definition)}\n\`\`\`\n`;
 
@@ -263,7 +269,7 @@ test("Agent v1 requires unique user-defined Task type and status allowlists", ()
     schema: "agent-definition-v1",
     transitions: { succeeded: "Planning" },
   };
-  /** Test fixture for markdown. */
+  /** Markdown supplied to "Agent v1 requires unique user-defined Task type and status allowlists". */
   const markdown = (value: object): string =>
     `## Agent definition\n\n\`\`\`json\n${JSON.stringify(value)}\n\`\`\`\n`;
 
@@ -284,7 +290,7 @@ test("Agent v1 requires unique user-defined Task type and status allowlists", ()
 });
 
 test("Agent definitions require explicit Prompt and Policy resources", () => {
-  /** Test fixture for valid. */
+  /** Valid case exercised by "Agent definitions require explicit Prompt and Policy resources". */
   const valid = {
     allowedStatuses: ["In progress"],
     allowedTaskTypes: ["Feature"],
@@ -298,7 +304,7 @@ test("Agent definitions require explicit Prompt and Policy resources", () => {
     schema: "agent-definition-v1",
     transitions: { succeeded: "In progress" },
   };
-  /** Test fixture for markdown. */
+  /** Markdown supplied to "Agent definitions require explicit Prompt and Policy resources". */
   const markdown = (definition: object): string =>
     `## Agent definition\n\n\`\`\`json\n${JSON.stringify(definition)}\n\`\`\`\n`;
 
@@ -322,7 +328,7 @@ test("Agent definitions require explicit Prompt and Policy resources", () => {
 });
 
 test("Error report input rejects unknown fields and invalid enums", () => {
-  /** Test fixture for valid. */
+  /** Valid case exercised by "Error report input rejects unknown fields and invalid enums". */
   const valid = {
     activeAgentId: null,
     agentId: "agent",

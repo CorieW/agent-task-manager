@@ -34,8 +34,11 @@ export interface CreateActiveAgentRecord {
   /** Absolute execution directory, or null for the host default. */
   readonly workingDirectory: string | null;
 }
+
 /** Mutable lifecycle fields accepted when updating an Active Agent. */
 export interface ActiveAgentPatch {
+  /** Task status captured when resumable completion began. */
+  readonly completionTaskStatus?: string;
   /** Terminal failure explanation recorded for the run. */
   readonly failureSummary?: string;
   /** ISO timestamp when the run reached a terminal state. */
@@ -64,8 +67,13 @@ export interface AgentTaskProvider {
   listTasks(status?: string): Promise<readonly TaskRecord[]>;
   /** Returns a Task by provider record ID, or null. */
   getTask(id: string): Promise<TaskRecord | null>;
-  /** Replaces a Task status and returns the versioned record. */
-  setTaskStatus(id: string, status: string): Promise<TaskRecord>;
+  /** Replaces a Task status only while its expected state still matches. */
+  setTaskStatus(
+    id: string,
+    expectedStatus: string,
+    expectedVersion: string,
+    status: string,
+  ): Promise<TaskRecord>;
   /** Atomically replaces exact Task Markdown and returns the versioned record. */
   updateTaskBody(
     id: string,

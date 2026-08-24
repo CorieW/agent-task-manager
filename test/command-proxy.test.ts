@@ -61,7 +61,7 @@ async function setup(policy: AgentCommandPolicy) {
     allowedTaskTypes: ["Feature"],
     archived: false,
     body: "Agent",
-    calledBy: "harness",
+    calledBy: "harness-1",
     commands: policy,
     enabled: true,
     id: "agent-1",
@@ -96,7 +96,7 @@ async function setup(policy: AgentCommandPolicy) {
   return { context, coordinator, provider };
 }
 
-/** Test fixture for immediate gate. */
+/** Gate that executes authorized requests immediately in proxy unit tests. */
 const immediateGate: CommandExecutionGate = {
   execute: async <T>(
     _runId: string,
@@ -119,7 +119,7 @@ test("Agent command policies require exactly one normalized list", () => {
     schema: "agent-definition-v1",
     transitions: { succeeded: "In review" },
   };
-  /** Test fixture for markdown. */
+  /** Markdown supplied to "Agent command policies require exactly one normalized list". */
   const markdown = (commands: object): string =>
     `## Agent definition\n\n\`\`\`json\n${JSON.stringify({ ...definition, commands })}\n\`\`\`\n`;
   assert.throws(
@@ -150,11 +150,11 @@ test("command identities follow host-platform executable semantics", () => {
     ),
     { inclusion: ["Tool", "tool.exe", "tool."] },
   );
-  /** Test fixture for upper. */
+  /** Upper case exercised by "command identities follow host-platform executable semantics". */
   const upper = parseAgentCommandPolicy({ inclusion: ["Safe"] }, "linux");
   assert.equal(commandIsAllowed(upper, "Safe", "linux"), true);
   assert.equal(commandIsAllowed(upper, "safe", "linux"), false);
-  /** Test fixture for suffixed. */
+  /** Suffixed case exercised by "command identities follow host-platform executable semantics". */
   const suffixed = parseAgentCommandPolicy(
     { inclusion: ["safe.exe"] },
     "linux",
@@ -164,13 +164,13 @@ test("command identities follow host-platform executable semantics", () => {
 });
 
 test("command proxy enforces inclusion, ownership, and path-free names", async () => {
-  /** Test fixture for context, coordinator. */
+  /** Running context and coordinator used for command-policy authorization. */
   const { context, coordinator } = await setup({ inclusion: ["git"] });
-  /** Test fixture for calls. */
+  /** Captured calls used to verify "command proxy enforces inclusion, ownership, and path-free names". */
   const calls: BrokerCommandRequest[] = [];
-  /** Test fixture for locked. */
+  /** Flag recording locked during "command proxy enforces inclusion, ownership, and path-free names". */
   let locked = false;
-  /** Test fixture for gate. */
+  /** Gate boundary exercised by "command proxy enforces inclusion, ownership, and path-free names". */
   const gate: CommandExecutionGate = {
     execute: async <T>(
       _runId: string,
@@ -186,7 +186,7 @@ test("command proxy enforces inclusion, ownership, and path-free names", async (
       }
     },
   };
-  /** Test fixture for executor. */
+  /** Executor boundary exercised by "command proxy enforces inclusion, ownership, and path-free names". */
   const executor: CommandExecutor = async (request) => {
     assert.equal(locked, true);
     calls.push(request);
@@ -198,7 +198,7 @@ test("command proxy enforces inclusion, ownership, and path-free names", async (
       stdout: "clean",
     };
   };
-  /** Test fixture for proxy. */
+  /** Proxy boundary exercised by "command proxy enforces inclusion, ownership, and path-free names". */
   const proxy = new CommandProxy(coordinator, executor, gate);
   assert.match(context.systemPrompt, /exclusively through/u);
   assert.match(context.systemPrompt, /allowedTaskTypes and allowedStatuses/u);
@@ -257,14 +257,14 @@ test("command proxy enforces inclusion, ownership, and path-free names", async (
 });
 
 test("command prompt leaves run identity to the trusted harness", () => {
-  /** Test fixture for prompt. */
+  /** Prompt supplied to "command prompt leaves run identity to the trusted harness". */
   const prompt = commandProxySystemPrompt(EMPTY_AGENT_TASK_DESCRIPTION);
   assert.match(prompt, /command proxy -- <command>/u);
   assert.doesNotMatch(prompt, /--run-id|--harness-id/u);
 });
 
 test("command prompt delegates configured Task sections to the harness", () => {
-  /** Test fixture for prompt. */
+  /** Prompt supplied to "command prompt delegates configured Task sections to the harness". */
   const prompt = commandProxySystemPrompt({
     requiredSectionsByOutcome: { succeeded: ["Planning"] },
     writableSections: ["Planning"],
@@ -275,11 +275,11 @@ test("command prompt delegates configured Task sections to the harness", () => {
 });
 
 test("command proxy exclusion denies only configured commands", async () => {
-  /** Test fixture for coordinator. */
+  /** Coordinator boundary exercised by "command proxy exclusion denies only configured commands". */
   const { coordinator } = await setup(
     parseAgentCommandPolicy({ exclusion: ["rm"] }),
   );
-  /** Test fixture for executor. */
+  /** Executor boundary exercised by "command proxy exclusion denies only configured commands". */
   const executor: CommandExecutor = async (request) => ({
     command: request.command,
     exitCode: 0,
@@ -287,7 +287,7 @@ test("command proxy exclusion denies only configured commands", async () => {
     stderr: "",
     stdout: request.command,
   });
-  /** Test fixture for proxy. */
+  /** Proxy boundary exercised by "command proxy exclusion denies only configured commands". */
   const proxy = new CommandProxy(coordinator, executor, immediateGate);
   assert.equal(
     (
@@ -312,7 +312,7 @@ test("command proxy exclusion denies only configured commands", async () => {
 });
 
 test("command authorization does not enumerate unrelated Agents", async () => {
-  /** Test fixture for coordinator, provider. */
+  /** Coordinator, provider boundary exercised by "command authorization does not enumerate unrelated Agents". */
   const { coordinator, provider } = await setup({ inclusion: ["git"] });
   provider.listAgents = async () => {
     throw new Error("unrelated Agent body is malformed");
@@ -324,13 +324,13 @@ test("command authorization does not enumerate unrelated Agents", async () => {
 });
 
 test("sandbox broker receives literal arguments without manager secrets", async () => {
-  /** Test fixture for secret name. */
+  /** Secret name supplied to "sandbox broker receives literal arguments without manager secrets". */
   const secretName = "AGENT_TASK_MANAGER_PROXY_TEST_SECRET";
-  /** Test fixture for previous. */
+  /** Host broker setting restored after the isolation assertion. */
   const previous = process.env[secretName];
   process.env[secretName] = "must-not-leak";
   try {
-    /** Test fixture for broker. */
+    /** Broker boundary exercised by "sandbox broker receives literal arguments without manager secrets". */
     const broker = `
       let input = "";
       let handled = false;
@@ -364,7 +364,7 @@ test("sandbox broker receives literal arguments without manager secrets", async 
         }, 20);
       });
     `;
-    /** Test fixture for executor. */
+    /** Executor boundary exercised by "sandbox broker receives literal arguments without manager secrets". */
     const executor = createCommandBrokerExecutor(
       process.execPath,
       ["--input-type=commonjs", "-e", broker],
@@ -378,7 +378,7 @@ test("sandbox broker receives literal arguments without manager secrets", async 
         },
       },
     );
-    /** Test fixture for result. */
+    /** Broker result returned after inspecting the sanitized request. */
     const result = await executor({
       arguments: ["status", "&&", "node"],
       command: "git",
@@ -416,11 +416,11 @@ test("sandbox broker path must be absolute", () => {
 test("POSIX proxy preserves the exact authorized executable name", async () => {
   /** Strictly decoded Agent command policy. */
   const policy = parseAgentCommandPolicy({ inclusion: ["Safe.exe"] }, "linux");
-  /** Test fixture for coordinator. */
+  /** Coordinator boundary exercised by "POSIX proxy preserves the exact authorized executable name". */
   const { coordinator } = await setup(policy);
-  /** Test fixture for requests. */
+  /** Captured requests used to verify "POSIX proxy preserves the exact authorized executable name". */
   const requests: BrokerCommandRequest[] = [];
-  /** Test fixture for proxy. */
+  /** Proxy boundary exercised by "POSIX proxy preserves the exact authorized executable name". */
   const proxy = new CommandProxy(
     coordinator,
     async (request) => {
@@ -456,7 +456,7 @@ test("POSIX proxy preserves the exact authorized executable name", async () => {
 });
 
 test("sandbox broker exchange enforces timeout and output bounds", async () => {
-  /** Test fixture for hanging. */
+  /** Flag recording hanging during "sandbox broker exchange enforces timeout and output bounds". */
   const hanging = createCommandBrokerExecutor(
     process.execPath,
     ["-e", "setInterval(() => undefined, 1000)"],
@@ -467,9 +467,9 @@ test("sandbox broker exchange enforces timeout and output bounds", async () => {
     /timed out after 25 milliseconds/u,
   );
   for (const stream of ["stdout", "stderr"] as const) {
-    /** Test fixture for script. */
+    /** Script used to isolate "sandbox broker exchange enforces timeout and output bounds". */
     const script = `process.${stream}.write("x".repeat(256))`;
-    /** Test fixture for overflowing. */
+    /** Overflowing case exercised by "sandbox broker exchange enforces timeout and output bounds". */
     const overflowing = createCommandBrokerExecutor(
       process.execPath,
       ["-e", script],
@@ -484,7 +484,7 @@ test("sandbox broker exchange enforces timeout and output bounds", async () => {
 
 test("sandbox broker confirms forced shutdown and handles early stdin closure", async () => {
   if (process.platform !== "win32") {
-    /** Test fixture for resistant. */
+    /** Flag recording resistant during "sandbox broker confirms forced shutdown and handles early stdin closure". */
     const resistant = createCommandBrokerExecutor(
       process.execPath,
       [
@@ -493,7 +493,7 @@ test("sandbox broker confirms forced shutdown and handles early stdin closure", 
       ],
       { terminationGraceMilliseconds: 40, timeoutMilliseconds: 20 },
     );
-    /** Test fixture for started. */
+    /** Flag recording started during "sandbox broker confirms forced shutdown and handles early stdin closure". */
     const started = Date.now();
     await assert.rejects(
       resistant(brokerRequest()),
@@ -501,7 +501,7 @@ test("sandbox broker confirms forced shutdown and handles early stdin closure", 
     );
     assert.ok(Date.now() - started >= 40);
   }
-  /** Test fixture for early exit. */
+  /** Early exit state observed by "sandbox broker confirms forced shutdown and handles early stdin closure". */
   const earlyExit = createCommandBrokerExecutor(process.execPath, [
     "-e",
     "process.exit(0)",
@@ -511,20 +511,20 @@ test("sandbox broker confirms forced shutdown and handles early stdin closure", 
 
 test("sandbox broker receives cancellation through its liveness channel", async () => {
   if (process.platform === "win32") return;
-  /** Test fixture for broker. */
+  /** Broker boundary exercised by "sandbox broker receives cancellation through its liveness channel". */
   const broker = `
     process.on("SIGTERM", () => undefined);
     process.stdin.resume();
     process.stdin.on("end", () => process.exit(0));
     setInterval(() => undefined, 1000);
   `;
-  /** Test fixture for executor. */
+  /** Executor boundary exercised by "sandbox broker receives cancellation through its liveness channel". */
   const executor = createCommandBrokerExecutor(
     process.execPath,
     ["-e", broker],
     { terminationGraceMilliseconds: 1000, timeoutMilliseconds: 25 },
   );
-  /** Test fixture for started. */
+  /** Flag recording started during "sandbox broker receives cancellation through its liveness channel". */
   const started = Date.now();
   await assert.rejects(
     executor(brokerRequest()),
@@ -540,14 +540,14 @@ test("sandbox broker rejects ambiguous terminal results", async () => {
     { exitCode: -1, signal: null },
     { exitCode: null, signal: "NOT_A_SIGNAL" },
   ]) {
-    /** Test fixture for result. */
+    /** Ambiguous broker response used to exercise strict result parsing. */
     const result = JSON.stringify({
       command: "git",
       ...terminal,
       stderr: "",
       stdout: "",
     });
-    /** Test fixture for executor. */
+    /** Executor boundary exercised by "sandbox broker rejects ambiguous terminal results". */
     const executor = createCommandBrokerExecutor(process.execPath, [
       "-e",
       `process.stdin.once("data", () => process.stdout.write(${JSON.stringify(result)}, () => process.exit(0)))`,
@@ -560,13 +560,13 @@ test("sandbox broker rejects ambiguous terminal results", async () => {
 });
 
 test("command gate releases the global mutex while retaining the run lease", async () => {
-  /** Test fixture for globally locked. */
+  /** Whether the short-lived global mutex is currently held. */
   let globallyLocked = false;
-  /** Test fixture for run abandoned. */
+  /** Whether containment failure deliberately abandoned the run lease. */
   let runAbandoned = false;
-  /** Test fixture for run locked. */
+  /** Whether command execution still owns the non-reclaimable run lease. */
   let runLocked = false;
-  /** Test fixture for global mutex. */
+  /** Global mutex boundary exercised by "command gate releases the global mutex while retaining the run lease". */
   const globalMutex = {
     lock: async () =>
       Object.assign(async () => undefined, {
@@ -581,7 +581,7 @@ test("command gate releases the global mutex while retaining the run lease", asy
       }
     },
   };
-  /** Test fixture for run mutex. */
+  /** Run mutex boundary exercised by "command gate releases the global mutex while retaining the run lease". */
   const runMutex = {
     lock: async (options?: {
       /** Whether a dead owner permits the test mutex to be reclaimed. */
@@ -604,9 +604,9 @@ test("command gate releases the global mutex while retaining the run lease", asy
     },
     run: async <T>(operation: () => Promise<T>) => operation(),
   };
-  /** Test fixture for gate. */
+  /** Gate boundary exercised by "command gate releases the global mutex while retaining the run lease". */
   const gate = createCommandExecutionGate(globalMutex, () => runMutex);
-  /** Test fixture for result. */
+  /** Command result returned while only the run lease is held. */
   const result = await gate.execute(
     "run-1",
     async () => {

@@ -6,6 +6,7 @@ import type {
   ActiveAgentRecord,
   AgentRecord,
   ReportErrorInput,
+  ResourceRecord,
   RestartActiveAgentInput,
   StartActiveAgentInput,
   TaskRecord,
@@ -60,8 +61,11 @@ export class AgentCoordinator {
     /** Existing run considered for idempotent start replay. */
     const replay = await this.provider.getActiveAgent(input.runId);
     if (replay !== null) {
+      if (replay.archived || replay.status !== "running")
+        throw new Error("Run ID belongs to a terminal Active Agent");
       /** Agent definition resolved for the current run. */
       const agent = await this.requiredAgent(input.agentKey);
+      this.assertCaller(agent, input.harnessId);
       if (
         replay.agentId !== agent.id ||
         replay.agentVersion !== agent.version ||
@@ -75,8 +79,10 @@ export class AgentCoordinator {
       this.assertWorkingDirectory(agent, replay);
       return this.context(replay, agent);
     }
+    assertNewRunId(input.runId);
     /** Agent definition resolved for the current run. */
     const agent = await this.requiredAgent(input.agentKey);
+    this.assertCaller(agent, input.harnessId);
     /** Assigned Task loaded and checked for availability. */
     const task = await this.provider.getTask(input.taskId);
     if (task === null || task.archived)
@@ -101,6 +107,8 @@ export class AgentCoordinator {
         throw new Error("Parent Active Agent is not running");
       if (parent.taskId !== input.taskId)
         throw new Error("Child Active Agent must use its parent Task");
+      if (parent.harnessId !== input.harnessId)
+        throw new Error("Child Active Agent must use its parent harness");
     }
     /** Resources resolved in the Agent definition's declared order. */
     const resources = await this.resourcesFor(agent);
@@ -109,7 +117,7 @@ export class AgentCoordinator {
     await this.lifecycle.before(agent.lifecycleCommands, lifecycle);
     /** Single ISO timestamp shared by the new run fields. */
     const startedAt = this.now().toISOString();
-    /** Active Agent record loaded or created for the operation. */
+    /** Newly persisted Active Agent for this start attempt. */
     const run = await this.provider.createActiveAgent({
       agentId: agent.id,
       agentVersion: agent.version,
@@ -123,13 +131,7 @@ export class AgentCoordinator {
       taskId: input.taskId,
       workingDirectory: lifecycle.workingDirectory,
     });
-    return {
-      agent,
-      resources,
-      run,
-      systemPrompt: commandProxySystemPrompt(agent.taskDescription),
-      task,
-    };
+    return harnessContext(agent, resources, run, task);
   }
 
   /** Records a heartbeat after verifying the run is running and harness-owned. */
@@ -137,7 +139,7 @@ export class AgentCoordinator {
     runId: string,
     harnessId: string,
   ): Promise<ActiveAgentRecord> {
-    /** Active Agent record loaded or created for the operation. */
+    /** Running harness-owned Active Agent eligible for a heartbeat. */
     const run = await this.runningOwned(runId, harnessId);
     return this.provider.updateActiveAgent(run.runId, {
       lastHeartbeat: this.now().toISOString(),
@@ -150,8 +152,23 @@ export class AgentCoordinator {
     harnessId: string,
     outcome: string,
   ): Promise<ActiveAgentRecord> {
-    /** Active Agent record loaded or created for the operation. */
-    const run = await this.runningOwned(runId, harnessId);
+    /** Active Agent record loaded directly so partial completion can resume. */
+    let run = await this.provider.getActiveAgent(runId);
+    if (run === null) throw new Error("Active Agent is unavailable");
+    if (run.harnessId !== harnessId)
+      throw new Error("Harness does not own Active Agent");
+    if (run.status === "completed") {
+      if (run.outcome !== outcome)
+        throw new Error("Completed Active Agent has a different outcome");
+      if (!run.archived) await this.provider.archiveActiveAgent(runId);
+      /** Provider readback of the completed run after archival. */
+      const archived = await this.provider.getActiveAgent(runId);
+      if (archived === null)
+        throw new Error("Completed Active Agent became unavailable");
+      return archived;
+    }
+    if (run.status !== "running")
+      throw new Error("Active Agent is not running");
     /** Descendant runs checked before completing the root. */
     const descendants = this.descendants(
       run.runId,
@@ -169,24 +186,45 @@ export class AgentCoordinator {
     const task = await this.provider.getTask(run.taskId);
     if (task === null || task.archived)
       throw new Error("Active Agent Task is unavailable");
-    this.assertTaskEligibility(agent, task);
     if (!Object.hasOwn(agent.transitions, outcome))
       throw new Error(`Agent does not declare outcome: ${outcome}`);
-    for (const section of agent.taskDescription.requiredSectionsByOutcome[
-      outcome
-    ] ?? [])
-      if (!taskDescriptionHasSection(task.body, section))
-        throw new Error(
-          `Agent outcome ${outcome} requires Task description section: ${section}`,
-        );
+    /** Destination Task status, or the sentinel that retains the current status. */
+    const target = agent.transitions[outcome]!;
+    if (run.outcome !== "" && run.outcome !== outcome)
+      throw new Error("Active Agent is finalizing a different outcome");
+    if (run.outcome === "") this.assertTaskEligibility(agent, task);
+    this.assertRequiredOutcomeSections(agent, task, outcome);
+    if (run.outcome === "")
+      run = await this.provider.updateActiveAgent(runId, {
+        completionTaskStatus: task.status,
+        outcome,
+      });
     await this.lifecycle.after(
       agent.lifecycleCommands,
       this.terminalLifecycleContext(run, agent.key, "completed", outcome, ""),
     );
-    /** Destination Task status or related Notion table selected by the operation. */
-    const target = agent.transitions[outcome]!;
-    if (target !== "$current")
-      await this.provider.setTaskStatus(run.taskId, target);
+    if (target !== "$current") {
+      /** Current Task state checked immediately before the guarded transition. */
+      const current = await this.provider.getTask(run.taskId);
+      if (current === null || current.archived)
+        throw new Error("Active Agent Task is unavailable");
+      this.assertRequiredOutcomeSections(agent, current, outcome);
+      if (current.status !== target) {
+        if (
+          run.completionTaskStatus === undefined ||
+          run.completionTaskStatus === "" ||
+          current.status !== run.completionTaskStatus
+        )
+          throw new Error("Task status changed while completion was pending");
+        this.assertTaskEligibility(agent, current);
+        await this.provider.setTaskStatus(
+          run.taskId,
+          current.status,
+          current.version,
+          target,
+        );
+      }
+    }
     /** Completed run record returned after archival. */
     const completed = await this.provider.updateActiveAgent(runId, {
       finishedAt: this.now().toISOString(),
@@ -194,7 +232,7 @@ export class AgentCoordinator {
       status: "completed",
     });
     await this.provider.archiveActiveAgent(runId);
-    return completed;
+    return (await this.provider.getActiveAgent(runId)) ?? completed;
   }
 
   /** Fails a harness-owned run and stops each running descendant. */
@@ -203,7 +241,7 @@ export class AgentCoordinator {
     harnessId: string,
     summary: string,
   ): Promise<ActiveAgentRecord> {
-    /** Active Agent record loaded or created for the operation. */
+    /** Running harness-owned Active Agent selected for failure. */
     const run = await this.runningOwned(runId, harnessId);
     return this.terminate(run, "failed", summary);
   }
@@ -212,9 +250,11 @@ export class AgentCoordinator {
   public async planSweep(): Promise<readonly SweepPlan[]> {
     /** Running snapshot and outermost stale roots derived from it. */
     const { live, roots } = await this.sweepState();
+    /** First-observed parent relation indexed for this exact snapshot. */
+    const parents = this.parentIndex(live);
     return roots.map((root) => ({
       rootRunId: root.runId,
-      runIds: [root, ...this.descendants(root.runId, live)]
+      runIds: [root, ...this.descendants(root.runId, live, parents)]
         .map((run) => run.runId)
         .sort(),
     }));
@@ -226,7 +266,7 @@ export class AgentCoordinator {
   ): Promise<readonly SweepResult[]> {
     /** Outermost stale roots selected from the running snapshot. */
     const { roots } = await this.sweepState();
-    /** Notion select or date value after shape validation. */
+    /** Requested stale roots that still qualify in the current snapshot. */
     const selected =
       rootRunIds === undefined
         ? roots
@@ -266,10 +306,14 @@ export class AgentCoordinator {
       (entry) =>
         now - Date.parse(entry.lastHeartbeat) > STALE_AFTER_MILLISECONDS,
     );
+    /** First-observed parent relation indexed for this exact snapshot. */
+    const parents = this.parentIndex(live);
     /** Outermost stale roots selected from the running snapshot. */
     const roots = stale.filter(
       (candidate) =>
-        !stale.some((other) => this.isDescendant(candidate, other.runId, live)),
+        !stale.some((other) =>
+          this.isDescendant(candidate, other.runId, parents),
+        ),
     );
     return { live, roots };
   }
@@ -278,6 +322,7 @@ export class AgentCoordinator {
   public async restart(
     input: RestartActiveAgentInput,
   ): Promise<ActiveAgentContext> {
+    assertNewRunId(input.runId);
     if ((await this.provider.getActiveAgent(input.runId)) !== null)
       throw new Error(`Run ID already exists: ${input.runId}`);
     /** Failed or stale attempt selected for restart. */
@@ -289,8 +334,21 @@ export class AgentCoordinator {
       (restartSource.status !== "failed" && restartSource.status !== "stale")
     )
       throw new Error("Only a failed or stale Active Agent can restart");
+    /** Persisted retry-chain snapshot used to enforce one unique current leaf. */
+    const attempts = (await this.provider.listActiveAgents()).filter(
+      (entry) => entry.retryKey === restartSource.retryKey,
+    );
+    if (attempts.some((entry) => entry.restartOfRunId === restartSource.runId))
+      throw new Error("Active Agent attempt already has a replacement");
+    /** Maximum visible attempt number for the persisted retry chain. */
+    const highestAttempt = Math.max(
+      restartSource.attempt,
+      ...attempts.map((entry) => entry.attempt),
+    );
+    if (restartSource.attempt !== highestAttempt)
+      throw new Error("Only the latest Active Agent attempt can restart");
     /** One-based attempt number within the retry chain. */
-    let attempt = restartSource.attempt + 1;
+    let attempt = highestAttempt + 1;
     /** Stable identity shared by attempts in one retry chain. */
     let retryKey = restartSource.retryKey;
     if (attempt > MAX_ATTEMPTS) {
@@ -325,6 +383,8 @@ export class AgentCoordinator {
     const startedAt = this.now().toISOString();
     /** Agent definition resolved for the current run. */
     const agent = await this.agentById(restartSource.agentId);
+    if (!agent.enabled) throw new Error("Disabled Agent cannot restart");
+    this.assertCaller(agent, input.harnessId);
     this.assertRestartVersion(restartSource, agent);
     /** Assigned Task loaded and checked for availability. */
     const task = await this.provider.getTask(restartSource.taskId);
@@ -341,7 +401,7 @@ export class AgentCoordinator {
       taskId: restartSource.taskId,
     });
     await this.lifecycle.before(agent.lifecycleCommands, lifecycle);
-    /** Active Agent record loaded or created for the operation. */
+    /** Newly persisted Active Agent for this replacement attempt. */
     const run = await this.provider.createActiveAgent({
       agentId: restartSource.agentId,
       agentVersion: agent.version,
@@ -355,13 +415,7 @@ export class AgentCoordinator {
       taskId: restartSource.taskId,
       workingDirectory: lifecycle.workingDirectory,
     });
-    return {
-      agent,
-      resources,
-      run,
-      systemPrompt: commandProxySystemPrompt(agent.taskDescription),
-      task,
-    };
+    return harnessContext(agent, resources, run, task);
   }
 
   /** Returns the pinned command policy and configured execution directory. */
@@ -374,7 +428,7 @@ export class AgentCoordinator {
     /** Absolute execution directory, or null for the host default. */
     readonly workingDirectory: string | null;
   }> {
-    /** Active Agent record loaded or created for the operation. */
+    /** Running harness-owned Active Agent whose command policy is requested. */
     const run = await this.runningOwned(runId, harnessId);
     /** Agent definition resolved for the current run. */
     const agent = await this.agentById(run.agentId);
@@ -393,7 +447,7 @@ export class AgentCoordinator {
     section: string,
     content: string,
   ): Promise<TaskRecord> {
-    /** Active Agent record loaded or created for the operation. */
+    /** Running harness-owned Active Agent requesting the Task update. */
     const run = await this.runningOwned(runId, harnessId);
     /** Agent definition resolved for the current run. */
     const agent = await this.agentById(run.agentId);
@@ -417,12 +471,13 @@ export class AgentCoordinator {
   public async reportError(input: ReportErrorInput) {
     return this.provider.reportError(input);
   }
+
   /** Stores a resolution and marks the keyed Error resolved. */
   public async resolveError(key: string, resolution: string) {
     return this.provider.resolveError(key, resolution);
   }
 
-  /** Transitions agent coordinator. */
+  /** Runs cleanup and persists a failed or stale terminal transition. */
   private async terminate(
     run: ActiveAgentRecord,
     status: "failed" | "stale",
@@ -430,14 +485,20 @@ export class AgentCoordinator {
   ): Promise<ActiveAgentRecord> {
     /** Provider snapshot used for stable hierarchy traversal. */
     const all = await this.provider.listActiveAgents();
-    for (const child of this.descendants(run.runId, all).filter(
-      (entry) => entry.status === "running",
-    )) {
+    /** First-observed parent relation indexed for this exact snapshot. */
+    const parents = this.parentIndex(all);
+    for (const child of this.descendants(run.runId, all, parents)
+      .filter((entry) => entry.status === "running")
+      .toSorted(
+        (left, right) =>
+          this.runDepth(right, parents) - this.runDepth(left, parents) ||
+          left.runId.localeCompare(right.runId),
+      )) {
       /** Terminal failure explanation recorded for the run. */
       const failureSummary = `Stopped because ancestor ${run.runId} ${status}`;
       /** Agent definition governing the descendant's cleanup hooks. */
       const childAgent = await this.provider.getAgent(child.agentId);
-      if (childAgent !== null) {
+      if (childAgent !== null && childAgent.version === child.agentVersion) {
         this.assertWorkingDirectory(childAgent, child);
         await this.lifecycle.after(
           childAgent.lifecycleCommands,
@@ -456,10 +517,12 @@ export class AgentCoordinator {
         status: "stopped",
       });
       await this.provider.archiveActiveAgent(child.runId);
+      if (childAgent === null || childAgent.version !== child.agentVersion)
+        await this.reportSkippedCleanup(child, childAgent);
     }
     /** Agent definition resolved for the current run. */
     const agent = await this.provider.getAgent(run.agentId);
-    if (agent !== null) {
+    if (agent !== null && agent.version === run.agentVersion) {
       this.assertWorkingDirectory(agent, run);
       await this.lifecycle.after(
         agent.lifecycleCommands,
@@ -472,6 +535,8 @@ export class AgentCoordinator {
       finishedAt: this.now().toISOString(),
       status,
     });
+    if (agent === null || agent.version !== run.agentVersion)
+      await this.reportSkippedCleanup(terminated, agent);
     if (terminated.attempt >= MAX_ATTEMPTS) {
       await this.provider.reportError({
         activeAgentId: terminated.id,
@@ -488,6 +553,29 @@ export class AgentCoordinator {
     return terminated;
   }
 
+  /** Records lifecycle cleanup that was withheld because its definition was untrusted. */
+  private async reportSkippedCleanup(
+    run: ActiveAgentRecord,
+    agent: AgentRecord | null,
+  ): Promise<void> {
+    /** Stable reason for operators diagnosing the skipped cleanup. */
+    const reason =
+      agent === null
+        ? "the Agent definition is unavailable"
+        : "the Agent definition changed after the run started";
+    await this.provider.reportError({
+      activeAgentId: run.id,
+      agentId: run.agentId,
+      description: `Lifecycle cleanup was skipped because ${reason}.`,
+      errorKey: `active-agent-cleanup:${run.runId}`,
+      resolution: "",
+      severity: "high",
+      source: "system",
+      taskId: run.taskId,
+      title: "Active Agent lifecycle cleanup skipped",
+    });
+  }
+
   /** Hydrates the immutable Task, Agent, Resource, and run context. */
   private async context(
     run: ActiveAgentRecord,
@@ -501,13 +589,7 @@ export class AgentCoordinator {
     this.assertTaskEligibility(agent, task);
     /** Resources resolved in the Agent definition's declared order. */
     const resources = await this.resourcesFor(agent);
-    return {
-      agent,
-      resources,
-      run,
-      systemPrompt: commandProxySystemPrompt(agent.taskDescription),
-      task,
-    };
+    return harnessContext(agent, resources, run, task);
   }
 
   /** Starts lifecycle context. */
@@ -593,7 +675,7 @@ export class AgentCoordinator {
   ): Promise<ActiveAgentContext["resources"]> {
     /** Active Resources indexed for Agent-context assembly. */
     const available = await this.provider.listResources();
-    /** Lookup used by resources for. */
+    /** Active Resources indexed by provider ID. */
     const byId = new Map(available.map((entry) => [entry.id, entry]));
     /** Resources resolved in the Agent definition's declared order. */
     const resources = agent.resourceIds.map((id) => {
@@ -614,7 +696,7 @@ export class AgentCoordinator {
         );
       return resource;
     });
-    return resources;
+    return resources.map(harnessResource);
   }
 
   /** Verifies that the Agent may operate on the Task's type and status. */
@@ -627,6 +709,27 @@ export class AgentCoordinator {
       );
   }
 
+  /** Verifies the Task body sections required by one declared outcome. */
+  private assertRequiredOutcomeSections(
+    agent: AgentRecord,
+    task: TaskRecord,
+    outcome: string,
+  ): void {
+    for (const section of agent.taskDescription.requiredSectionsByOutcome[
+      outcome
+    ] ?? [])
+      if (!taskDescriptionHasSection(task.body, section))
+        throw new Error(
+          `Agent outcome ${outcome} requires Task description section: ${section}`,
+        );
+  }
+
+  /** Verifies that an invocation uses the Agent's configured harness identity. */
+  private assertCaller(agent: AgentRecord, harnessId: string): void {
+    if (agent.calledBy !== "" && agent.calledBy !== harnessId)
+      throw new Error("Harness is not allowed to invoke Agent");
+  }
+
   /** Loads a non-archived agent definition by key. */
   private async requiredAgent(key: string): Promise<AgentRecord> {
     /** Agent definition resolved for the current run. */
@@ -635,6 +738,7 @@ export class AgentCoordinator {
       throw new Error(`Agent is unavailable: ${key}`);
     return agent;
   }
+
   /** Returns one available Agent by provider record ID. */
   private async agentById(id: string): Promise<AgentRecord> {
     /** Agent definition resolved for the current run. */
@@ -643,11 +747,13 @@ export class AgentCoordinator {
       throw new Error(`Agent is unavailable: ${id}`);
     return agent;
   }
+
   /** Rejects mid-run changes to the Agent definition. */
   private assertAgentVersion(run: ActiveAgentRecord, agent: AgentRecord): void {
     if (run.agentVersion !== agent.version)
       throw new Error("Agent definition changed after the run started");
   }
+
   /** Allows restart only from the current or explicitly compatible version. */
   private assertRestartVersion(
     run: ActiveAgentRecord,
@@ -659,45 +765,143 @@ export class AgentCoordinator {
     )
       throw new Error("Agent definition changed after the run started");
   }
+
   /** Loads a running Active Agent owned by the supplied harness. */
   private async runningOwned(
     runId: string,
     harnessId: string,
   ): Promise<ActiveAgentRecord> {
-    /** Active Agent record loaded or created for the operation. */
+    /** Active Agent loaded for running-state and ownership checks. */
     const run = await this.provider.getActiveAgent(runId);
     if (run === null || run.status !== "running")
       throw new Error("Active Agent is not running");
     if (run.harnessId !== harnessId)
       throw new Error("Harness does not own Active Agent");
+    if (run.outcome !== "")
+      throw new Error("Active Agent is finalizing an outcome");
     return run;
   }
+
   /** Returns every run transitively parented by the requested run. */
   private descendants(
-    runId: string,
-    values: readonly ActiveAgentRecord[],
+    ancestorRunId: string,
+    snapshot: readonly ActiveAgentRecord[],
+    parents: ReadonlyMap<string, string | null> = this.parentIndex(snapshot),
   ): ActiveAgentRecord[] {
-    return values.filter((entry) => this.isDescendant(entry, runId, values));
+    return snapshot.filter((entry) =>
+      this.isDescendant(entry, ancestorRunId, parents),
+    );
   }
-  /** Reports whether descendant. */
+
+  /** Indexes the first parent relation for each Run ID in one snapshot. */
+  private parentIndex(
+    snapshot: readonly ActiveAgentRecord[],
+  ): ReadonlyMap<string, string | null> {
+    /** Parent relation lookup preserving Array.find's first-match behavior. */
+    const parents = new Map<string, string | null>();
+    for (const run of snapshot)
+      if (!parents.has(run.runId)) parents.set(run.runId, run.parentRunId);
+    return parents;
+  }
+
+  /** Counts parent links for deterministic deepest-first cleanup. */
+  private runDepth(
+    run: ActiveAgentRecord,
+    parents: ReadonlyMap<string, string | null>,
+  ): number {
+    /** Number of parent links used for deepest-first cleanup ordering. */
+    let depth = 0;
+    /** Parent Run ID currently followed toward the root. */
+    let parentRunId = run.parentRunId;
+    /** Parent IDs already traversed while defending against malformed cycles. */
+    const seen = new Set<string>();
+    while (parentRunId !== null && !seen.has(parentRunId)) {
+      seen.add(parentRunId);
+      depth += 1;
+      parentRunId = parents.get(parentRunId) ?? null;
+    }
+    return depth;
+  }
+
+  /** Tests transitive ancestry while terminating on missing parents or cycles. */
   private isDescendant(
     candidate: ActiveAgentRecord,
-    runId: string,
-    values: readonly ActiveAgentRecord[],
+    ancestorRunId: string,
+    parents: ReadonlyMap<string, string | null>,
   ): boolean {
     /** Parent run currently being followed toward the root. */
-    let parent = candidate.parentRunId;
+    let parentRunId = candidate.parentRunId;
     /** Identifiers already visited while detecting cycles or repetition. */
     const seen = new Set<string>();
-    while (parent !== null) {
-      if (parent === runId) return true;
-      if (seen.has(parent)) return false;
-      seen.add(parent);
-      parent =
-        values.find((entry) => entry.runId === parent)?.parentRunId ?? null;
+    while (parentRunId !== null) {
+      if (parentRunId === ancestorRunId) return true;
+      if (seen.has(parentRunId)) return false;
+      seen.add(parentRunId);
+      parentRunId = parents.get(parentRunId) ?? null;
     }
     return false;
   }
+}
+
+/** Builds the exact external execution context from already validated records. */
+function harnessContext(
+  agent: AgentRecord,
+  resources: ActiveAgentContext["resources"],
+  run: ActiveAgentRecord,
+  task: TaskRecord,
+): ActiveAgentContext {
+  return {
+    agent: harnessAgent(agent),
+    resources,
+    run,
+    systemPrompt: commandProxySystemPrompt(agent.taskDescription),
+    task: harnessTask(task),
+  };
+}
+
+/** Projects an Agent definition onto the fields an execution harness may read. */
+function harnessAgent(agent: AgentRecord): ActiveAgentContext["agent"] {
+  return {
+    allowedStatuses: agent.allowedStatuses,
+    allowedTaskTypes: agent.allowedTaskTypes,
+    id: agent.id,
+    key: agent.key,
+    model: agent.model,
+    name: agent.name,
+    notes: agent.notes,
+    reasoning: agent.reasoning,
+    taskDescription: agent.taskDescription,
+    transitions: agent.transitions,
+    version: agent.version,
+  };
+}
+
+/** Projects a Resource onto its execution-context fields. */
+function harnessResource(
+  resource: ResourceRecord,
+): ActiveAgentContext["resources"][number] {
+  return {
+    body: resource.body,
+    id: resource.id,
+    key: resource.key,
+    kind: resource.kind,
+    state: resource.state,
+    version: resource.version,
+  };
+}
+
+/** Projects a Task onto its execution-context fields. */
+function harnessTask(task: TaskRecord): ActiveAgentContext["task"] {
+  return {
+    body: task.body,
+    dependencies: task.dependencies,
+    id: task.id,
+    priority: task.priority,
+    status: task.status,
+    title: task.title,
+    type: task.type,
+    version: task.version,
+  };
 }
 
 /** Compares nullable paths with host-platform case semantics. */
@@ -715,4 +919,10 @@ function sameOptionalPath(left: string | null, right: string | null): boolean {
 /** Returns the stable Error key that gates a retry chain after its limit. */
 export function retryErrorKey(retryKey: string): string {
   return `active-agent-retry:${retryKey}`;
+}
+
+/** Restricts new run identities to one bounded path-safe component. */
+function assertNewRunId(runId: string): void {
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u.test(runId))
+    throw new Error("Run ID must be a path-safe identifier");
 }

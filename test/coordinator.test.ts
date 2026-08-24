@@ -22,7 +22,7 @@ import { EMPTY_AGENT_LIFECYCLE } from "../src/domain/lifecycle.js";
 import { EMPTY_AGENT_TASK_DESCRIPTION } from "../src/domain/task-description.js";
 import { InMemoryProvider } from "../src/provider/in-memory-provider.js";
 
-/** Decodes a Task record from its Notion page and Markdown. */
+/** Builds the canonical eligible Task used by coordinator scenarios. */
 function task(): TaskRecord {
   return {
     archived: false,
@@ -37,7 +37,8 @@ function task(): TaskRecord {
     version: "1",
   };
 }
-/** Decodes a Resource record from its Notion page and Markdown. */
+
+/** Builds one Resource fixture with configurable kind and lifecycle state. */
 function resource(
   id: string,
   kind = "Prompt",
@@ -54,14 +55,15 @@ function resource(
     version: "1",
   };
 }
-/** Decodes an Agent record from a stable Notion page and body. */
+
+/** Builds the canonical Agent definition used by coordinator scenarios. */
 function agent(): AgentRecord {
   return {
     allowedStatuses: ["Planned", "Blocked", "In review"],
     allowedTaskTypes: ["Feature"],
     archived: false,
     body: "Agent",
-    calledBy: "harness",
+    calledBy: "",
     commands: { exclusion: [] },
     enabled: true,
     id: "agent-1",
@@ -82,6 +84,7 @@ function agent(): AgentRecord {
     version: "1",
   };
 }
+
 /** Creates a coordinator fixture with deterministic records and clock. */
 function setup(
   now = new Date("2026-08-17T12:00:00.000Z"),
@@ -108,11 +111,11 @@ function setup(
 }
 
 test("configured lifecycle commands surround duties and replay only once", async () => {
-  /** Test fixture for events. */
+  /** Captured events used to verify "configured lifecycle commands surround duties and replay only once". */
   const events: string[] = [];
-  /** Test fixture for fail after. */
+  /** Fail after state observed by "configured lifecycle commands surround duties and replay only once". */
   let failAfter = false;
-  /** Test fixture for lifecycle. */
+  /** Lifecycle boundary exercised by "configured lifecycle commands surround duties and replay only once". */
   const lifecycle: AgentLifecycleCommands = {
     /** Runs configured post-Agent lifecycle commands in declaration order. */
     async after(_config, context) {
@@ -128,9 +131,9 @@ test("configured lifecycle commands surround duties and replay only once", async
       return resolve("runs", context.runId);
     },
   };
-  /** Test fixture for state. */
+  /** Coordinator state instrumented with ordered lifecycle callbacks. */
   const state = setup(new Date("2026-08-17T12:00:00.000Z"), lifecycle);
-  /** Test fixture for input. */
+  /** Input supplied to "configured lifecycle commands surround duties and replay only once". */
   const input = {
     agentKey: "coder",
     harnessId: "host-1",
@@ -138,7 +141,7 @@ test("configured lifecycle commands surround duties and replay only once", async
     runId: "run-hooks",
     taskId: "task-1",
   };
-  /** Test fixture for started. */
+  /** Flag recording started during "configured lifecycle commands surround duties and replay only once". */
   const started = await state.coordinator.start(input);
   assert.equal(started.run.workingDirectory, resolve("runs", "run-hooks"));
   await state.coordinator.start(input);
@@ -171,7 +174,7 @@ test("configured lifecycle commands surround duties and replay only once", async
 });
 
 test("a before command failure creates no Active Agent", async () => {
-  /** Test fixture for lifecycle. */
+  /** Lifecycle boundary exercised by "a before command failure creates no Active Agent". */
   const lifecycle: AgentLifecycleCommands = {
     /** Runs configured post-Agent lifecycle commands in declaration order. */
     async after() {},
@@ -184,7 +187,7 @@ test("a before command failure creates no Active Agent", async () => {
       return null;
     },
   };
-  /** Test fixture for state. */
+  /** Coordinator state whose preparation hook always fails. */
   const state = setup(new Date("2026-08-17T12:00:00.000Z"), lifecycle);
   await assert.rejects(
     state.coordinator.start({
@@ -199,10 +202,101 @@ test("a before command failure creates no Active Agent", async () => {
   assert.equal((await state.provider.listActiveAgents()).length, 0);
 });
 
+test("new run IDs cannot escape lifecycle working-directory templates", async () => {
+  /** Whether an unsafe identity reached lifecycle execution. */
+  let lifecycleStarted = false;
+  /** Lifecycle executor used to expose rendering past the coordinator boundary. */
+  const lifecycle: AgentLifecycleCommands = {
+    /** Terminal hook intentionally inert for the rejected start. */
+    async after() {},
+    /** Marks whether an unsafe Run ID reached lifecycle execution. */
+    async before() {
+      lifecycleStarted = true;
+    },
+    /** Renders the Run ID into a lifecycle working-directory path. */
+    workingDirectory(_config, context) {
+      return resolve("runs", context.runId);
+    },
+  };
+  /** Coordinator boundary exercised by "new run IDs cannot escape lifecycle working-directory templates". */
+  const { coordinator, provider } = setup(undefined, lifecycle);
+
+  await assert.rejects(
+    coordinator.start({
+      agentKey: "coder",
+      harnessId: "h",
+      parentRunId: null,
+      runId: "../escape",
+      taskId: "task-1",
+    }),
+    /path-safe identifier/u,
+  );
+
+  assert.equal(lifecycleStarted, false);
+  assert.equal((await provider.listActiveAgents()).length, 0);
+});
+
+test("start and restart enforce Agent and parent harness authority", async () => {
+  /** Provider with one Agent restricted to an exact harness identity. */
+  const restrictedProvider = new InMemoryProvider({
+    agents: [{ ...agent(), calledBy: "host-1" }],
+    resources: [resource("prompt"), resource("policy", "Policy")],
+    tasks: [task()],
+  });
+  /** Coordinator enforcing the Agent's exact harness restriction. */
+  const restricted = new AgentCoordinator(restrictedProvider);
+  await assert.rejects(
+    restricted.start({
+      agentKey: "coder",
+      harnessId: "host-2",
+      parentRunId: null,
+      runId: "denied",
+      taskId: "task-1",
+    }),
+    /not allowed to invoke Agent/u,
+  );
+  await restricted.start({
+    agentKey: "coder",
+    harnessId: "host-1",
+    parentRunId: null,
+    runId: "allowed",
+    taskId: "task-1",
+  });
+  await restricted.fail("allowed", "host-1", "retry");
+  await assert.rejects(
+    restricted.restart({
+      harnessId: "host-2",
+      restartOfRunId: "allowed",
+      runId: "denied-restart",
+    }),
+    /not allowed to invoke Agent/u,
+  );
+
+  /** Unrestricted Agent still requires children to use the owning harness. */
+  const parentState = setup();
+  await parentState.coordinator.start({
+    agentKey: "coder",
+    harnessId: "host-1",
+    parentRunId: null,
+    runId: "parent",
+    taskId: "task-1",
+  });
+  await assert.rejects(
+    parentState.coordinator.start({
+      agentKey: "coder",
+      harnessId: "host-2",
+      parentRunId: "parent",
+      runId: "foreign-child",
+      taskId: "task-1",
+    }),
+    /must use its parent harness/u,
+  );
+});
+
 test("after commands run for stopped descendants and their failed root", async () => {
-  /** Test fixture for terminal. */
+  /** Terminal state observed by "after commands run for stopped descendants and their failed root". */
   const terminal: string[] = [];
-  /** Test fixture for lifecycle. */
+  /** Lifecycle boundary exercised by "after commands run for stopped descendants and their failed root". */
   const lifecycle: AgentLifecycleCommands = {
     /** Runs configured post-Agent lifecycle commands in declaration order. */
     async after(_config, context) {
@@ -215,7 +309,7 @@ test("after commands run for stopped descendants and their failed root", async (
       return null;
     },
   };
-  /** Test fixture for state. */
+  /** Coordinator state recording descendant and root cleanup order. */
   const state = setup(new Date("2026-08-17T12:00:00.000Z"), lifecycle);
   await state.coordinator.start({
     agentKey: "coder",
@@ -231,14 +325,25 @@ test("after commands run for stopped descendants and their failed root", async (
     runId: "child",
     taskId: "task-1",
   });
+  await state.coordinator.start({
+    agentKey: "coder",
+    harnessId: "host-1",
+    parentRunId: "child",
+    runId: "grandchild",
+    taskId: "task-1",
+  });
   await state.coordinator.fail("root", "host-1", "failed");
-  assert.deepEqual(terminal, ["child:stopped", "root:failed"]);
+  assert.deepEqual(terminal, [
+    "grandchild:stopped",
+    "child:stopped",
+    "root:failed",
+  ]);
 });
 
 test("start returns current context, replays a matching Run ID, and enforces one root", async () => {
-  /** Test fixture for coordinator. */
+  /** Coordinator boundary exercised by "start returns current context, replays a matching Run ID, and enforces one root". */
   const { coordinator } = setup();
-  /** Test fixture for input. */
+  /** Input supplied to "start returns current context, replays a matching Run ID, and enforces one root". */
   const input = {
     agentKey: "coder",
     harnessId: "host-1",
@@ -253,6 +358,12 @@ test("start returns current context, replays a matching Run ID, and enforces one
     first.resources.map((entry) => entry.key),
     ["prompt", "policy"],
   );
+  assert.equal("lifecycleCommands" in first.agent, false);
+  assert.equal("commands" in first.agent, false);
+  assert.equal("body" in first.agent, false);
+  assert.equal("properties" in first.agent, false);
+  assert.equal("properties" in first.resources[0]!, false);
+  assert.equal("properties" in first.task, false);
   assert.equal((await coordinator.start(input)).run.id, first.run.id);
   await assert.rejects(
     coordinator.start({ ...input, runId: "run-2" }),
@@ -264,8 +375,27 @@ test("start returns current context, replays a matching Run ID, and enforces one
   );
 });
 
+test("start never replays a terminal Run ID", async () => {
+  /** Coordinator boundary exercised by "start never replays a terminal Run ID". */
+  const { coordinator } = setup();
+  /** Stable invocation reused after its run becomes terminal. */
+  const input = {
+    agentKey: "coder",
+    harnessId: "h",
+    parentRunId: null,
+    runId: "terminal-run",
+    taskId: "task-1",
+  };
+  await coordinator.start(input);
+  await coordinator.complete("terminal-run", "h", "succeeded");
+  await assert.rejects(
+    coordinator.start(input),
+    /belongs to a terminal Active Agent/u,
+  );
+});
+
 test("children require a running same-Task parent and a root cannot complete over them", async () => {
-  /** Test fixture for coordinator, provider. */
+  /** Coordinator, provider boundary exercised by "children require a running same-Task parent and a root cannot complete over them". */
   const { coordinator, provider } = setup();
   await coordinator.start({
     agentKey: "coder",
@@ -294,7 +424,7 @@ test("children require a running same-Task parent and a root cannot complete ove
 });
 
 test("configured Agents persist required Task sections before completion", async () => {
-  /** Test fixture for planner. */
+  /** Planner boundary exercised by "configured Agents persist required Task sections before completion". */
   const planner = {
     ...agent(),
     key: "task-planner",
@@ -309,9 +439,9 @@ test("configured Agents persist required Task sections before completion", async
     resources: [resource("prompt"), resource("policy", "Policy")],
     tasks: [task()],
   });
-  /** Test fixture for coordinator. */
+  /** Coordinator boundary exercised by "configured Agents persist required Task sections before completion". */
   const coordinator = new AgentCoordinator(provider);
-  /** Test fixture for context. */
+  /** Started context whose system prompt advertises the section capability. */
   const context = await coordinator.start({
     agentKey: planner.key,
     harnessId: "h",
@@ -339,7 +469,7 @@ test("configured Agents persist required Task sections before completion", async
     first.body,
     "Task context\n\n## Planning\n\n### Scope\n\nImplementation-ready.\n",
   );
-  /** Test fixture for revised. */
+  /** Revised state observed by "configured Agents persist required Task sections before completion". */
   const revised = await coordinator.updateTaskSection(
     "planner",
     "h",
@@ -353,7 +483,7 @@ test("configured Agents persist required Task sections before completion", async
 });
 
 test("Task section updates enforce run ownership and description drift", async () => {
-  /** Test fixture for planner. */
+  /** Planner boundary exercised by "Task section updates enforce run ownership and description drift". */
   const planner = {
     ...agent(),
     taskDescription: {
@@ -367,7 +497,7 @@ test("Task section updates enforce run ownership and description drift", async (
     resources: [resource("prompt"), resource("policy", "Policy")],
     tasks: [task()],
   });
-  /** Test fixture for coordinator. */
+  /** Coordinator boundary exercised by "Task section updates enforce run ownership and description drift". */
   const coordinator = new AgentCoordinator(provider);
   await coordinator.start({
     agentKey: planner.key,
@@ -380,7 +510,7 @@ test("Task section updates enforce run ownership and description drift", async (
     coordinator.updateTaskSection("planner", "other", "Planning", "Plan."),
     /Harness does not own/u,
   );
-  /** Test fixture for current. */
+  /** Task body after the authorized section replacement. */
   const current = (await provider.getTask("task-1"))!;
   await provider.updateTaskBody("task-1", current.body, "Changed externally.");
   await assert.rejects(
@@ -390,7 +520,7 @@ test("Task section updates enforce run ownership and description drift", async (
 });
 
 test("heartbeats expire only after five minutes and stale parents stop their subtree", async () => {
-  /** Test fixture for state. */
+  /** Coordinator state driven by a controllable clock. */
   const state = setup();
   await state.coordinator.start({
     agentKey: "coder",
@@ -415,7 +545,7 @@ test("heartbeats expire only after five minutes and stale parents stop their sub
       Date.parse("2026-08-17T12:00:00.000Z") + STALE_AFTER_MILLISECONDS + 1,
     ),
   );
-  /** Test fixture for result. */
+  /** Sweep result after the heartbeat crosses the stale threshold. */
   const result = await state.coordinator.sweep();
   assert.equal(result.length, 1);
   assert.equal(result[0]!.run.status, "stale");
@@ -428,7 +558,7 @@ test("heartbeats expire only after five minutes and stale parents stop their sub
 });
 
 test("third infrastructure failure blocks retry until its Error is resolved, then resets the chain", async () => {
-  /** Test fixture for coordinator, provider. */
+  /** Coordinator, provider boundary exercised by "third infrastructure failure blocks retry until its Error is resolved, then resets the chain". */
   const { coordinator, provider } = setup();
   await coordinator.start({
     agentKey: "coder",
@@ -437,7 +567,7 @@ test("third infrastructure failure blocks retry until its Error is resolved, the
     runId: "attempt-1",
     taskId: "task-1",
   });
-  /** Test fixture for run. */
+  /** Current run attempt advanced through the retry-limit scenario. */
   let run = await coordinator.fail("attempt-1", "h", "infra");
   for (let attempt = 2; attempt <= MAX_ATTEMPTS; attempt += 1) {
     /** Run ID selected by the restart scenario. */
@@ -449,7 +579,7 @@ test("third infrastructure failure blocks retry until its Error is resolved, the
     });
     run = await coordinator.fail(id, "h", "infra");
   }
-  /** Test fixture for error key. */
+  /** Error key supplied to "third infrastructure failure blocks retry until its Error is resolved, then resets the chain". */
   const errorKey = retryErrorKey("attempt-1");
   assert.equal((await provider.getErrorByKey(errorKey))?.status, "open");
   await assert.rejects(
@@ -461,7 +591,7 @@ test("third infrastructure failure blocks retry until its Error is resolved, the
     /blocked/,
   );
   await coordinator.resolveError(errorKey, "Human approved a clean retry");
-  /** Test fixture for restarted. */
+  /** Restarted state observed by "third infrastructure failure blocks retry until its Error is resolved, then resets the chain". */
   const restarted = await coordinator.restart({
     restartOfRunId: run.runId,
     harnessId: "h",
@@ -471,8 +601,78 @@ test("third infrastructure failure blocks retry until its Error is resolved, the
   assert.equal(restarted.run.retryKey, "fresh-chain");
 });
 
+test("a failed attempt can have only one replacement", async () => {
+  /** Coordinator boundary exercised by "a failed attempt can have only one replacement". */
+  const { coordinator } = setup();
+  await coordinator.start({
+    agentKey: "coder",
+    harnessId: "h",
+    parentRunId: null,
+    runId: "attempt-1",
+    taskId: "task-1",
+  });
+  await coordinator.fail("attempt-1", "h", "infra");
+  /** Unique replacement created for the failed source attempt. */
+  const replacement = await coordinator.restart({
+    harnessId: "h",
+    restartOfRunId: "attempt-1",
+    runId: "attempt-2",
+  });
+  assert.equal(replacement.run.attempt, 2);
+  await assert.rejects(
+    coordinator.restart({
+      harnessId: "h",
+      restartOfRunId: "attempt-1",
+      runId: "duplicate-attempt-2",
+    }),
+    /already has a replacement/u,
+  );
+});
+
+test("a disabled Agent cannot create a restart attempt", async () => {
+  /** Disabled definition retained so an existing failed run remains inspectable. */
+  const disabled = { ...agent(), enabled: false };
+  /** Provider retaining a failed run whose Agent is now disabled. */
+  const provider = new InMemoryProvider({
+    activeAgents: [
+      {
+        agentId: disabled.id,
+        agentVersion: disabled.version,
+        archived: false,
+        attempt: 1,
+        failureSummary: "stopped",
+        finishedAt: "2026-08-17T12:01:00.000Z",
+        harnessId: "h",
+        id: "active-disabled",
+        lastHeartbeat: "2026-08-17T12:00:00.000Z",
+        outcome: "",
+        parentRunId: null,
+        restartOfRunId: null,
+        retryKey: "disabled-run",
+        runId: "disabled-run",
+        startedAt: "2026-08-17T12:00:00.000Z",
+        status: "failed",
+        taskId: "task-1",
+        version: "run-version",
+        workingDirectory: null,
+      },
+    ],
+    agents: [disabled],
+    resources: [resource("prompt"), resource("policy", "Policy")],
+    tasks: [task()],
+  });
+  await assert.rejects(
+    new AgentCoordinator(provider).restart({
+      harnessId: "h",
+      restartOfRunId: "disabled-run",
+      runId: "replacement",
+    }),
+    /Disabled Agent cannot restart/u,
+  );
+});
+
 test("ordinary open Errors are informational and inactive Resources block start", async () => {
-  /** Test fixture for state. */
+  /** Coordinator state containing an informational Error and inactive Resource. */
   const state = setup();
   await state.coordinator.reportError({
     activeAgentId: null,
@@ -497,7 +697,7 @@ test("ordinary open Errors are informational and inactive Resources block start"
     ).run.status,
     "running",
   );
-  /** Test fixture for unavailable. */
+  /** Unavailable case exercised by "ordinary open Errors are informational and inactive Resources block start". */
   const unavailable = new InMemoryProvider({
     agents: [agent()],
     resources: [
@@ -520,7 +720,7 @@ test("ordinary open Errors are informational and inactive Resources block start"
 });
 
 test("Agent Task type and status allowlists guard assignment", async () => {
-  /** Test fixture for denied type. */
+  /** Denied type case exercised by "Agent Task type and status allowlists guard assignment". */
   const deniedType = new InMemoryProvider({
     agents: [agent()],
     resources: [resource("prompt"), resource("policy", "Policy")],
@@ -537,7 +737,7 @@ test("Agent Task type and status allowlists guard assignment", async () => {
     /not allowed to use Task type: Vulnerability/u,
   );
 
-  /** Test fixture for denied status. */
+  /** Denied status case exercised by "Agent Task type and status allowlists guard assignment". */
   const deniedStatus = new InMemoryProvider({
     agents: [agent()],
     resources: [resource("prompt"), resource("policy", "Policy")],
@@ -554,18 +754,18 @@ test("Agent Task type and status allowlists guard assignment", async () => {
     /not allowed to use Task status: Ready/u,
   );
 
-  /** Test fixture for transition agent. */
+  /** Transition agent case exercised by "Agent Task type and status allowlists guard assignment". */
   const transitionAgent = {
     ...agent(),
     allowedStatuses: ["Planned"],
   };
-  /** Test fixture for transition provider. */
+  /** Transition provider boundary exercised by "Agent Task type and status allowlists guard assignment". */
   const transitionProvider = new InMemoryProvider({
     agents: [transitionAgent],
     resources: [resource("prompt"), resource("policy", "Policy")],
     tasks: [task()],
   });
-  /** Test fixture for coordinator. */
+  /** Coordinator boundary exercised by "Agent Task type and status allowlists guard assignment". */
   const coordinator = new AgentCoordinator(transitionProvider);
   await coordinator.start({
     agentKey: "coder",
@@ -618,14 +818,90 @@ test("completion rejects Agent definition drift before mutating its Task", async
   assert.equal((await provider.getTask("task-1"))?.status, "Planned");
 });
 
+test("completion resumes after a persisted Task transition", async () => {
+  /** Coordinator, provider boundary exercised by "completion resumes after a persisted Task transition". */
+  const { coordinator, provider } = setup();
+  await coordinator.start({
+    agentKey: "coder",
+    harnessId: "h",
+    parentRunId: null,
+    runId: "partial-completion",
+    taskId: "task-1",
+  });
+  await provider.updateActiveAgent("partial-completion", {
+    completionTaskStatus: "Planned",
+    outcome: "succeeded",
+  });
+  /** Task snapshot used to simulate an already-persisted status transition. */
+  const taskBefore = (await provider.getTask("task-1"))!;
+  await provider.setTaskStatus(
+    taskBefore.id,
+    taskBefore.status,
+    taskBefore.version,
+    "In review",
+  );
+
+  /** Resumed completion result after the Task already reached its target. */
+  const completed = await coordinator.complete(
+    "partial-completion",
+    "h",
+    "succeeded",
+  );
+  assert.equal(completed.status, "completed");
+  assert.equal(completed.archived, true);
+});
+
+test("completion rejects Task status drift observed after its intent", async () => {
+  /** Provider mutated by the lifecycle hook to simulate a concurrent operator. */
+  const provider = new InMemoryProvider({
+    agents: [agent()],
+    resources: [resource("prompt"), resource("policy", "Policy")],
+    tasks: [task()],
+  });
+  /** Lifecycle hook that introduces Task drift after completion intent. */
+  const lifecycle: AgentLifecycleCommands = {
+    /** Changes the Task between intent persistence and guarded transition. */
+    async after() {
+      /** Task snapshot mutated to simulate a concurrent operator. */
+      const current = (await provider.getTask("task-1"))!;
+      await provider.setTaskStatus(
+        current.id,
+        current.status,
+        current.version,
+        "Blocked",
+      );
+    },
+    /** Preparation hook intentionally inert for this completion scenario. */
+    async before() {},
+    /** Uses the host default because path rendering is unrelated to the test. */
+    workingDirectory() {
+      return null;
+    },
+  };
+  /** Coordinator executing the lifecycle hook that introduces drift. */
+  const coordinator = new AgentCoordinator(provider, undefined, lifecycle);
+  await coordinator.start({
+    agentKey: "coder",
+    harnessId: "h",
+    parentRunId: null,
+    runId: "drifted-completion",
+    taskId: "task-1",
+  });
+  await assert.rejects(
+    coordinator.complete("drifted-completion", "h", "succeeded"),
+    /Task status changed while completion was pending/u,
+  );
+  assert.equal((await provider.getTask("task-1"))?.status, "Blocked");
+});
+
 test("legacy Agent versions fail closed until a canonical restart", async () => {
-  /** Test fixture for canonical agent. */
+  /** Canonical agent case exercised by "legacy Agent versions fail closed until a canonical restart". */
   const canonicalAgent = {
     ...agent(),
     restartCompatibleVersions: ["legacy-timestamp"],
     version: "body-digest",
   };
-  /** Test fixture for legacy run. */
+  /** Legacy run case exercised by "legacy Agent versions fail closed until a canonical restart". */
   const legacyRun = {
     agentId: canonicalAgent.id,
     agentVersion: "legacy-timestamp",
@@ -654,7 +930,7 @@ test("legacy Agent versions fail closed until a canonical restart", async () => 
     resources: [resource("prompt"), resource("policy", "Policy")],
     tasks: [task()],
   });
-  /** Test fixture for coordinator. */
+  /** Coordinator boundary exercised by "legacy Agent versions fail closed until a canonical restart". */
   const coordinator = new AgentCoordinator(provider);
 
   await assert.rejects(
@@ -677,7 +953,7 @@ test("legacy Agent versions fail closed until a canonical restart", async () => 
   );
   assert.equal((await provider.getTask("task-1"))?.status, "Planned");
   await coordinator.fail(legacyRun.runId, "h", "infra");
-  /** Test fixture for restarted. */
+  /** Restarted state observed by "legacy Agent versions fail closed until a canonical restart". */
   const restarted = await coordinator.restart({
     harnessId: "h",
     restartOfRunId: legacyRun.runId,
@@ -687,8 +963,70 @@ test("legacy Agent versions fail closed until a canonical restart", async () => 
   assert.equal(restarted.run.agentVersion, "body-digest");
 });
 
+test("termination never runs cleanup from a changed Agent definition", async () => {
+  /** Lifecycle calls that would execute the changed definition's commands. */
+  const cleanupVersions: string[] = [];
+  /** A run pinned to an earlier Agent definition case exercised by "termination never runs cleanup from a changed Agent definition". */
+  const staleRun = {
+    agentId: "agent-1",
+    agentVersion: "original-version",
+    archived: false,
+    attempt: 1,
+    failureSummary: "",
+    finishedAt: null,
+    harnessId: "h",
+    id: "active-stale-definition",
+    lastHeartbeat: "2026-08-17T12:00:00.000Z",
+    outcome: "",
+    parentRunId: null,
+    restartOfRunId: null,
+    retryKey: "stale-definition",
+    runId: "stale-definition",
+    startedAt: "2026-08-17T12:00:00.000Z",
+    status: "running" as const,
+    taskId: "task-1",
+    version: "run-version",
+    workingDirectory: null,
+  };
+  /** Current mutable definition, changed after the run began. */
+  const changedAgent = { ...agent(), version: "changed-version" };
+  /** Provider implementation that owns persistence for this invocation. */
+  const provider = new InMemoryProvider({
+    activeAgents: [staleRun],
+    agents: [changedAgent],
+    resources: [resource("prompt"), resource("policy", "Policy")],
+    tasks: [task()],
+  });
+  /** Lifecycle executor that exposes any untrusted cleanup attempt. */
+  const lifecycle: AgentLifecycleCommands = {
+    /** Records cleanup execution so definition drift cannot go unnoticed. */
+    async after(_config, context) {
+      cleanupVersions.push(context.agentKey);
+    },
+    /** Preparation hook unused during terminal cleanup. */
+    async before() {},
+    /** Uses the host default working directory for the cleanup scenario. */
+    workingDirectory() {
+      return null;
+    },
+  };
+  /** Coordinator asked to fail a run pinned to a stale Agent definition. */
+  const coordinator = new AgentCoordinator(provider, undefined, lifecycle);
+
+  /** Failed run returned after cleanup is deliberately withheld. */
+  const failed = await coordinator.fail(staleRun.runId, "h", "infra");
+
+  assert.equal(failed.status, "failed");
+  assert.deepEqual(cleanupVersions, []);
+  assert.equal(
+    (await provider.getErrorByKey("active-agent-cleanup:stale-definition"))
+      ?.severity,
+    "high",
+  );
+});
+
 test("completion rejects inherited transition property names", async () => {
-  /** Test fixture for coordinator, provider. */
+  /** Coordinator, provider boundary exercised by "completion rejects inherited transition property names". */
   const { coordinator, provider } = setup();
   await coordinator.start({
     agentKey: "coder",

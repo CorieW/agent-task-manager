@@ -24,7 +24,7 @@ import {
   type LifecycleCommandInvocation,
 } from "../src/core/lifecycle-commands.js";
 
-/** Test fixture for command. */
+/** Canonical lifecycle command used by parser and rendering scenarios. */
 const command = (executable: string) => ({
   arguments: ["{{runId}}", "{{workingDirectory}}", "{{status}}"],
   environment: {
@@ -38,15 +38,15 @@ const command = (executable: string) => ({
 });
 
 test("lifecycle commands render trusted context in configured order", async () => {
-  /** Test fixture for config. */
+  /** Config supplied to "lifecycle commands render trusted context in configured order". */
   const config: AgentLifecycleConfig = {
     afterAgent: [command("cleanup")],
     beforeAgent: [command("prepare")],
     workingDirectory: resolve("runs", "{{runId}}"),
   };
-  /** Test fixture for calls. */
+  /** Captured calls used to verify "lifecycle commands render trusted context in configured order". */
   const calls: LifecycleCommandInvocation[] = [];
-  /** Test fixture for lifecycle. */
+  /** Lifecycle boundary exercised by "lifecycle commands render trusted context in configured order". */
   const lifecycle = new ConfiguredLifecycleCommands(
     "project",
     { FORWARDED: "yes", PATH: "test-path", SECRET: "must-not-leak" },
@@ -54,9 +54,9 @@ test("lifecycle commands render trusted context in configured order", async () =
       calls.push(invocation);
     },
   );
-  /** Test fixture for start. */
+  /** Lifecycle context used to render trusted command placeholders. */
   const start = baseContext();
-  /** Test fixture for working directory. */
+  /** Working directory used to isolate "lifecycle commands render trusted context in configured order". */
   const workingDirectory = lifecycle.workingDirectory(config, start);
   assert.equal(workingDirectory, resolve("runs", "run-1"));
   await lifecycle.before(config, { ...start, workingDirectory });
@@ -90,13 +90,13 @@ test("lifecycle commands render trusted context in configured order", async () =
 });
 
 test("lifecycle command failures identify phase and run without leaking output", async () => {
-  /** Test fixture for config. */
+  /** Config supplied to "lifecycle command failures identify phase and run without leaking output". */
   const config: AgentLifecycleConfig = {
     afterAgent: [],
     beforeAgent: [command("prepare")],
     workingDirectory: null,
   };
-  /** Test fixture for lifecycle. */
+  /** Lifecycle boundary exercised by "lifecycle command failures identify phase and run without leaking output". */
   const lifecycle = new ConfiguredLifecycleCommands("project", {}, async () => {
     throw new Error("secret command output");
   });
@@ -114,7 +114,7 @@ test("lifecycle command failures identify phase and run without leaking output",
 });
 
 test("Agent lifecycle configuration rejects filters and unsafe templates", () => {
-  /** Test fixture for base. */
+  /** Base supplied to "Agent lifecycle configuration rejects filters and unsafe templates". */
   const base = {
     afterAgent: [],
     beforeAgent: [],
@@ -152,7 +152,7 @@ test("Agent lifecycle configuration rejects filters and unsafe templates", () =>
 });
 
 test("the no-op host fails closed for Agent-owned lifecycle commands", () => {
-  /** Test fixture for config. */
+  /** Config supplied to "the no-op host fails closed for Agent-owned lifecycle commands". */
   const config: AgentLifecycleConfig = {
     afterAgent: [],
     beforeAgent: [],
@@ -165,11 +165,11 @@ test("the no-op host fails closed for Agent-owned lifecycle commands", () => {
 });
 
 test("generic before and after commands can manage a Git worktree", async () => {
-  /** Test fixture for root. */
+  /** Root used to isolate "generic before and after commands can manage a Git worktree". */
   const root = await mkdtemp(join(tmpdir(), "atm-lifecycle-git-"));
-  /** Test fixture for repository. */
+  /** Repository used to isolate "generic before and after commands can manage a Git worktree". */
   const repository = join(root, "repository");
-  /** Test fixture for runs. */
+  /** Captured runs used to verify "generic before and after commands can manage a Git worktree". */
   const runs = join(root, "runs");
   await mkdir(repository);
   try {
@@ -181,7 +181,7 @@ test("generic before and after commands can manage a Git worktree", async () => 
     await git(repository, ["commit", "-m", "test: seed"]);
     await writeFile(join(repository, "local-only.txt"), "local\n", "utf8");
 
-    /** Test fixture for config. */
+    /** Config supplied to "generic before and after commands can manage a Git worktree". */
     const config: AgentLifecycleConfig = {
       beforeAgent: [
         {
@@ -212,11 +212,11 @@ test("generic before and after commands can manage a Git worktree", async () => 
       ],
       workingDirectory: join(runs, "{{runId}}"),
     };
-    /** Test fixture for lifecycle. */
+    /** Lifecycle boundary exercised by "generic before and after commands can manage a Git worktree". */
     const lifecycle = new ConfiguredLifecycleCommands("project");
-    /** Test fixture for start. */
+    /** Lifecycle context rooted in the temporary Git worktree. */
     const start = baseContext();
-    /** Test fixture for working directory. */
+    /** Working directory used to isolate "generic before and after commands can manage a Git worktree". */
     const workingDirectory = lifecycle.workingDirectory(config, start);
     assert.notEqual(workingDirectory, null);
     await lifecycle.before(config, { ...start, workingDirectory });

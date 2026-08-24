@@ -210,12 +210,12 @@ function safeName(identity: SingleHostMutexIdentity): string {
   return `${prefix}-${digest}`;
 }
 
-/** Reports whether already exists. */
+/** Recognizes the filesystem error raised for an existing lock file. */
 function isAlreadyExists(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "EEXIST";
 }
 
-/** Reports whether process alive. */
+/** Checks process liveness while treating permission denial as still alive. */
 function isProcessAlive(pid: number): boolean {
   if (!Number.isSafeInteger(pid) || pid <= 0) return false;
   try {

@@ -7,11 +7,13 @@ import { pathToFileURL } from "node:url";
 import test from "node:test";
 
 import {
+  cliErrorPayload,
   isDirectExecution,
   proxyExitCode,
   runCli,
   sweepWithRunLeases,
 } from "../src/cli.js";
+import { EnvironmentConfigError } from "../src/config/environment.js";
 import { AgentCoordinator } from "../src/core/coordinator.js";
 import type { ActiveAgentRecord } from "../src/domain/records.js";
 import { InMemoryProvider } from "../src/provider/in-memory-provider.js";
@@ -40,12 +42,12 @@ test("CLI rejects unknown and command-irrelevant flags", async () => {
 });
 
 test("boolean flags do not consume command positionals", async () => {
-  /** Test fixture for providers. */
+  /** Provider-list result reused to compare both boolean-flag positions. */
   const providers = {
     providers: [{ connectionSecret: "NOTION_TOKEN", type: "notion" }],
   };
   assert.deepEqual(await runCli(["--json", "providers"]), providers);
-  /** Test fixture for help. */
+  /** Help response proving the boolean flag left action tokens intact. */
   const help = await runCli(["task", "--help", "list"]);
   assert.equal(
     typeof help === "object" && help !== null && "help" in help,
@@ -62,7 +64,7 @@ test("CLI rejects unknown command shapes before loading configuration", async ()
     runCli(["providers", "bogus", "--json"]),
     /Unknown command: providers bogus/u,
   );
-  /** Test fixture for help. */
+  /** Help response inspected for the complete Active Agent command surface. */
   const help = await runCli(["help"]);
   assert.equal(
     typeof help === "object" &&
@@ -91,14 +93,30 @@ test("CLI reports signalled proxy commands as failures", () => {
   assert.equal(proxyExitCode({ result: "not a command" }), null);
 });
 
+test("CLI failures retain an always-JSON error contract", () => {
+  assert.deepEqual(cliErrorPayload(new Error("bad command")), {
+    error: { message: "bad command", name: "Error" },
+  });
+  assert.deepEqual(
+    cliErrorPayload(new EnvironmentConfigError(["provider is missing"])),
+    {
+      error: {
+        issues: ["provider is missing"],
+        message: "Invalid environment configuration:\n- provider is missing",
+        name: "TypeError",
+      },
+    },
+  );
+});
+
 test("CLI entry detection resolves linked global package directories", async () => {
-  /** Test fixture for root. */
+  /** Root used to isolate "CLI entry detection resolves linked global package directories". */
   const root = await mkdtemp(join(tmpdir(), "agent-task-manager-entry-"));
-  /** Test fixture for real directory. */
+  /** Real directory used to isolate "CLI entry detection resolves linked global package directories". */
   const realDirectory = join(root, "real");
-  /** Test fixture for linked directory. */
+  /** Linked directory used to isolate "CLI entry detection resolves linked global package directories". */
   const linkedDirectory = join(root, "linked");
-  /** Test fixture for real entry. */
+  /** Real entry used to isolate "CLI entry detection resolves linked global package directories". */
   const realEntry = join(realDirectory, "cli.js");
   try {
     await mkdir(realDirectory);
@@ -150,7 +168,7 @@ function activeRun(
 }
 
 test("sweep ignores an unrelated healthy command lease", async () => {
-  /** Test fixture for root. */
+  /** Root used to isolate "sweep ignores an unrelated healthy command lease". */
   const root = await mkdtemp(join(tmpdir(), "agent-task-manager-sweep-"));
   try {
     /** Provider implementation that owns persistence for this invocation. */
@@ -160,23 +178,23 @@ test("sweep ignores an unrelated healthy command lease", async () => {
         activeRun("healthy", "2026-08-17T12:09:00.000Z"),
       ],
     });
-    /** Test fixture for coordinator. */
+    /** Coordinator boundary exercised by "sweep ignores an unrelated healthy command lease". */
     const coordinator = new AgentCoordinator(
       provider,
       () => new Date("2026-08-17T12:10:00.000Z"),
     );
-    /** Test fixture for run mutex. */
+    /** Run mutex boundary exercised by "sweep ignores an unrelated healthy command lease". */
     const runMutex = (runId: string) =>
       new SingleHostMutex(
         { environmentId: "environment", runId, scope: "command" },
         root,
       );
-    /** Test fixture for release healthy. */
+    /** Release healthy callback exercised by "sweep ignores an unrelated healthy command lease". */
     const releaseHealthy = await runMutex("healthy").lock({
       reclaimable: false,
     });
     try {
-      /** Test fixture for result. */
+      /** Sweep result expected to contain only the stale root. */
       const result = await sweepWithRunLeases(
         new SingleHostMutex(
           { environmentId: "environment", scope: "environment" },
@@ -199,7 +217,7 @@ test("sweep ignores an unrelated healthy command lease", async () => {
 });
 
 test("sweep isolates a fenced stale subtree and releases partial leases", async () => {
-  /** Test fixture for root. */
+  /** Root used to isolate "sweep isolates a fenced stale subtree and releases partial leases". */
   const root = await mkdtemp(join(tmpdir(), "agent-task-manager-sweep-"));
   try {
     /** Provider implementation that owns persistence for this invocation. */
@@ -210,21 +228,21 @@ test("sweep isolates a fenced stale subtree and releases partial leases", async 
         activeRun("stale-b", "2026-08-17T12:00:00.000Z"),
       ],
     });
-    /** Test fixture for coordinator. */
+    /** Coordinator boundary exercised by "sweep isolates a fenced stale subtree and releases partial leases". */
     const coordinator = new AgentCoordinator(
       provider,
       () => new Date("2026-08-17T12:10:00.000Z"),
     );
-    /** Test fixture for run mutex. */
+    /** Run mutex boundary exercised by "sweep isolates a fenced stale subtree and releases partial leases". */
     const runMutex = (runId: string) =>
       new SingleHostMutex(
         { environmentId: "environment", runId, scope: "command" },
         root,
       );
-    /** Test fixture for release child. */
+    /** Release child callback exercised by "sweep isolates a fenced stale subtree and releases partial leases". */
     const releaseChild = await runMutex("child-a").lock({ reclaimable: false });
     try {
-      /** Test fixture for result. */
+      /** Sweep result expected after leasing the complete stale subtree. */
       const result = await sweepWithRunLeases(
         new SingleHostMutex(
           { environmentId: "environment", scope: "environment" },
@@ -242,7 +260,7 @@ test("sweep isolates a fenced stale subtree and releases partial leases", async 
         (await provider.getActiveAgent("stale-a"))?.status,
         "running",
       );
-      /** Test fixture for release root. */
+      /** Release root callback exercised by "sweep isolates a fenced stale subtree and releases partial leases". */
       const releaseRoot = await runMutex("stale-a").lock();
       await releaseRoot();
     } finally {
