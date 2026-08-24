@@ -23,7 +23,6 @@
     "format:check": "prettier --check .",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "migrate:management-v2": "pnpm build && node dist/scripts/migrate-management-v2.js",
     "test": "pnpm build && node --test dist/test/*.test.js",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

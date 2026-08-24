@@ -43,13 +43,4 @@ pnpm build
 node dist/src/cli.js help
 ```
 
-The tracked Management v2 migration is digest-authorized:
-
-```powershell
-pnpm migrate:management-v2 -- --plan
-pnpm migrate:management-v2 -- --apply --expected-plan-digest <sha256>
-```
-
-The migration targets only [Management v2](https://app.notion.com/p/Management-v2-3bf9a6efcd5880eeaf0edef3125a1534) and aborts on inventory or schema drift. It intentionally creates no backup.
-
 See [the documentation index](docs/README.md) for lifecycle and provider details.

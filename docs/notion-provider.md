@@ -1,4 +1,4 @@
-# Notion provider and Management v2
+# Notion provider
 
 ## Record mapping
 
@@ -13,11 +13,3 @@ Each Agents row has only the `Name` title property. Its page body is the authori
 The allowed Task types and statuses are exact, user-defined assignment inputs; they define where the Agent may work, not the destination statuses it may set through declared transitions. The manager does not impose a global enum. `commands` must contain exactly one `inclusion` or `exclusion` string array. No other Agent-definition schema version is accepted.
 
 `prompt/*` and `policy/*` selectors are resolved to current Resources by key; schema, query, schedule, and other selectors remain in the definition for the external harness. New Active Agents pin a body-bound SHA-256 Agent version. A run created by the immediately preceding timestamp-version build must be failed or swept before its exact Notion timestamp alias can rebase a restart; the replacement attempt pins the body-bound version.
-
-## Migration authorization
-
-`migrate:management-v2` is a one-time in-place migration for the exact Management v2 parent. `--plan` inventories every retained live row and schema, validates the expected legacy baseline or safe partial additive progress, and emits a SHA-256 digest. `--apply` refetches and requires that digest before any write.
-
-## Migration application
-
-The apply phase creates and populates the required properties and Active Agents database first. It converts either legacy Agent manifests or previously column-backed Agent descriptions into authoritative body definitions, rewrites the retained Prompt and Policy Resources, verifies resource keys, and only then archives obsolete rows and removes legacy properties. It emits observed IDs, counts, the final inventory digest, and the canonical schema digest. Per the selected policy, it neither exports a backup nor duplicates a database.
