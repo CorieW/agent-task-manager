@@ -209,7 +209,7 @@ export async function runCli(
     /** Brokered executable and its uninterpreted argument vector. */
     const [executable, ...arguments_] = parsed.commandArguments;
     if (executable === undefined)
-      throw new Error("command proxy requires a command after --");
+      throw new Error("command proxy requires a command");
     /** Run identity injected by the trusted command harness. */
     const runId = requiredEnvironmentValue(
       env,
@@ -413,8 +413,8 @@ export async function runCli(
 }
 
 /** Parsed CLI tokens split by their dispatch role. */
-interface ParsedArguments {
-  /** Tokens following `--`, passed unchanged to the command broker. */
+export interface ParsedArguments {
+  /** Executable and arguments passed unchanged to the command broker. */
   readonly commandArguments: readonly string[];
   /** Parsed long flags keyed without their leading `--`. */
   readonly flags: Readonly<Record<string, boolean | string>>;
@@ -443,7 +443,7 @@ function validateFlags(
 }
 
 /** Splits CLI tokens into positionals, flags, and broker arguments. */
-function parseArguments(argv: readonly string[]): ParsedArguments {
+export function parseArguments(argv: readonly string[]): ParsedArguments {
   /** Long flags accumulated from the argument vector. */
   const flags: Record<string, boolean | string> = {};
   /** Non-flag command tokens before the `--` boundary. */
@@ -455,6 +455,15 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
     const value = argv[index]!;
     if (value === "--") {
       commandArguments = argv.slice(index + 1);
+      break;
+    }
+    if (
+      positionals.length === 2 &&
+      positionals[0] === "command" &&
+      positionals[1] === "proxy" &&
+      !value.startsWith("--")
+    ) {
+      commandArguments = argv.slice(index);
       break;
     }
     if (!value.startsWith("--")) {

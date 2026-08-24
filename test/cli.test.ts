@@ -9,6 +9,7 @@ import test from "node:test";
 import {
   cliErrorPayload,
   isDirectExecution,
+  parseArguments,
   proxyExitCode,
   runCli,
   sweepWithRunLeases,
@@ -38,6 +39,67 @@ test("CLI rejects unknown and command-irrelevant flags", async () => {
   await assert.rejects(
     runCli(["command", "proxy", "--environment", "other.json", "--", "git"]),
     /Flag --environment is not allowed for command proxy/u,
+  );
+  await assert.rejects(
+    runCli(["command", "proxy", "--run-id", "other", "git"]),
+    /Flag --run-id is not allowed for command proxy/u,
+  );
+  await assert.rejects(
+    runCli(["command", "proxy", "--environment", "other.json", "git"]),
+    /Flag --environment is not allowed for command proxy/u,
+  );
+});
+
+test("CLI preserves separatorless PowerShell proxy arguments", () => {
+  assert.deepEqual(
+    parseArguments([
+      "command",
+      "proxy",
+      "git",
+      "status",
+      "--short",
+      "--branch",
+    ]),
+    {
+      commandArguments: ["git", "status", "--short", "--branch"],
+      flags: {},
+      positionals: ["command", "proxy"],
+    },
+  );
+  assert.deepEqual(
+    parseArguments([
+      "--json",
+      "command",
+      "proxy",
+      "git",
+      "--literal-proxy-flag",
+      "--",
+      "tail",
+    ]),
+    {
+      commandArguments: ["git", "--literal-proxy-flag", "--", "tail"],
+      flags: { json: true },
+      positionals: ["command", "proxy"],
+    },
+  );
+});
+
+test("CLI retains the documented separated proxy syntax", () => {
+  assert.deepEqual(
+    parseArguments([
+      "command",
+      "proxy",
+      "--json",
+      "--",
+      "git",
+      "status",
+      "--short",
+    ]),
+    {
+      commandArguments: ["git", "status", "--short"],
+      flags: { json: true },
+      positionals: ["command", "proxy"],
+    },
   );
 });
 
