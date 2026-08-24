@@ -618,7 +618,7 @@ export class NotionProvider implements AgentTaskProvider {
       path: "/v1/pages",
     });
     return requirePresent(
-      await this.getActiveAgent(input.runId),
+      (await this.activeRecords([page]))[0],
       `Created Active Agent is unavailable: ${requiredString(page.id, "Created page id")}`,
     );
   }
@@ -651,13 +651,14 @@ export class NotionProvider implements AgentTaskProvider {
       properties["Failure Summary"] = richText(patch.failureSummary);
     if (patch.status !== undefined && patch.status !== "running")
       Object.assign(properties, detachedTaskProperties(current.taskId));
-    await this.transport.request({
+    /** Authoritative Notion page returned by the mutation. */
+    const page = await this.transport.request({
       body: { properties },
       method: "PATCH",
       path: `/v1/pages/${current.id}`,
     });
     return requirePresent(
-      await this.getActiveAgent(runId),
+      (await this.activeRecords([page]))[0],
       `Updated Active Agent is unavailable: ${runId}`,
     );
   }

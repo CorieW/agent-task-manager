@@ -445,6 +445,44 @@ test("Notion terminal Active Agents detach from Tasks without losing retry ident
   assert.deepEqual(await provider.listActiveAgents(), []);
 });
 
+test("Notion Active Agent updates decode the authoritative PATCH page", async () => {
+  /** Transport whose query remains stale after returning an authoritative patch. */
+  const transport = new StaleActiveAgentUpdateTransport();
+  /** Updated record decoded directly from the mutation response. */
+  const updated = await lifecycleProvider(transport).updateActiveAgent(
+    "child",
+    {
+      finishedAt: "2026-08-17T12:01:00.000Z",
+      outcome: "completed work",
+      status: "completed",
+    },
+  );
+
+  assert.equal(transport.queryCount, 1);
+  assert.deepEqual(updated, {
+    agentId: ids.agent,
+    agentVersion: "agent-version",
+    archived: false,
+    attempt: 1,
+    completionTaskStatus: "",
+    failureSummary: "",
+    finishedAt: "2026-08-17T12:01:00.000Z",
+    harnessId: "harness",
+    id: ids.childRun,
+    lastHeartbeat: "2026-08-17T12:00:00.000Z",
+    outcome: "completed work",
+    parentRunId: null,
+    restartOfRunId: null,
+    retryKey: "child",
+    runId: "child",
+    startedAt: "2026-08-17T12:00:00.000Z",
+    status: "completed",
+    taskId: ids.task,
+    version: "2026-08-17T12:01:00.000Z",
+    workingDirectory: null,
+  });
+});
+
 test("Notion Active Agent creation persists historical Task identity", async () => {
   /** Transport boundary exercised by "Notion Active Agent creation persists historical Task identity". */
   const transport = new ActiveAgentCreationTransport();
@@ -463,7 +501,29 @@ test("Notion Active Agent creation persists historical Task identity", async () 
     workingDirectory: "C:\\runs\\child",
   });
 
-  assert.equal(created.taskId, ids.task);
+  assert.equal(transport.queryCount, 1);
+  assert.deepEqual(created, {
+    agentId: ids.agent,
+    agentVersion: "agent-version",
+    archived: false,
+    attempt: 1,
+    completionTaskStatus: "",
+    failureSummary: "",
+    finishedAt: null,
+    harnessId: "harness",
+    id: ids.childRun,
+    lastHeartbeat: "2026-08-17T12:00:00.000Z",
+    outcome: "",
+    parentRunId: null,
+    restartOfRunId: null,
+    retryKey: "child",
+    runId: "child",
+    startedAt: "2026-08-17T12:00:00.000Z",
+    status: "running",
+    taskId: ids.task,
+    version: "2026-08-17T12:00:00.000Z",
+    workingDirectory: "C:\\runs\\child",
+  });
   assert.deepEqual(
     transport.createdProperties?.Task,
     requestRelation([ids.task]),
@@ -905,19 +965,48 @@ class ActiveAgentLifecycleTransport implements NotionTransport {
   }
 }
 
+/** Returns an authoritative update while indexed Active Agent queries stay stale. */
+class StaleActiveAgentUpdateTransport implements NotionTransport {
+  /** Number of indexed Active Agent lookups made by the provider. */
+  public queryCount = 0;
+
+  /** Routes one stale pre-read and one authoritative update response. */
+  public async request(request: NotionRequest): Promise<JsonObject> {
+    if (request.path === `/v1/data_sources/${ids.activeAgents}/query`) {
+      this.queryCount += 1;
+      return pageResults([activeAgentLifecyclePage([ids.task])]);
+    }
+    if (
+      request.method === "PATCH" &&
+      request.path === `/v1/pages/${ids.childRun}`
+    )
+      return {
+        ...activeAgentLifecyclePage([], false, {
+          "Finished At": dateProperty("2026-08-17T12:01:00.000Z"),
+          Outcome: richTextProperty("rich_text", "completed work"),
+          Status: selectProperty("Completed"),
+        }),
+        last_edited_time: "2026-08-17T12:01:00.000Z",
+      };
+    throw new Error(
+      `Unexpected Notion request: ${request.method} ${request.path}`,
+    );
+  }
+}
+
 /** Captures the properties used to create an Active Agent page. */
 class ActiveAgentCreationTransport implements NotionTransport {
   /** Properties from the most recent Active Agent creation request. */
   public createdProperties: JsonObject | null = null;
+  /** Number of indexed Active Agent lookups made by the provider. */
+  public queryCount = 0;
 
   /** Routes Active Agent lookup and creation requests. */
   public async request(request: NotionRequest): Promise<JsonObject> {
-    if (request.path === `/v1/data_sources/${ids.activeAgents}/query`)
-      return pageResults(
-        this.createdProperties === null
-          ? []
-          : [activeAgentLifecyclePage([ids.task])],
-      );
+    if (request.path === `/v1/data_sources/${ids.activeAgents}/query`) {
+      this.queryCount += 1;
+      return pageResults([]);
+    }
     if (request.method === "POST" && request.path === "/v1/pages") {
       assert.ok(
         request.body !== undefined &&
@@ -934,7 +1023,9 @@ class ActiveAgentCreationTransport implements NotionTransport {
           !Array.isArray(properties),
       );
       this.createdProperties = properties;
-      return { id: ids.childRun };
+      return activeAgentLifecyclePage([ids.task], false, {
+        "Working Directory": richTextProperty("rich_text", "C:\\runs\\child"),
+      });
     }
     throw new Error(
       `Unexpected Notion request: ${request.method} ${request.path}`,
@@ -1218,6 +1309,7 @@ function activeAgentPage(
 function activeAgentLifecyclePage(
   taskIds: readonly string[],
   archived = false,
+  overrides: JsonObject = {},
 ): JsonObject {
   return page(ids.childRun, {
     Agent: relationProperty([ids.agent]),
@@ -1239,6 +1331,7 @@ function activeAgentLifecyclePage(
     Task: relationProperty(taskIds),
     "Task ID": richTextProperty("rich_text", ids.task),
     "Working Directory": richTextProperty("rich_text", ""),
+    ...overrides,
   });
 }
 
