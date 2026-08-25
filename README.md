@@ -67,3 +67,9 @@ pnpm install
 pnpm check
 pnpm build
 ```
+
+## Contributing
+
+Contributions are welcome. For substantial or breaking changes, open an issue
+first to agree on the approach. Keep pull requests focused, add or update tests,
+and run `pnpm check` before submitting.
