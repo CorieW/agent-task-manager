@@ -1,0 +1,68 @@
+name: Release
+
+on:
+  release:
+    types:
+      - published
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: npm-release-${{ github.event.release.tag_name }}
+
+jobs:
+  publish:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: npm
+
+    steps:
+      - name: Check out release tag
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Set up pnpm
+        uses: pnpm/setup@v2
+        with:
+          install: false
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify release tag
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: >-
+          node -e "const pkg = require('./package.json');
+          const expected = 'v' + pkg.version;
+          if (process.env.RELEASE_TAG !== expected)
+          throw new Error('Release tag ' + process.env.RELEASE_TAG + ' must equal ' + expected);"
+
+      - name: Run release checks
+        run: pnpm check
+
+      - name: Select npm dist-tag
+        id: npm-tag
+        env:
+          PRERELEASE: ${{ github.event.release.prerelease }}
+        run: |
+          if [ "$PRERELEASE" = "true" ]; then
+            echo "value=next" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=latest" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish with npm trusted publishing
+        env:
+          NPM_TAG: ${{ steps.npm-tag.outputs.value }}
+        run: npm publish --access public --tag "$NPM_TAG"

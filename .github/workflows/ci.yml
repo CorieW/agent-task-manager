@@ -32,6 +32,8 @@ jobs:
             script: knip
           - name: Tests
             script: test
+          - name: Packaging
+            script: pack:check
 
     steps:
       - name: Check out repository
