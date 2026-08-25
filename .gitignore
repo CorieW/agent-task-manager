@@ -6,4 +6,5 @@ coverage/
 !.env.example
 *.log
 .agent-task-manager/
+.playwright-mcp/
 agent-task-manager.environment.json

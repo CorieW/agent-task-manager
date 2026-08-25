@@ -18,11 +18,12 @@
   ],
   "scripts": {
     "build": "node scripts/build.mjs",
-    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test",
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm knip && pnpm test",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
+    "knip": "knip",
     "test": "pnpm build && node --test dist/test/*.test.js",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
@@ -34,6 +35,7 @@
     "@eslint/js": "^10.0.1",
     "@types/node": "24.13.3",
     "eslint": "^10.8.1",
+    "knip": "^6.32.2",
     "prettier": "^3.9.6",
     "typescript": "5.9.3",
     "typescript-eslint": "^8.66.0"
