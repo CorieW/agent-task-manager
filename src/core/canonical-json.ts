@@ -2,7 +2,7 @@
 import type { JsonValue } from "../domain/json.js";
 
 /** Error raised when canonical JSON validation fails. */
-export class CanonicalJsonError extends TypeError {}
+class CanonicalJsonError extends TypeError {}
 
 /** Serializes a JSON value into deterministic canonical text. */
 export function canonicalize(value: JsonValue): string {
