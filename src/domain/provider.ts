@@ -1,147 +1,78 @@
-/** Provider-neutral provider capabilities, environments, validation, write receipts, and reconciliation results contract. */
-import type { JsonObject, JsonValue } from "./json.js";
+/** Provider environment and workspace contracts. */
+import type { JsonObject } from "./json.js";
 
-/** Provider table kinds managed by the application. */
+/** Provider table kinds in deterministic schema and planning order. */
 export const TABLE_KINDS = [
   "tasks",
   "agents",
+  "activeAgents",
   "errors",
   "resources",
-  "operations",
 ] as const;
-
-/** Allowed table kind literals. */
+/** Name of one provider-managed record table. */
 export type TableKind = (typeof TABLE_KINDS)[number];
 
-/** Allowed conditional write strength literals. */
-export type ConditionalWriteStrength =
-  "advisory" | "atomic" | "optimistic" | "unavailable";
-
-/** Canonical fields for provider capabilities. */
-export interface ProviderCapabilities {
-  /** Whether the provider supports record archival. */
-  readonly archive: boolean;
-  /** Whether the provider supports attachments. */
-  readonly attachments: boolean;
-  /** Strength of the provider's conditional-write guarantee. */
-  readonly conditionalWrites: ConditionalWriteStrength;
-  /** Whether repeated pagination uses a stable ordering. */
-  readonly deterministicPagination: boolean;
-  /** Whether the provider can look up prior idempotent writes. */
-  readonly idempotencyLookup: boolean;
-  /** Leases for provider capabilities. */
-  readonly leases: "advisory" | "atomic" | "unavailable";
-  /** Whether the provider supports manager-owned page content. */
-  readonly managedContent: boolean;
-  /** Whether the provider supports relations between table records. */
-  readonly relations: boolean;
-  /** Whether the provider can inspect table schemas. */
-  readonly schemaDiscovery: boolean;
-  /** Whether the provider can create or extend table schemas. */
-  readonly schemaMutation: boolean;
-  /** Whether provider record IDs remain stable across reads. */
-  readonly stableRecordIds: boolean;
-}
-
-/** Canonical fields for provider environment. */
+/** Provider connection metadata, bootstrap parent, and configured table IDs. */
 export interface ProviderEnvironment {
-  /** Provider location under which missing tables may be created. */
+  /** Notion page under which missing managed databases are created. */
   readonly bootstrapParent: string | null;
-  /** Provider-specific connection settings. */
+  /** Provider-specific connection settings such as the token variable name. */
   readonly connection: JsonObject;
-  /** Tables for provider environment. */
-  readonly tables: Readonly<
-    Record<Exclude<TableKind, "operations">, string | null> & {
-      /** Operations table; omitted only by legacy bootstrap inputs. */
-      readonly operations?: string | null;
-    }
-  >;
-  /** Type for provider environment. */
+  /** Configured Notion data-source IDs keyed by managed table. */
+  readonly tables: Readonly<Record<TableKind, string | null>>;
+  /** Provider implementation discriminator. */
   readonly type: string;
 }
 
-/** Stable reference to provider record. */
-export interface ProviderRecordRef {
-  /** Stable identifier for provider record ref. */
-  readonly id: string;
-  /** Table for provider record ref. */
-  readonly table: TableKind;
-}
-
-/** Canonical fields for write receipt. */
-export interface WriteReceipt {
-  /** Key that identifies retries of the same logical operation. */
-  readonly idempotencyKey: string;
-  /** Provider version observed after the write. */
-  readonly observedVersion: string;
-  /** Provider record for write receipt. */
-  readonly providerRecord: ProviderRecordRef;
-  /** Timestamp when the provider acknowledged the write. */
-  readonly writtenAt: string;
-}
-
-/** Allowed reconciliation state literals. */
-export type ReconciliationState =
-  "applied" | "failed" | "indeterminate" | "not_applied";
-
-/** Result of reconciliation. */
-export interface ReconciliationResult {
-  /** Evidence for reconciliation result. */
-  readonly evidence: JsonObject;
-  /** Current state of reconciliation result. */
-  readonly state: ReconciliationState;
-}
-
-/** Durable provider intent used to prepare and replay a logical operation. */
-export interface ProviderOperationIntent {
-  /** Key that identifies retries of the same logical operation. */
-  readonly idempotencyKey: string;
-  /** Stable operation name bound to the idempotency key. */
-  readonly operation: string;
-  /** Canonical operation payload retained for restart-safe replay. */
-  readonly payload: JsonValue;
-  /** Canonical result after completion, or null while pending. */
-  readonly result: JsonValue;
-  /** Current durable intent state. */
-  readonly state: "applied" | "pending";
-}
-
-/** Structured issue discovered during provider validation. */
+/** One path-addressed environment or workspace validation failure. */
 export interface ValidationIssue {
-  /** Code for validation issue. */
+  /** Machine-readable validation or provider error code. */
   readonly code: string;
-  /** Message for validation issue. */
+  /** Human-readable validation issue description. */
   readonly message: string;
-  /** Path for validation issue. */
+  /** Configuration, validation, filesystem, or provider path for this value. */
   readonly path: string;
-  /** Severity for validation issue. */
-  readonly severity: "error" | "warning";
 }
 
-/** Validation report for validation. */
+/** Aggregate result of a non-mutating validation pass. */
 export interface ValidationReport {
-  /** Validation issues; empty when validation succeeds. */
+  /** Validation issues discovered for the environment or workspace. */
   readonly issues: readonly ValidationIssue[];
-  /** Whether validation completed without errors. */
+  /** Whether validation completed without issues. */
   readonly valid: boolean;
 }
 
-/** Canonical fields for page content. */
-export interface PageContent {
-  /** Provider-managed page body. */
-  readonly body: string;
-  /** SHA-256 digest of the page body. */
-  readonly digest: string;
+/** One deterministic additive table or property operation. */
+export interface WorkspaceStep {
+  /** Provider-owned record identifier. */
+  readonly id: string;
+  /** Domain or protocol classification of the record. */
+  readonly kind: "create_table" | "add_property";
+  /** JSON payload carried by the workspace step. */
+  readonly payload: JsonObject;
+  /** Managed table affected by the operation. */
+  readonly table: TableKind;
 }
 
-/** Persisted representation of generic provider. */
-export interface GenericProviderRecord {
-  /** Content for generic provider record. */
-  readonly content: PageContent | null;
-  /** Stable identifier for generic provider record. */
-  readonly id: string;
-  /** Provider-visible structured properties. */
-  readonly properties: Readonly<Record<string, JsonValue>>;
-  /** Opaque version token used for compatibility or concurrency checks. */
-  readonly version: string;
+/** Digest-bound additive workspace plan for one environment and target schema. */
+export interface WorkspacePlan {
+  /** Digest of the complete plan used for apply-time drift checking. */
+  readonly digest: string;
+  /** Stable identity used to isolate one managed environment. */
+  readonly environmentId: string;
+  /** Digest of the exact observed workspace schema used to derive the steps. */
+  readonly observedSchemaDigest: string;
+  /** Versioned schema identifier for the serialized object. */
+  readonly schema: "workspace-plan-v1";
+  /** Ordered workspace mutations authorized by the plan. */
+  readonly steps: readonly WorkspaceStep[];
+  /** Digest of the canonical schema the plan converges on. */
+  readonly targetSchemaDigest: string;
+  /** Exact provider target whose current state the plan authorizes mutating. */
+  readonly target: {
+    /** Normalized parent used to create missing tables. */
+    readonly bootstrapParent: string | null;
+    /** Normalized configured data-source IDs in canonical table order. */
+    readonly tables: Readonly<Record<TableKind, string | null>>;
+  };
 }

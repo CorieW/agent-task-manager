@@ -1,115 +1,61 @@
-# Getting started and CLI
+# Configuration and CLI
 
-## Install and build
+Copy `agent-task-manager.environment.example.json` to the ignored `agent-task-manager.environment.json`. Use schema `agent-task-manager-environment-v1`; configure the Management page and the data-source IDs for `tasks`, `agents`, `activeAgents`, `errors`, and `resources`.
 
-Agent Task Manager requires Node.js 22 or newer and pnpm 11.
+An Agent definition's optional `lifecycleCommands` provides ordered trusted commands around that Agent's duties. This Coder fragment creates an isolated Git worktree without embedding Git behavior in Agent Task Manager:
 
-```powershell
-pnpm install
-pnpm check
-pnpm build
-node dist/src/cli.js --help
+```json
+{
+  "schema": "agent-definition-v1",
+  "id": "coder",
+  "lifecycleCommands": {
+    "workingDirectory": "A:\\Projects\\.agent-runs\\{{runId}}",
+    "beforeAgent": [
+      {
+        "executable": "git",
+        "arguments": [
+          "worktree",
+          "add",
+          "-b",
+          "atm/{{runId}}",
+          "{{workingDirectory}}",
+          "main"
+        ],
+        "workingDirectory": "A:\\Projects\\project",
+        "environment": {},
+        "inheritEnvironment": [],
+        "timeoutMilliseconds": 120000
+      }
+    ],
+    "afterAgent": []
+  }
+}
 ```
 
-To expose the built CLI globally from this source checkout:
+Commands run sequentially without a shell and apply only to the Agent that declares them. They receive only process-lookup/runtime variables, explicitly named `inheritEnvironment` variables, configured `environment` values, and manager-owned `AGENT_TASK_MANAGER_*` lifecycle variables; host secrets are not forwarded implicitly. Arguments, environment values, executables, command working directories, and the Agent working-directory template can use `{{environmentId}}`, `{{agentKey}}`, `{{runId}}`, `{{taskId}}`, `{{harnessId}}`, `{{parentRunId}}`, `{{workingDirectory}}`, `{{status}}`, `{{outcome}}`, and `{{failureSummary}}`. The Agent working directory may use only stable start-context values. Omitting `lifecycleCommands` means no hooks and the host's default working directory. Programmatic hosts that do not install a lifecycle executor fail closed when an Agent declares non-empty lifecycle configuration.
 
-```powershell
-pnpm link --global
-agent-task-manager --help
+An Agent may also receive a scoped Task-description capability from its own definition:
+
+```json
+{
+  "schema": "agent-definition-v1",
+  "id": "task-planner",
+  "taskDescription": {
+    "writableSections": ["Planning"],
+    "requiredSectionsByOutcome": {
+      "succeeded": ["Planning"],
+      "needs_human": ["Planning"]
+    }
+  }
+}
 ```
 
-The link targets `dist`; run `pnpm build` after source changes before using
-the global command.
+The trusted harness supplies the complete section body through `active-agent update-task-section --run-id ID --harness-id ID --section Planning --input FILE|-`. The manager verifies run ownership, the pinned Agent definition, current Task eligibility, and the configured section allowlist. It then performs an exact-body compare-and-swap update that preserves all other Task content. Section bodies may contain nested headings but cannot introduce level-one or level-two headings. Completion fails closed when an outcome's required section is absent or empty.
 
-## Notion onboarding
+Before-command failure prevents Active Agent creation. After-command failure occurs before terminal Notion or Task mutations, leaving the run retryable. A process crash can still repeat an external command, so every configured command must be idempotent. Commands must finish and must not leave detached descendants. Lifecycle commands are trusted host automation and do not use the Agent's command inclusion/exclusion policy.
 
-1. Create a Notion internal integration and put its token in the local
-   `NOTION_TOKEN` environment variable.
-2. Create or choose one bootstrap parent page, then share that page and any
-   existing managed databases with the integration.
-3. Copy `agent-task-manager.environment.example.json` to
-   `agent-task-manager.environment.json` and replace the placeholder
-   `bootstrapParent` URL.
-4. Leave table IDs `null` only for tables the authorized `init` command should
-   create. Otherwise use stable Notion database or data-source IDs.
-5. Validate or plan before authorizing any write.
+Run `validate` before starting work. `init --plan` emits a deterministic digest. Apply only the still-current plan with `init --apply --expected-plan-digest <digest>`.
 
-```powershell
-$env:NOTION_TOKEN = "..."
-Copy-Item agent-task-manager.environment.example.json agent-task-manager.environment.json
-pnpm build
-node dist/src/cli.js validate --config agent-task-manager.environment.json
-node dist/src/cli.js init --plan --json --config agent-task-manager.environment.json
-```
+The harness starts a run with caller-supplied Run and Harness IDs, sends heartbeats, and then calls `complete` or `fail`. Reusing the same Run ID with identical start parameters replays the existing run. Use `sweep` to mark expired runs stale and `restart` to start a failed subtree again.
 
-Configuration describes the environment only. Keep credentials in environment
-variables or an external secret store; `provider.connection` contains only the
-environment-variable name. The real default configuration file is ignored by
-Git and must never contain credentials. The tracked example's empty
-`effects.settings` is illustrative and cannot run tool-enabled handlers until a
-host supplies validated environment-specific settings.
-
-## Workspace commands
-
-Planning is read-only. Applying initialization or an additive migration is a
-human-authorized operation requiring the exact SHA-256 digest returned by a
-fresh plan.
-
-```powershell
-node dist/src/cli.js providers
-node dist/src/cli.js validate [--json] [--config <path>]
-node dist/src/cli.js init --plan --json [--config <path>]
-node dist/src/cli.js init --apply --expected-plan-digest <sha256> [--write-environment] [--config <path>]
-node dist/src/cli.js migrate --plan --json [--config <path>]
-node dist/src/cli.js migrate --apply --expected-plan-digest <sha256> [--write-environment] [--config <path>]
-node dist/src/cli.js inspect --task <task-id> --json [--config <path>]
-node dist/src/cli.js inspect --agent <definition-id> --json [--config <path>]
-node dist/src/cli.js inspect --lease <lease-id> --json [--config <path>]
-node dist/src/cli.js candidates --agent <definition-id> --json [--config <path>]
-node dist/src/cli.js assignment prepare --agent <definition-id> --task <task-id> --operation-key <stable-key> --json [--config <path>]
-node dist/src/cli.js assignment renew --operation-key <stable-key> --expires-at <canonical-future-utc-timestamp> --json [--config <path>]
-node dist/src/cli.js assignment complete --operation-key <stable-key> --completion <json-path|-> --json [--config <path>]
-node dist/src/cli.js reconcile activity --agent <definition-id> --json [--config <path>]
-node dist/src/cli.js reconcile human --task <task-id> --slot <sha256> --json [--config <path>]
-node dist/src/cli.js reconcile lease --lease <lease-id> --owner <owner-id> --expected-version <sha256> --json [--config <path>]
-```
-
-`providers` is configuration-free and prints the built-in provider types
-without contacting a provider. Commands that accept `--config` default to
-`agent-task-manager.environment.json`.
-
-Apply stores provider-backed step intents and receipts around every mutation.
-Once Operations exists, the full authorized bootstrap session can resume after
-interruption. `--write-environment` atomically fills only the five table IDs
-after the provider schema verifies ready; otherwise the proposed patch is
-printed and recorded for a human.
-
-`inspect` is read-only. The three `reconcile` forms perform only the named
-repair:
-
-- activity derives `Status` and `Working On` from live leases;
-- human reconciliation consumes one already-completed slot; and
-- lease reconciliation releases one exact lease/owner/version tuple.
-
-`candidates` is a read-only provider-defined Task selection snapshot.
-`assignment prepare` acquires the exact Task and Agent leases and returns an
-immutable, digest-bound context. A ChatGPT Scheduled Task or another external
-harness performs the role, creates child agents when needed, and executes any
-approved external effects. `assignment complete` validates the harness result
-and ordered effect attestations, applies the provider-defined outcome, and
-releases the leases. The CLI never calls a model endpoint.
-
-Preparation defaults to a 24-hour lease horizon. Long-running harnesses should
-call `assignment renew` before expiry. Renewal is idempotent and, if the leases
-already expired, reacquires the exact unchanged assignment only when no
-competing lease exists. Completion uses the same fail-closed recovery as a last
-resort, while still rejecting changed Tasks, definitions, Resources, or owners.
-
-Operational CLI commands currently support Notion environments. Provider-neutral
-library APIs remain available for other provider integrations. See the
-[external harness workflow](external-harness.md) for the complete handshake.
-
-Inspect a lease before releasing it. A concurrent renewal changes its opaque
-version and makes the compare-and-set fail. Released snapshots remain
-inspectable until the same logical lease slot is reacquired, while active
-projections always exclude released snapshots.
+Errors can be reported from a JSON file or standard input with `error report --input FILE|-`, and a human can unblock an exhausted retry chain with `error resolve`.

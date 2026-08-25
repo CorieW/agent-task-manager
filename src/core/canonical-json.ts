@@ -27,7 +27,7 @@ export function canonicalize(value: JsonValue): string {
     return `[${value.map((entry) => canonicalize(entry)).join(",")}]`;
   }
 
-  /** Normalized used during canonicalize. */
+  /** Entries with keys normalized to NFC before collision detection. */
   const normalized = Object.entries(value).map(
     ([key, entry]) => [key.normalize("NFC"), entry] as const,
   );
@@ -36,7 +36,7 @@ export function canonicalize(value: JsonValue): string {
       "Object contains keys that collide after NFC normalization",
     );
   }
-  /** Entries arranged in deterministic order. */
+  /** Copied entries sorted lexicographically without mutating the input object. */
   const entries = normalized.sort(([left], [right]) =>
     left < right ? -1 : left > right ? 1 : 0,
   );

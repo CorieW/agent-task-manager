@@ -1,0 +1,39 @@
+# Lifecycle and harness contract
+
+## Starting and replay
+
+An Active Agent is a disposable execution projection. Starting one parses the Agent definition from its page body, validates that it is enabled, resolves every `promptResources` and `inputResourceSelectors` key to an active Resource, and then validates the Task Type and Status against the Agent's user-defined allowlists, optional same-Task parent, and Task root exclusivity. Prompt keys must use `prompt/*` and resolve to Prompt Resources; input selectors may use any key and Resource Kind. Replay and restart recheck those allowlists and Resource grants. The response contains the current Task and Resource bodies, a narrowed Agent execution projection, and a strict assignment-and-command system prompt; it contains no Agent body, manager-only policy, raw provider properties, transcript, or snapshot.
+
+## Heartbeats and terminal records
+
+The harness refreshes `Last Heartbeat`. A heartbeat more than five minutes old is stale. Failure or staleness stops and archives descendants but leaves the run's parent running. Every terminal transition clears the run's live `Task` relation so the reciprocal Task `Active Agents` relation contains running agents only. The immutable `Task ID` metadata preserves retry and audit identity after detachment. Failed and stale rows remain visible; successful and ancestor-stopped rows are archived.
+
+## Retry chains
+
+Each Retry Key permits three attempts. The third failure reports `active-agent-retry:<retry-key>` and blocks another restart until a human resolves that Error. The next restart begins a new attempt-one chain. Other Errors are informational.
+
+## Completion and transitions
+
+Completion is rejected while descendants run and unless the outcome exists in the Agent definition's `transitions` object. The current Task must still satisfy the Agent's assignment allowlists. When `taskDescription.requiredSectionsByOutcome` configures the outcome, every named level-two section must exist with non-empty content before any after-command or terminal mutation runs. A declared transition may move the Task to a destination status outside `allowedStatuses`; that status is where another Agent or a human continues the workflow. `$current` leaves the status unchanged. The successful Active Agent is then archived.
+
+## Task-description capability
+
+`taskDescription.writableSections` is an Agent-owned capability boundary, not a global Planner special case. A running, harness-owned Agent may ask the harness to call `active-agent update-task-section` for an allowed section. The manager rechecks the pinned Agent version, working directory, Task eligibility, and exact section name, rejects section content that could escape into another top-level section, and atomically replaces the exact observed Task Markdown through the provider. No Agent receives unrestricted Task property, status, or page mutation access.
+
+## Coordination and run leases
+
+The CLI serializes short lifecycle mutations with the environment mutex. `AGENT_TASK_MANAGER_COORDINATION_DIRECTORY` must name an existing absolute directory reserved for these files and protected from every Agent sandbox by an operating-system identity, ACL, or filesystem namespace; programmatic hosts must provide an equally protected root. A proxied command registers a non-reclaimable run-scoped lease under that mutex, then releases the environment mutex while the broker executes. Heartbeats and unrelated runs therefore continue; terminal mutations fail closed while any affected run lease is active. If a manager dies, its orphaned command lease remains a quarantine fence; an operator may remove it only after independently verifying that the broker containment boundary stopped. Programmatic hosts must use the same durable two-phase gate. Multi-host coordination is unsupported. Deploy mutex filename changes only after stopping older writers, because mixed versions do not share lock paths. External actions are at-least-once, so the harness must make repeats safe.
+
+## Command proxy
+
+The harness must expose no shell, terminal, process API, or direct executable tool to an Agent. Every operating-system command must use `agent-task-manager command proxy -- COMMAND [ARGUMENT...]`. For each invocation, the trusted harness must inject the current run through `AGENT_TASK_MANAGER_COMMAND_RUN_ID` and `AGENT_TASK_MANAGER_COMMAND_HARNESS_ID`; the Agent must not control those variables or select an environment file. The proxy rejects non-running or foreign-owned runs, Agent-definition drift, path-like executable names, and commands denied by the Agent's inclusion or exclusion policy.
+
+## Broker contract
+
+The host must set `AGENT_TASK_MANAGER_COMMAND_BROKER` to the absolute path of a trusted sandbox broker. The manager writes one newline-framed, versioned JSON request (`{"schema":"agent-command-broker-request-v1","runId":"run-1","command":"git","arguments":["status"],"commands":{"inclusion":["git"]},"workingDirectory":"/agent-runs/run-1"}`) to the broker's standard input and requires one `ProxyCommandResult` JSON object on standard output. When non-null, the manager also starts the broker in that persisted `workingDirectory`.
+
+The broker must parse and start from that newline without waiting for end-of-file. The manager keeps standard input open as a liveness channel for the full exchange; the broker must not pass that descriptor to descendants. End-of-file or an input error before normal broker exit means the manager died or cancelled, so the broker must terminate its complete containment boundary and exit cleanly only after confirming that boundary is empty.
+
+Canonical command identity follows the broker host: Windows folds ASCII case and executable suffix/trailing-dot aliases, while non-Windows hosts preserve the validated name exactly. The broker must resolve that canonical command to a pinned executable, contain the complete process tree, and apply the supplied inclusion or exclusion policy to every descendant executable. It must also enforce its own resource limits and cancellation deadline, remove direct host credentials, give descendants private temporary storage, and deny them all access to the manager coordination directory. The manager does not forward host temporary-directory variables to the broker.
+
+The manager independently limits the exchange to five minutes and 1 MiB of combined broker output; hosts may set `AGENT_TASK_MANAGER_COMMAND_TIMEOUT_MS`, `AGENT_TASK_MANAGER_COMMAND_MAX_OUTPUT_BYTES`, and `AGENT_TASK_MANAGER_COMMAND_TERMINATION_GRACE_MS` to positive integers. On a limit breach, the manager closes the liveness channel and allows that grace period for broker cleanup. A clean exit confirms shutdown and releases the run lease; a forced, signalled, or otherwise abnormal exit leaves the non-reclaimable lease as an operator-recoverable fence rather than permitting a terminal lifecycle transition. The CLI fails closed when no broker is configured; the manager never executes an Agent-requested executable itself.

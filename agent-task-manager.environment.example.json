@@ -1,50 +1,18 @@
 {
   "schema": "agent-task-manager-environment-v1",
-  "environmentId": "local-demo",
-  "adapters": {
-    "agentRunner": "configured-runner",
-    "modelTransport": "configured-model-transport",
-    "publication": null,
-    "sandbox": "configured-tool-isolation"
-  },
-  "effects": {
-    "handlers": {
-      "browser.run": "disposable-browser",
-      "child_agent.wave": "provider-child-agent-wave",
-      "command.run": "configured-command",
-      "git.branch": "local-git",
-      "git.commit": "local-git",
-      "git.observe": "local-git",
-      "git.push": "local-git",
-      "publication.draft_pr": "draft-publication",
-      "workspace.provision": "local-git-workspace",
-      "workspace.release": "local-git-workspace"
-    },
-    "settings": {}
-  },
+  "environmentId": "management-v2",
   "provider": {
     "type": "notion",
     "connection": {
-      "authEnvironmentVariable": "NOTION_TOKEN"
+      "tokenEnv": "NOTION_TOKEN"
     },
-    "bootstrapParent": "https://www.notion.so/00000000000000000000000000000000",
+    "bootstrapParent": null,
     "tables": {
       "tasks": null,
       "agents": null,
+      "activeAgents": null,
       "errors": null,
-      "operations": null,
       "resources": null
     }
-  },
-  "runtime": {
-    "allowedEnvironmentNames": [],
-    "allowedNetworkOrigins": [],
-    "allowedReadRoots": ["C:/Projects/replace-with-your-repository"],
-    "allowedWriteRoots": ["C:/AgentTaskManager/local-demo/worktrees"],
-    "concurrencyMode": "single-host",
-    "outputLimitBytes": 1000000,
-    "postKillReapMilliseconds": 5000,
-    "root": "C:/AgentTaskManager/local-demo",
-    "terminationGraceMilliseconds": 5000
   }
 }

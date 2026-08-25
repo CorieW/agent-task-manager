@@ -1,21 +1,38 @@
 # Agent Task Manager
 
-Provider-neutral infrastructure for task-driven AI agents. An external harness,
-such as a ChatGPT Scheduled Task, owns model interaction and child-agent
-creation. The CLI narrows its provider access to selection, leases, immutable
-context, validated completion, and recovery.
+Single-host coordination for disposable, task-driven AI agents. Notion stores project Tasks, Agent definitions, reusable Resources, Active Agent metadata, and Errors. Each Agent definition may run shell-free commands before and after its duties, bind its runs to a working-directory template, and receive any active Resources granted through its selectors. The external harness owns conversations, tools, publications, effects, repeat safety, and child processes.
 
-Authoritative workflow data is restricted to five provider table types:
-Tasks, Agents, Errors, Resources, and Operations. Resources contain prompts,
-policies, schemas, and context; the Operations table contains manager-owned
-execution state. Configuration describes only the
-environment, and local runtime artifacts are disposable. Notion is the first
-concrete provider.
+If a run fails, its failed subtree is restarted from the beginning. The manager deliberately stores no transcript, command history, lease, checkpoint, effect receipt, or resumable conversation state.
 
 ## Requirements
 
 - Node.js 22 or newer
 - pnpm 11
+- A Notion integration token when using the Notion provider
+
+## Commands
+
+```text
+task list|get
+agent list|get
+resource list|get
+active-agent list|get|start|heartbeat|update-task-section|complete|fail|sweep|restart
+command proxy -- COMMAND [ARGUMENT...]
+error list|get|report|resolve
+validate
+init --plan|--apply
+providers
+```
+
+Every command emits JSON. Set `AGENT_TASK_MANAGER_ENVIRONMENT` or pass `--environment`; the default is `agent-task-manager.environment.json`. For Notion, place the token in the environment variable named by `provider.connection.tokenEnv` (default `NOTION_TOKEN`).
+
+Set `AGENT_TASK_MANAGER_COORDINATION_DIRECTORY` to an existing absolute directory reserved for manager lock files. Its operating-system permissions or mount namespace must prevent Agent sandboxes from listing or modifying it.
+
+Agent commands additionally require `AGENT_TASK_MANAGER_COMMAND_BROKER` to name an absolute trusted sandbox-broker executable. The trusted harness must inject the current run through `AGENT_TASK_MANAGER_COMMAND_RUN_ID` and `AGENT_TASK_MANAGER_COMMAND_HARNESS_ID`; these values must not be controllable by the Agent. The manager authorizes requests but never spawns Agent-requested executables directly.
+
+Agent-definition v1 accepts optional `lifecycleCommands`. `beforeAgent` commands run after assignment preflight and before the Active Agent is created; `afterAgent` commands run after duties finish but before Task and Active Agent terminal mutations. A failure therefore leaves lifecycle state retryable. External command effects are not transactional, so configured commands must be idempotent and must not daemonize. These trusted commands are separate from Agent command allowlists and execute without a shell.
+
+Agent-definition v1 also accepts optional `taskDescription` boundaries. `writableSections` authorizes exact level-two Task-description sections, while `requiredSectionsByOutcome` prevents a declared outcome from completing until its configured sections exist with non-empty content. The harness persists content with `active-agent update-task-section`; Agents never receive arbitrary Task or Notion mutation access.
 
 ## Development
 
@@ -23,19 +40,7 @@ concrete provider.
 pnpm install
 pnpm check
 pnpm build
-node dist/src/cli.js --help
+node dist/src/cli.js help
 ```
 
-## Documentation
-
-- [Getting started and CLI](docs/getting-started.md)
-- [External harness workflow](docs/external-harness.md)
-- [Notion provider](docs/notion-provider.md)
-- [Agent definitions](docs/agent-definitions.md)
-- [Runtime security](docs/runtime-security.md)
-- [External-effect brokers](docs/external-effects.md)
-- [Human interaction and recovery](docs/human-recovery.md)
-- [Provider conformance and identification trials](docs/provider-conformance.md)
-- [Public API](docs/public-api.md)
-
-See the [documentation index](docs/README.md) for the complete guide set.
+See [the documentation index](docs/README.md) for lifecycle and provider details.

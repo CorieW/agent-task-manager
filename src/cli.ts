@@ -1,619 +1,827 @@
 #!/usr/bin/env node
-
-/** Implements the bounded CLI for workspace management, external harness assignments, inspection, and recovery. */
-import { randomUUID } from "node:crypto";
-import { readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+/** Command-line surface for the simplified, harness-owned lifecycle. */
+import { realpathSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+import { isAbsolute } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import process from "node:process";
 
 import {
+  EnvironmentConfigError,
   parseEnvironmentConfig,
   type EnvironmentConfig,
 } from "./config/environment.js";
-import { canonicalize } from "./core/canonical-json.js";
-import { sha256 } from "./core/digest.js";
-import { assertAuthorizedPlan } from "./core/migration-plan.js";
-import { toJsonValue, type JsonObject, type JsonValue } from "./domain/json.js";
-import type { TableKind } from "./domain/provider.js";
+import { AgentCoordinator, type SweepResult } from "./core/coordinator.js";
+import { ConfiguredLifecycleCommands } from "./core/lifecycle-commands.js";
 import {
-  completeHarnessAssignment,
-  parseHarnessAssignmentCompletion,
-  prepareHarnessAssignment,
-  prepareHarnessSelection,
-  renewHarnessAssignment,
-} from "./harness/assignment-session.js";
+  CommandProxy,
+  createCommandBrokerExecutor,
+  createCommandExecutionGate,
+} from "./core/command-proxy.js";
+import { toJsonValue, type JsonValue } from "./domain/json.js";
 import {
-  inspectHumanRecovery,
-  inspectLease,
-  inspectAgentActivity,
-  reconcileActivity,
-  reconcileHumanResponse,
-  reconcileLease,
-} from "./human/inspection.js";
+  type ActiveAgentRecord,
+  parseReportErrorInput,
+  type ReportErrorInput,
+} from "./domain/records.js";
+import type { AgentTaskProvider } from "./provider/agent-task-provider.js";
 import { NotionProvider } from "./provider/notion/notion-provider.js";
-import { createNotionWorkspaceSchema } from "./provider/notion/notion-schema.js";
 import { NotionHttpTransport } from "./provider/notion/notion-transport.js";
+import { SingleHostMutex } from "./provider/notion/single-host-mutex.js";
 
-/** Command-line usage and safety guidance. */
-const HELP = `Agent Task Manager
+/** Flags accepted before a command family and action. */
+const GLOBAL_FLAGS = ["environment", "help", "json"] as const;
+/** Flags that do not consume a following value. */
+const BOOLEAN_FLAGS = new Set(["apply", "help", "json", "plan"]);
+/** Declarative syntax for one CLI command. */
+interface CommandSpec {
+  /** Command-specific flags accepted by the parser. */
+  readonly flags: readonly string[];
+  /** Space-separated command family and action. */
+  readonly name: string;
+  /** Help text showing the command's invocation syntax. */
+  readonly usage: string;
+}
 
-Usage:
-  agent-task-manager validate [--json] [--config <path>]
-  agent-task-manager init --plan [--json] [--config <path>]
-  agent-task-manager init --apply --expected-plan-digest <sha256> [--write-environment] [--config <path>]
-  agent-task-manager migrate --plan [--json] [--config <path>]
-  agent-task-manager migrate --apply --expected-plan-digest <sha256> [--write-environment] [--config <path>]
-  agent-task-manager inspect (--task <task-id> | --agent <definition-id> | --lease <lease-id>) [--json] [--config <path>]
-  agent-task-manager candidates --agent <definition-id> [--json] [--config <path>]
-  agent-task-manager assignment prepare --agent <definition-id> --task <task-id> --operation-key <stable-key> [--expires-at <iso-timestamp>] [--depth <integer>] [--input <json-path>] [--json] [--config <path>]
-  agent-task-manager assignment renew --operation-key <stable-key> --expires-at <iso-timestamp> [--json] [--config <path>]
-  agent-task-manager assignment complete --operation-key <stable-key> --completion <json-path|-> [--json] [--config <path>]
-  agent-task-manager reconcile activity --agent <definition-id> [--json] [--config <path>]
-  agent-task-manager reconcile human --task <task-id> --slot <sha256> [--json] [--config <path>]
-  agent-task-manager reconcile lease --lease <lease-id> --owner <owner-id> --expected-version <sha256> [--json] [--config <path>]
-  agent-task-manager providers
+/** Supported command shapes and their accepted flags. */
+const COMMAND_SPECS: readonly CommandSpec[] = [
+  { flags: [], name: "help", usage: "help" },
+  {
+    flags: ["status"],
+    name: "task list",
+    usage: "task list [--status STATUS]",
+  },
+  { flags: ["id"], name: "task get", usage: "task get --id ID" },
+  { flags: [], name: "agent list", usage: "agent list" },
+  { flags: ["key"], name: "agent get", usage: "agent get --key KEY" },
+  { flags: [], name: "resource list", usage: "resource list" },
+  { flags: ["key"], name: "resource get", usage: "resource get --key KEY" },
+  { flags: [], name: "active-agent list", usage: "active-agent list" },
+  {
+    flags: ["run-id"],
+    name: "active-agent get",
+    usage: "active-agent get --run-id ID",
+  },
+  {
+    flags: ["agent-key", "harness-id", "parent-run-id", "run-id", "task-id"],
+    name: "active-agent start",
+    usage:
+      "active-agent start --run-id ID --agent-key KEY --task-id ID --harness-id ID [--parent-run-id ID]",
+  },
+  {
+    flags: ["harness-id", "run-id"],
+    name: "active-agent heartbeat",
+    usage: "active-agent heartbeat --run-id ID --harness-id ID",
+  },
+  {
+    flags: ["harness-id", "outcome", "run-id"],
+    name: "active-agent complete",
+    usage:
+      "active-agent complete --run-id ID --harness-id ID --outcome OUTCOME",
+  },
+  {
+    flags: ["harness-id", "input", "run-id", "section"],
+    name: "active-agent update-task-section",
+    usage:
+      "active-agent update-task-section --run-id ID --harness-id ID --section NAME --input FILE|-",
+  },
+  {
+    flags: ["harness-id", "run-id", "summary"],
+    name: "active-agent fail",
+    usage: "active-agent fail --run-id ID --harness-id ID --summary TEXT",
+  },
+  { flags: [], name: "active-agent sweep", usage: "active-agent sweep" },
+  {
+    flags: ["harness-id", "restart-of-run-id", "run-id"],
+    name: "active-agent restart",
+    usage:
+      "active-agent restart --restart-of-run-id ID --run-id ID --harness-id ID",
+  },
+  {
+    flags: [],
+    name: "command proxy",
+    usage: "command proxy -- COMMAND [ARGUMENT...]",
+  },
+  { flags: [], name: "error list", usage: "error list" },
+  { flags: ["key"], name: "error get", usage: "error get --key KEY" },
+  {
+    flags: ["input"],
+    name: "error report",
+    usage: "error report --input FILE|-",
+  },
+  {
+    flags: ["key", "resolution"],
+    name: "error resolve",
+    usage: "error resolve --key KEY --resolution TEXT",
+  },
+  { flags: [], name: "validate", usage: "validate" },
+  {
+    flags: ["apply", "expected-plan-digest", "plan"],
+    name: "init",
+    usage: "init --plan | init --apply --expected-plan-digest SHA256",
+  },
+  { flags: [], name: "providers", usage: "providers" },
+];
+/** Command specifications indexed by `family action`. */
+const COMMAND_SPEC_BY_NAME = new Map(
+  COMMAND_SPECS.map((spec) => [spec.name, spec] as const),
+);
+/** Complete CLI usage text. */
+const HELP = `agent-task-manager
 
-Planning and validation are read-only. Schema apply is human-only and requires
-the exact digest of a freshly recomputed plan. Inspect is read-only; reconcile
-performs only the explicitly named recovery operation.
-Candidates is a read-only provider-defined selection snapshot. Assignment
-prepare emits immutable context for an external harness; assignment renew
-extends or safely recovers its leases; assignment complete validates the
-returned result and attestations without invoking a model.
+Commands:
+${COMMAND_SPECS.map((spec) => `  ${spec.usage}`).join("\n")}
+
+Global flags:
+  --environment FILE   Configuration file (default: AGENT_TASK_MANAGER_ENVIRONMENT or agent-task-manager.environment.json)
+  --json               Accepted for compatibility; output is always JSON.
 `;
 
-/** Returns the configured environment path or its conventional default. */
-function configPath(args: readonly string[]): string {
-  /** Position of the config flag in the argument vector. */
-  const index = args.indexOf("--config");
-  if (index === -1) return "agent-task-manager.environment.json";
-  /** Path supplied immediately after the config flag. */
-  const value = args[index + 1];
-  if (value === undefined) throw new Error("--config requires a path");
-  return value;
-}
-
-/** Reads and validates an environment configuration file. */
-async function loadConfig(
-  path: string,
-): Promise<ReturnType<typeof parseEnvironmentConfig>> {
-  /** Serialized environment file content. */
-  const raw = await readFile(path, "utf8");
-  return parseEnvironmentConfig(JSON.parse(raw) as JsonValue);
-}
-
-/** Returns the value following a required named command-line option. */
-function option(args: readonly string[], name: string): string {
-  /** Position of the requested option in the argument vector. */
-  const index = args.indexOf(name);
-  /** Argument supplied immediately after the requested option. */
-  const value = index === -1 ? undefined : args[index + 1];
-  if (value === undefined || value.startsWith("--"))
-    throw new Error(`${name} requires a value`);
-  return value;
-}
-
-/** Returns the value following an optional named command-line option. */
-function optionalOption(
-  args: readonly string[],
-  name: string,
-): string | undefined {
-  return args.includes(name) ? option(args, name) : undefined;
-}
-
-/** Creates the configured Notion provider using its environment token. */
-function notionProvider(config: EnvironmentConfig): NotionProvider {
-  if (config.provider.type !== "notion")
-    throw new Error(
-      `Command requires the notion provider, received ${config.provider.type}`,
-    );
-  /** Environment-variable name configured to hold the Notion token. */
-  const variable = config.provider.connection.authEnvironmentVariable;
-  if (typeof variable !== "string" || variable.trim() === "")
-    throw new Error(
-      "provider.connection.authEnvironmentVariable must name the Notion token environment variable",
-    );
-  /** Notion authentication token read from the configured environment variable. */
-  const token = process.env[variable];
-  if (token === undefined || token === "")
-    throw new Error(`Required environment variable is not set: ${variable}`);
-  return new NotionProvider({
-    environment: config.provider,
-    environmentId: config.environmentId,
-    target: createNotionWorkspaceSchema(),
-    transport: new NotionHttpTransport({ token }),
-  });
-}
-
-/** Executes one command-line operation and returns its process exit code. */
-export async function main(
-  args: readonly string[] = process.argv.slice(2),
-): Promise<number> {
-  /** Command name selected by the first argument. */
-  const command = args[0];
-  if (command === undefined || command === "--help" || command === "-h") {
-    process.stdout.write(HELP);
-    return 0;
-  }
-
-  if (command === "providers") {
-    process.stdout.write("memory\nnotion\n");
-    return 0;
-  }
-
-  if (command === "candidates") {
-    /** Agent whose provider-defined Task query bounds the candidate set. */
-    const agentId = option(args, "--agent");
-    /** Environment and provider loaded only after argument validation. */
-    const config = await loadConfig(configPath(args));
-    /** Ready Notion boundary used for the candidate snapshot. */
-    const provider = await readyNotionProvider(config);
-    /** Immutable candidate basis returned to the external Task Master harness. */
-    const preparation = await prepareHarnessSelection(provider, agentId);
-    writeCommandOutput(
-      preparation,
-      args.includes("--json"),
-      `Prepared ${preparation.selection.candidateSet.summaries.length} candidate(s) for ${agentId}.`,
-    );
-    return 0;
-  }
-
-  if (command === "assignment") {
-    return assignmentCommand(args);
-  }
-
-  if (command === "validate") {
-    /** Validated configuration for the environment check. */
-    const config = await loadConfig(configPath(args));
-    if (config.provider.type !== "notion") {
-      /** Provider-neutral validation summary. */
-      const output = {
-        environmentId: config.environmentId,
-        provider: config.provider.type,
-      };
-      if (args.includes("--json"))
-        process.stdout.write(`${JSON.stringify(output)}\n`);
-      else
-        process.stdout.write(
-          `Environment ${output.environmentId} uses ${output.provider}.\n`,
-        );
-      return 0;
-    }
-    /** Notion provider used for live validation. */
-    const provider = notionProvider(config);
-    /** Provider-environment validation result. */
-    const environment = await provider.validateEnvironment(config.provider);
-    if (!environment.valid)
-      throw new Error(
-        environment.issues
-          .map((issue) => `${issue.path}: ${issue.message}`)
-          .join("\n"),
-      );
-    /** Current table-schema validation report. */
-    const report = await provider.validateTables();
-    /** Canonical JSON validation response. */
-    const output = {
-      differences: report.differences,
-      environmentId: config.environmentId,
-      observedSchemaDigest: report.observed.digest,
-      provider: config.provider.type,
-      providerIdentity: report.observed.providerIdentity,
-      state: report.state,
-      targetSchemaDigest: report.target.digest,
-      targetSchemaVersion: report.target.version,
+/** Runs one CLI invocation and returns its JSON-serializable result. */
+export async function runCli(
+  argv: readonly string[],
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<JsonValue> {
+  /** Parsed flags, positionals, and proxied command arguments. */
+  const parsed = parseArguments(argv);
+  /** Command family and optional action selected by the caller. */
+  const [family, action] = parsed.positionals;
+  /** Whether invocation should short-circuit to help output. */
+  const helpRequested = family === undefined || parsed.flags.help === true;
+  /** Normalized lookup key for flag validation and dispatch. */
+  const command = helpRequested ? "help" : parsed.positionals.join(" ");
+  validateFlags(command, parsed.flags);
+  if (parsed.commandArguments.length !== 0 && command !== "command proxy")
+    throw new Error(`Command arguments are not allowed for ${command}`);
+  if (helpRequested || command === "help") return { help: HELP };
+  if (family === "providers")
+    return {
+      providers: [{ connectionSecret: "NOTION_TOKEN", type: "notion" }],
     };
-    if (args.includes("--json"))
-      process.stdout.write(`${JSON.stringify(output)}\n`);
-    else
-      process.stdout.write(
-        `Workspace ${output.state}; observed ${output.observedSchemaDigest}; target ${output.targetSchemaDigest}.\n`,
-      );
-    return report.state === "ready" ? 0 : 1;
-  }
 
-  if (command === "inspect") {
-    /** Validated configuration for human inspection. */
-    const config = await loadConfig(configPath(args));
-    /** Notion provider queried by the inspection command. */
-    const provider = notionProvider(config);
-    /** Whether the Task inspection option was supplied. */
-    const hasTask = args.includes("--task");
-    /** Whether the agent inspection option was supplied. */
-    const hasAgent = args.includes("--agent");
-    /** Whether the lease inspection option was supplied. */
-    const hasLease = args.includes("--lease");
-    if ([hasTask, hasAgent, hasLease].filter(Boolean).length !== 1)
-      throw new Error(
-        "inspect requires exactly one of --task, --agent, or --lease",
-      );
-    /** Requested Task, agent, or lease inspection. */
-    let inspection;
-    if (hasTask) {
-      inspection = await inspectHumanRecovery(provider, option(args, "--task"));
-    } else if (hasAgent) {
-      inspection = await inspectAgentActivity(
-        provider,
-        option(args, "--agent"),
-      );
-    } else {
-      inspection = await inspectLease(provider, option(args, "--lease"));
-    }
-
-    /** Human-readable summary of the inspection result. */
-    let summary: string;
-    if (inspection === null) {
-      summary = "Lease was not found.";
-    } else if ("slots" in inspection) {
-      summary = `Task ${inspection.taskId} is ${inspection.status}; ${inspection.slots.length} human slot(s).`;
-    } else if ("agentId" in inspection && "activity" in inspection) {
-      summary = `Agent ${inspection.agentId} activity inspected.`;
-    } else {
-      summary = `Lease ${inspection.leaseId} inspected.`;
-    }
-    /** JSON or human-readable inspection response. */
-    const output = args.includes("--json")
-      ? canonicalize(toJsonValue(inspection))
-      : summary;
-    process.stdout.write(`${output}\n`);
-    return 0;
-  }
-
-  if (command === "reconcile") {
-    /** Validated configuration for reconciliation. */
-    const config = await loadConfig(configPath(args));
-    /** Notion provider mutated by the named recovery operation. */
-    const provider = notionProvider(config);
-    /** Recovery operation selected by the second argument. */
-    const operation = args[1];
-    /** Inspection result selected by the requested provider operation. */
-    let result;
-    if (operation === "activity") {
-      result = await reconcileActivity(provider, option(args, "--agent"));
-    } else if (operation === "human") {
-      result = await reconcileHumanResponse(
-        provider,
-        option(args, "--task"),
-        option(args, "--slot"),
-      );
-    } else if (operation === "lease") {
-      result = await reconcileLease(
-        provider,
-        option(args, "--lease"),
-        option(args, "--owner"),
-        option(args, "--expected-version"),
-      );
-    } else {
-      throw new Error("reconcile requires activity, human, or lease");
-    }
-    /** JSON or human-readable reconciliation response. */
-    const output = args.includes("--json")
-      ? canonicalize(toJsonValue(result))
-      : `Reconciliation ${"state" in result ? String(result.state) : "complete"}.`;
-    process.stdout.write(`${output}\n`);
-    return 0;
-  }
-
-  if (command === "init" || command === "migrate") {
-    /** Whether the command requests a read-only migration plan. */
-    const planning = args.includes("--plan");
-    /** Whether the command requests application of an authorized plan. */
-    const applying = args.includes("--apply");
-    if (planning === applying)
-      throw new Error(`${command} requires exactly one of --plan or --apply`);
-    /** Environment file used for workspace planning and optional patching. */
-    const path = configPath(args);
-    /** Original environment file retained for concurrent-change detection. */
-    const raw = await readFile(path, "utf8");
-    /** JSON-decoded input before structural validation. */
-    const config = parseEnvironmentConfig(JSON.parse(raw) as JsonValue);
-    /** Notion provider whose workspace schema is being managed. */
-    const provider = notionProvider(config);
-    /** Canonical Notion workspace schema requested by this version. */
-    const target = createNotionWorkspaceSchema();
-    /** Bootstrap or migration mode selected by the command name. */
-    const mode = command === "init" ? "bootstrap" : "migration";
-    /** Workspace manager responsible for durable plan progress. */
-    const manager = provider.workspaceManager();
-    /** Previously recorded bootstrap or migration session, when present. */
-    const session = await manager.readBootstrapSession(mode);
-    if (
-      session !== null &&
-      (session.plan.environmentId !== config.environmentId ||
-        session.plan.targetSchemaDigest !== target.digest)
-    ) {
-      throw new Error(
-        "Active workspace session does not match this command or environment",
-      );
-    }
-    /** Provider schema captured before planning or applying changes. */
-    const observed = await provider.inspectWorkspaceSchema();
-    /** Plan digest supplied by the human for apply authorization. */
-    const expectedDigest = applying
-      ? option(args, "--expected-plan-digest")
-      : null;
-    /** Reused or freshly computed workspace migration plan. */
-    const plan =
-      applying && session?.plan.digest === expectedDigest
-        ? session.plan
-        : await provider.planWorkspaceChanges({
-            environmentId: config.environmentId,
-            mode,
-            observed,
-            target,
-          });
-    if (planning) {
-      process.stdout.write(
-        `${args.includes("--json") ? `${canonicalize(toJsonValue(plan))}\n` : `Plan ${plan.digest}\n${plan.steps.map((step) => `- ${step.kind}: ${step.id}`).join("\n")}\n`}`,
-      );
-      return 0;
-    }
-    assertAuthorizedPlan(plan, expectedDigest ?? "");
-    /** Migration step IDs already recorded as complete. */
-    const completed = new Set(
-      session?.plan.digest === plan.digest ? session.completedStepIds : [],
-    );
-    if (
-      (await manager.resolveTableIds()).operations !== undefined &&
-      completed.size === 0
-    ) {
-      await manager.recordBootstrapSession(plan, []);
-    }
-    for (const step of plan.steps) {
-      await provider.applyWorkspaceStep(step);
-      completed.add(step.id);
-      await manager.recordBootstrapSession(plan, [...completed]);
-    }
-    /** Post-apply table validation report. */
-    const verified = await provider.validateTables();
-    if (verified.state !== "ready")
-      throw new Error(
-        `Authorized ${command} did not converge: ${verified.state}`,
-      );
-    /** Canonical digest of starting file. */
-    const startingFileDigest = sha256(raw);
-    /** Provider table IDs to merge into the environment file. */
-    const tablePatch = manager.configuredTablePatch();
-    await manager.recordEnvironmentPatch(startingFileDigest, "pending_human");
-    if (args.includes("--write-environment")) {
-      await writeEnvironmentPatch(path, raw, config.raw, tablePatch);
-      await manager.recordEnvironmentPatch(startingFileDigest, "applied");
-    }
-    process.stdout.write(
-      `${canonicalize(toJsonValue({ environmentPatch: { provider: { tables: tablePatch } }, planDigest: plan.digest, state: "ready" }))}\n`,
-    );
-    return 0;
-  }
-
-  process.stderr.write(`Command is not implemented yet: ${command}\n`);
-  return 2;
-}
-
-/** Executes the external-harness assignment handshake. */
-async function assignmentCommand(args: readonly string[]): Promise<number> {
-  /** Assignment phase selected by the external harness. */
-  const action = args[1];
-  if (action !== "prepare" && action !== "renew" && action !== "complete")
-    throw new Error("assignment requires prepare, renew, or complete");
-  /** Stable logical key shared by preparation and completion. */
-  const operationKey = option(args, "--operation-key");
-
-  if (action === "prepare") {
-    /** Agent and Task selected by the external Task Master harness. */
-    const agentId = option(args, "--agent");
-    /** Exact eligible Task selected by the external Task Master harness. */
-    const taskId = option(args, "--task");
-    /** Canonical lease expiry supplied explicitly or bounded to one day. */
-    const expiresAt =
-      optionalOption(args, "--expires-at") ??
-      new Date(Date.now() + 24 * 60 * 60 * 1_000).toISOString();
-    assertCanonicalFutureTimestamp(expiresAt, "--expires-at");
-    /** Assignment depth propagated by a parent harness, or zero at the root. */
-    const depth = Number(optionalOption(args, "--depth") ?? "0");
-    if (!Number.isSafeInteger(depth) || depth < 0)
-      throw new TypeError("--depth must be a non-negative integer");
-    /** Optional trusted input loaded before provider mutation. */
-    const inputPath = optionalOption(args, "--input");
-    /** Closed JSON input included in the immutable Agent context. */
-    const input =
-      inputPath === undefined
-        ? {}
-        : jsonObject(await readJson(inputPath), "assignment input");
-    /** Environment and ready provider loaded after all local input validation. */
-    const config = await loadConfig(configPath(args));
-    /** Validated Notion boundary that owns the assignment lifecycle. */
-    const provider = await readyNotionProvider(config);
-    /** Prepared assignment or terminal replay returned to the harness. */
-    const preparation = await prepareHarnessAssignment({
-      agentId,
-      assignmentDepth: depth,
-      environmentId: config.environmentId,
-      expiresAt,
-      input,
-      operationKey,
-      provider,
-      taskId,
-    });
-    writeCommandOutput(
-      preparation,
-      args.includes("--json"),
-      preparation.state === "prepared"
-        ? `Prepared ${agentId} assignment for Task ${taskId}.`
-        : `Assignment ${operationKey} is already complete.`,
-    );
-    return 0;
-  }
-
-  if (action === "renew") {
-    /** Explicit canonical lease horizon chosen by the external harness. */
-    const expiresAt = option(args, "--expires-at");
-    assertCanonicalFutureTimestamp(expiresAt, "--expires-at");
-    /** Environment and ready provider loaded after local timestamp validation. */
-    const config = await loadConfig(configPath(args));
-    /** Validated Notion boundary that owns the assignment lifecycle. */
-    const provider = await readyNotionProvider(config);
-    /** Extended or recovered provider authority for the pending assignment. */
-    const renewal = await renewHarnessAssignment({
-      environmentId: config.environmentId,
-      expiresAt,
-      operationKey,
-      provider,
-    });
-    writeCommandOutput(
-      renewal,
-      args.includes("--json"),
-      `${renewal.state === "recovered" ? "Recovered" : "Renewed"} assignment ${operationKey} through ${expiresAt}.`,
-    );
-    return 0;
-  }
-
-  /** Completion envelope produced after the external harness runs the role. */
-  const completion = parseHarnessAssignmentCompletion(
-    await readJson(option(args, "--completion")),
-  );
-  /** Environment and ready provider loaded after completion validation. */
-  const config = await loadConfig(configPath(args));
-  /** Validated Notion boundary that owns the prepared assignment. */
-  const provider = await readyNotionProvider(config);
-  /** Terminal provider report after outcome routing and lease cleanup. */
-  const report = await completeHarnessAssignment({
-    completion,
-    environmentId: config.environmentId,
-    operationKey,
+  /** Validated environment configuration for the requested command. */
+  const configuration = await loadEnvironment(parsed.flags.environment, env);
+  /** Provider implementation that owns persistence for this invocation. */
+  const provider = providerFor(configuration, env);
+  /** Lifecycle coordinator bound to this invocation's provider and hooks. */
+  const coordinator = new AgentCoordinator(
     provider,
-  });
-  writeCommandOutput(
-    report,
-    args.includes("--json"),
-    `Completed ${report.agentId} outcome ${report.outcome} for Task ${report.taskId}.`,
+    () => new Date(),
+    new ConfiguredLifecycleCommands(configuration.environmentId, env),
   );
-  return 0;
-}
-
-/** Validates the configured Notion workspace before an operational command. */
-async function readyNotionProvider(
-  config: EnvironmentConfig,
-): Promise<NotionProvider> {
-  /** Configured provider initialized without model or harness credentials. */
-  const provider = notionProvider(config);
-  /** Live provider identity and access validation result. */
-  const environment = await provider.validateEnvironment(config.provider);
-  if (!environment.valid)
-    throw new Error(
-      environment.issues
-        .map((issue) => `${issue.path}: ${issue.message}`)
-        .join("\n"),
+  /** Lazily resolved coordination directory shared by all invocation locks. */
+  let mutexRoot: string | undefined;
+  /** Resolves and caches the trusted coordination directory. */
+  const coordinationRoot = (): string =>
+    (mutexRoot ??= coordinationDirectory(env));
+  /** Lazily created environment-wide mutex. */
+  let mutex: SingleHostMutex | undefined;
+  /** Returns the invocation's environment-wide mutex. */
+  const environmentMutex = (): SingleHostMutex =>
+    (mutex ??= new SingleHostMutex(
+      {
+        environmentId: configuration.environmentId,
+        scope: "environment",
+      },
+      coordinationRoot(),
+    ));
+  /** Per-run mutex instances reused throughout this invocation. */
+  const runMutexes = new Map<string, SingleHostMutex>();
+  /** Returns the cached mutex for a run, creating it when necessary. */
+  const runMutex = (runId: string): SingleHostMutex => {
+    /** Existing record selected for an idempotent update. */
+    const existing = runMutexes.get(runId);
+    if (existing !== undefined) return existing;
+    /** New command-scope mutex for the requested run. */
+    const created = new SingleHostMutex(
+      {
+        environmentId: configuration.environmentId,
+        runId,
+        scope: "command",
+      },
+      coordinationRoot(),
     );
-  /** Required managed-table schema validation result. */
-  const tables = await provider.validateTables();
-  if (tables.state !== "ready")
-    throw new Error(`Workspace is not ready: ${tables.state}`);
-  return provider;
-}
+    runMutexes.set(runId, created);
+    return created;
+  };
 
-/** Reads one JSON value from a file, or standard input when the path is `-`. */
-async function readJson(path: string): Promise<JsonValue> {
-  /** Complete serialized value collected from the selected local input. */
-  let raw: string;
-  if (path === "-") {
-    raw = "";
-    process.stdin.setEncoding("utf8");
-    for await (const chunk of process.stdin) raw += chunk;
-  } else {
-    raw = await readFile(path, "utf8");
+  if (family === "command" && action === "proxy") {
+    /** Brokered executable and its uninterpreted argument vector. */
+    const [executable, ...arguments_] = parsed.commandArguments;
+    if (executable === undefined)
+      throw new Error("command proxy requires a command");
+    /** Run identity injected by the trusted command harness. */
+    const runId = requiredEnvironmentValue(
+      env,
+      "AGENT_TASK_MANAGER_COMMAND_RUN_ID",
+    );
+    /** Harness identity injected by the trusted command harness. */
+    const harnessId = requiredEnvironmentValue(
+      env,
+      "AGENT_TASK_MANAGER_COMMAND_HARNESS_ID",
+    );
+    return toJsonValue(
+      await new CommandProxy(
+        coordinator,
+        commandBrokerExecutor(env),
+        createCommandExecutionGate(environmentMutex(), runMutex),
+      ).execute({
+        arguments: arguments_,
+        command: executable,
+        harnessId,
+        runId,
+      }),
+    );
   }
-  return JSON.parse(raw) as JsonValue;
-}
 
-/** Writes canonical JSON or a concise human-readable command summary. */
-function writeCommandOutput(
-  value: unknown,
-  json: boolean,
-  summary: string,
-): void {
-  process.stdout.write(
-    `${json ? canonicalize(toJsonValue(value)) : summary}\n`,
-  );
-}
-
-/** Rejects noncanonical or expired timestamps before provider access. */
-function assertCanonicalFutureTimestamp(value: string, label: string): void {
-  /** Parsed timestamp used for canonical-form and future-bound checks. */
-  const milliseconds = Date.parse(value);
-  if (
-    !Number.isFinite(milliseconds) ||
-    new Date(milliseconds).toISOString() !== value ||
-    milliseconds <= Date.now()
-  )
-    throw new TypeError(`${label} must be a canonical future UTC timestamp`);
-}
-
-/** Atomically writes provider table IDs into an unchanged environment file. */
-async function writeEnvironmentPatch(
-  path: string,
-  startingRaw: string,
-  rawConfig: JsonObject,
-  tables: Readonly<Record<TableKind, string>>,
-): Promise<void> {
-  /** Absolute path of the environment file being patched. */
-  const absolute = resolve(path);
-  if (sha256(await readFile(absolute, "utf8")) !== sha256(startingRaw))
-    throw new Error("Environment file changed after planning");
-  /** Existing provider configuration preserved by the patch. */
-  const provider = jsonObject(rawConfig.provider, "provider");
-  /** Updated environment object containing the discovered table IDs. */
-  const next = { ...rawConfig, provider: { ...provider, tables } };
-  /** Sibling temporary file used for the atomic replacement. */
-  const temporary = resolve(
-    dirname(absolute),
-    `.agent-task-manager-${randomUUID()}.tmp`,
-  );
-  try {
-    await writeFile(temporary, `${JSON.stringify(next, null, 2)}\n`, {
-      encoding: "utf8",
-      flag: "wx",
-      mode: 0o600,
+  if (family === "validate") {
+    /** Environment-configuration validation result. */
+    const environment = await provider.validateEnvironment();
+    /** Remote-workspace validation result. */
+    const workspace = await provider.validateWorkspace();
+    return toJsonValue({
+      environment,
+      valid: environment.valid && workspace.valid,
+      workspace,
     });
-    await rename(temporary, absolute);
-  } finally {
-    await rm(temporary, { force: true });
   }
+  if (family === "init") {
+    /** Deterministic workspace plan produced before either preview or apply. */
+    const plan = await provider.planWorkspace(configuration.environmentId);
+    if (parsed.flags.plan === true && parsed.flags.apply !== true)
+      return toJsonValue(plan);
+    if (parsed.flags.apply !== true)
+      throw new Error("init requires --plan or --apply");
+    /** Caller-authorized digest required before any workspace mutation. */
+    const expected = requiredFlag(parsed.flags, "expected-plan-digest");
+    if (plan.digest !== expected)
+      throw new Error(
+        `Workspace plan drifted: expected ${expected}, observed ${plan.digest}`,
+      );
+    return toJsonValue({
+      plan,
+      tables: await environmentMutex().run(() =>
+        provider.applyWorkspacePlan(plan),
+      ),
+    });
+  }
+  if (family === "task") {
+    if (action === "list")
+      return toJsonValue(
+        await provider.listTasks(optionalString(parsed.flags.status)),
+      );
+    if (action === "get")
+      return toJsonValue(
+        await provider.getTask(requiredFlag(parsed.flags, "id")),
+      );
+  }
+  if (family === "agent") {
+    if (action === "list") return toJsonValue(await provider.listAgents());
+    if (action === "get")
+      return toJsonValue(
+        await provider.getAgentByKey(requiredFlag(parsed.flags, "key")),
+      );
+  }
+  if (family === "resource") {
+    if (action === "list") return toJsonValue(await provider.listResources());
+    if (action === "get")
+      return toJsonValue(
+        await provider.getResourceByKey(requiredFlag(parsed.flags, "key")),
+      );
+  }
+  if (family === "active-agent") {
+    if (action === "list")
+      return toJsonValue(await provider.listActiveAgents());
+    if (action === "get")
+      return toJsonValue(
+        await provider.getActiveAgent(requiredFlag(parsed.flags, "run-id")),
+      );
+    if (action === "start")
+      return toJsonValue(
+        await environmentMutex().run(() =>
+          coordinator.start({
+            agentKey: requiredFlag(parsed.flags, "agent-key"),
+            harnessId: requiredFlag(parsed.flags, "harness-id"),
+            parentRunId: optionalString(parsed.flags["parent-run-id"]) ?? null,
+            runId: requiredFlag(parsed.flags, "run-id"),
+            taskId: requiredFlag(parsed.flags, "task-id"),
+          }),
+        ),
+      );
+    if (action === "heartbeat")
+      return toJsonValue(
+        await runMutex(requiredFlag(parsed.flags, "run-id")).run(() =>
+          coordinator.heartbeat(
+            requiredFlag(parsed.flags, "run-id"),
+            requiredFlag(parsed.flags, "harness-id"),
+          ),
+        ),
+      );
+    if (action === "complete")
+      return toJsonValue(
+        await withRunLeases(
+          environmentMutex(),
+          runMutex,
+          provider,
+          [requiredFlag(parsed.flags, "run-id")],
+          () =>
+            coordinator.complete(
+              requiredFlag(parsed.flags, "run-id"),
+              requiredFlag(parsed.flags, "harness-id"),
+              requiredFlag(parsed.flags, "outcome"),
+            ),
+        ),
+      );
+    if (action === "update-task-section") {
+      /** Replacement section content read from the requested input source. */
+      const content = await readTextInput(requiredFlag(parsed.flags, "input"));
+      return toJsonValue(
+        await withRunLeases(
+          environmentMutex(),
+          runMutex,
+          provider,
+          [requiredFlag(parsed.flags, "run-id")],
+          () =>
+            coordinator.updateTaskSection(
+              requiredFlag(parsed.flags, "run-id"),
+              requiredFlag(parsed.flags, "harness-id"),
+              requiredFlag(parsed.flags, "section"),
+              content,
+            ),
+        ),
+      );
+    }
+    if (action === "fail")
+      return toJsonValue(
+        await withRunLeases(
+          environmentMutex(),
+          runMutex,
+          provider,
+          [requiredFlag(parsed.flags, "run-id")],
+          () =>
+            coordinator.fail(
+              requiredFlag(parsed.flags, "run-id"),
+              requiredFlag(parsed.flags, "harness-id"),
+              requiredFlag(parsed.flags, "summary"),
+            ),
+        ),
+      );
+    if (action === "sweep")
+      return toJsonValue(
+        await sweepWithRunLeases(environmentMutex(), runMutex, coordinator),
+      );
+    if (action === "restart")
+      return toJsonValue(
+        await withRunLeases(
+          environmentMutex(),
+          runMutex,
+          provider,
+          [requiredFlag(parsed.flags, "restart-of-run-id")],
+          () =>
+            coordinator.restart({
+              restartOfRunId: requiredFlag(parsed.flags, "restart-of-run-id"),
+              harnessId: requiredFlag(parsed.flags, "harness-id"),
+              runId: requiredFlag(parsed.flags, "run-id"),
+            }),
+        ),
+      );
+  }
+  if (family === "error") {
+    if (action === "list") return toJsonValue(await provider.listErrors());
+    if (action === "get")
+      return toJsonValue(
+        await provider.getErrorByKey(requiredFlag(parsed.flags, "key")),
+      );
+    if (action === "report") {
+      /** Strictly parsed error report payload. */
+      const input = await readErrorInput(requiredFlag(parsed.flags, "input"));
+      return toJsonValue(
+        await environmentMutex().run(() => coordinator.reportError(input)),
+      );
+    }
+    if (action === "resolve")
+      return toJsonValue(
+        await environmentMutex().run(() =>
+          coordinator.resolveError(
+            requiredFlag(parsed.flags, "key"),
+            requiredFlag(parsed.flags, "resolution"),
+          ),
+        ),
+      );
+  }
+  throw new Error(`Unknown command: ${parsed.positionals.join(" ")}`);
 }
 
-/** Requires a named value to be a non-array JSON object. */
-function jsonObject(value: JsonValue | undefined, label: string): JsonObject {
-  if (
-    value === null ||
-    value === undefined ||
-    typeof value !== "object" ||
-    Array.isArray(value)
-  )
-    throw new TypeError(`${label} must be an object`);
+/** Parsed CLI tokens split by their dispatch role. */
+export interface ParsedArguments {
+  /** Executable and arguments passed unchanged to the command broker. */
+  readonly commandArguments: readonly string[];
+  /** Parsed long flags keyed without their leading `--`. */
+  readonly flags: Readonly<Record<string, boolean | string>>;
+  /** Positional tokens that identify the command family and action. */
+  readonly positionals: readonly string[];
+}
+
+/** Rejects flags outside the selected command's allowlist. */
+function validateFlags(
+  command: string,
+  flags: Readonly<Record<string, boolean | string>>,
+): void {
+  /** Declared syntax for the selected command. */
+  const spec = COMMAND_SPEC_BY_NAME.get(command);
+  if (spec === undefined) throw new Error(`Unknown command: ${command}`);
+  /** Global flags available to this command boundary. */
+  const globalFlags =
+    command === "command proxy"
+      ? GLOBAL_FLAGS.filter((name) => name !== "environment")
+      : GLOBAL_FLAGS;
+  /** Complete allowlist for the selected command. */
+  const allowed = new Set([...globalFlags, ...spec.flags]);
+  for (const name of Object.keys(flags))
+    if (!allowed.has(name))
+      throw new Error(`Flag --${name} is not allowed for ${command}`);
+}
+
+/** Splits CLI tokens into positionals, flags, and broker arguments. */
+export function parseArguments(argv: readonly string[]): ParsedArguments {
+  /** Long flags accumulated from the argument vector. */
+  const flags: Record<string, boolean | string> = {};
+  /** Non-flag command tokens before the `--` boundary. */
+  const positionals: string[] = [];
+  /** Unparsed command tokens after the `--` boundary. */
+  let commandArguments: readonly string[] = [];
+  for (let index = 0; index < argv.length; index += 1) {
+    /** Current argument token. */
+    const value = argv[index]!;
+    if (value === "--") {
+      commandArguments = argv.slice(index + 1);
+      break;
+    }
+    if (
+      positionals.length === 2 &&
+      positionals[0] === "command" &&
+      positionals[1] === "proxy" &&
+      !value.startsWith("--")
+    ) {
+      commandArguments = argv.slice(index);
+      break;
+    }
+    if (!value.startsWith("--")) {
+      positionals.push(value);
+      continue;
+    }
+    /** Offset of an inline `--name=value` separator. */
+    const equals = value.indexOf("=");
+    if (equals !== -1) {
+      /** Flag name extracted from an inline assignment. */
+      const name = value.slice(2, equals);
+      if (BOOLEAN_FLAGS.has(name))
+        throw new Error(`Boolean flag --${name} does not accept a value`);
+      flags[name] = value.slice(equals + 1);
+      continue;
+    }
+    /** Flag name extracted from a standalone long option. */
+    const name = value.slice(2);
+    if (BOOLEAN_FLAGS.has(name)) {
+      flags[name] = true;
+      continue;
+    }
+    /** Possible value token following a non-boolean flag. */
+    const next = argv[index + 1];
+    if (next !== undefined && !next.startsWith("--")) {
+      flags[name] = next;
+      index += 1;
+    } else flags[name] = true;
+  }
+  return { commandArguments, flags, positionals };
+}
+
+/** Loads and validates the selected environment configuration file. */
+async function loadEnvironment(
+  flag: boolean | string | undefined,
+  env: NodeJS.ProcessEnv,
+): Promise<EnvironmentConfig> {
+  /** Configuration path chosen from flag, environment, or default. */
+  const path =
+    optionalString(flag) ??
+    env.AGENT_TASK_MANAGER_ENVIRONMENT ??
+    "agent-task-manager.environment.json";
+  return parseEnvironmentConfig(
+    toJsonValue(JSON.parse(await readFile(path, "utf8")) as unknown),
+  );
+}
+
+/** Creates the configured provider after resolving its credentials. */
+function providerFor(
+  configuration: EnvironmentConfig,
+  env: NodeJS.ProcessEnv,
+): AgentTaskProvider {
+  if (configuration.provider.type !== "notion")
+    throw new Error(`Unsupported provider: ${configuration.provider.type}`);
+  /** Environment-variable name holding the Notion token. */
+  const tokenVariable =
+    typeof configuration.provider.connection.tokenEnv === "string"
+      ? configuration.provider.connection.tokenEnv
+      : "NOTION_TOKEN";
+  /** Notion token resolved from the configured environment variable. */
+  const token = env[tokenVariable];
+  if (token === undefined || token.trim() === "")
+    throw new Error(`Missing Notion token in ${tokenVariable}`);
+  return new NotionProvider(
+    configuration.provider,
+    new NotionHttpTransport({ token }),
+  );
+}
+
+/** Loads the mandatory host-owned sandbox broker used for Agent commands. */
+function commandBrokerExecutor(env: NodeJS.ProcessEnv) {
+  /** Absolute executable path for the trusted sandbox broker. */
+  const executable = env.AGENT_TASK_MANAGER_COMMAND_BROKER;
+  if (executable === undefined || executable.trim() === "")
+    throw new Error(
+      "AGENT_TASK_MANAGER_COMMAND_BROKER must name an absolute sandbox broker executable",
+    );
+  /** Optional cap on combined command output. */
+  const maxOutputBytes = optionalPositiveInteger(
+    env.AGENT_TASK_MANAGER_COMMAND_MAX_OUTPUT_BYTES,
+    "AGENT_TASK_MANAGER_COMMAND_MAX_OUTPUT_BYTES",
+  );
+  /** Optional command execution timeout. */
+  const timeoutMilliseconds = optionalPositiveInteger(
+    env.AGENT_TASK_MANAGER_COMMAND_TIMEOUT_MS,
+    "AGENT_TASK_MANAGER_COMMAND_TIMEOUT_MS",
+  );
+  /** Optional grace period between termination signals. */
+  const terminationGraceMilliseconds = optionalPositiveInteger(
+    env.AGENT_TASK_MANAGER_COMMAND_TERMINATION_GRACE_MS,
+    "AGENT_TASK_MANAGER_COMMAND_TERMINATION_GRACE_MS",
+  );
+  return createCommandBrokerExecutor(executable, [], {
+    environment: env,
+    ...(maxOutputBytes === undefined ? {} : { maxOutputBytes }),
+    ...(terminationGraceMilliseconds === undefined
+      ? {}
+      : { terminationGraceMilliseconds }),
+    ...(timeoutMilliseconds === undefined ? {} : { timeoutMilliseconds }),
+  });
+}
+
+/** Parses an optional positive integer environment setting. */
+function optionalPositiveInteger(
+  value: string | undefined,
+  name: string,
+): number | undefined {
+  if (value === undefined) return undefined;
+  /** Numeric representation of the environment setting. */
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0)
+    throw new Error(`${name} must be a positive integer`);
+  return parsed;
+}
+
+/** Serializes a terminal lifecycle mutation against commands in its subtree. */
+async function withRunLeases<T>(
+  globalMutex: SingleHostMutex,
+  runMutex: (runId: string) => SingleHostMutex,
+  provider: AgentTaskProvider,
+  roots: readonly string[] | null,
+  operation: () => Promise<T>,
+): Promise<T> {
+  return globalMutex.run(async () => {
+    /** Active Agent snapshot used to determine the protected run set. */
+    const active = await provider.listActiveAgents();
+    /** Sorted run subtree protected by this terminal mutation. */
+    const runIds = affectedRunIds(active, roots);
+    /** Release callbacks in acquisition order. */
+    const releases: Array<() => Promise<void>> = [];
+    try {
+      for (const runId of runIds) releases.push(await runMutex(runId).lock());
+      return await operation();
+    } finally {
+      await releaseAllInReverse(releases);
+    }
+  });
+}
+
+/** Releases every acquired lease in reverse order before rethrowing the first cleanup failure. */
+async function releaseAllInReverse(
+  releases: ReadonlyArray<() => Promise<void>>,
+): Promise<void> {
+  /** Whether at least one release has thrown, including a thrown `undefined`. */
+  let hasFailure = false;
+  /** First cleanup failure in reverse execution order. */
+  let firstFailure: unknown;
+
+  for (const release of releases.toReversed()) {
+    try {
+      await release();
+    } catch (error) {
+      if (!hasFailure) {
+        hasFailure = true;
+        firstFailure = error;
+      }
+    }
+  }
+
+  if (hasFailure) throw firstFailure;
+}
+
+/** Structured sweep result that reports independently fenced stale subtrees. */
+export interface SweepBatchResult {
+  /** Stale subtree roots skipped because another command owns a lease. */
+  readonly blockedRunIds: readonly string[];
+  /** Successfully swept subtree results. */
+  readonly swept: readonly SweepResult[];
+}
+
+/** Sweeps each planned stale subtree without leasing unrelated healthy runs. */
+export async function sweepWithRunLeases(
+  globalMutex: SingleHostMutex,
+  runMutex: (runId: string) => SingleHostMutex,
+  coordinator: AgentCoordinator,
+): Promise<SweepBatchResult> {
+  return globalMutex.run(async () => {
+    /** Independently leasable stale subtrees proposed by the coordinator. */
+    const plans = await coordinator.planSweep();
+    /** Root IDs skipped because their subtree could not be fully leased. */
+    const blockedRunIds: string[] = [];
+    /** Results from subtrees swept during this batch. */
+    const swept: SweepResult[] = [];
+    for (const plan of plans) {
+      /** Release callbacks for this subtree in acquisition order. */
+      const releases: Array<() => Promise<void>> = [];
+      try {
+        try {
+          for (const runId of plan.runIds)
+            releases.push(await runMutex(runId).lock());
+        } catch (error) {
+          if (!isLockContention(error)) throw error;
+          blockedRunIds.push(plan.rootRunId);
+          continue;
+        }
+        swept.push(...(await coordinator.sweep([plan.rootRunId])));
+      } finally {
+        await releaseAllInReverse(releases);
+      }
+    }
+    return { blockedRunIds, swept };
+  });
+}
+
+/** Identifies a live or quarantined same-host run lease. */
+function isLockContention(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "EEXIST";
+}
+
+/** Returns sorted roots and descendants whose terminal state may be mutated. */
+function affectedRunIds(
+  active: readonly ActiveAgentRecord[],
+  roots: readonly string[] | null,
+): readonly string[] {
+  if (roots === null)
+    return [...new Set(active.map((run) => run.runId))].sort();
+  /** Growing set seeded with the requested roots. */
+  const result = new Set(roots);
+  /** Whether the previous traversal discovered another descendant. */
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const run of active)
+      if (
+        run.parentRunId !== null &&
+        result.has(run.parentRunId) &&
+        !result.has(run.runId)
+      ) {
+        result.add(run.runId);
+        changed = true;
+      }
+  }
+  return [...result].sort();
+}
+
+/** Reads and strictly parses an error-report payload. */
+async function readErrorInput(path: string): Promise<ReportErrorInput> {
+  /** Untrusted environment or provider payload before strict parsing. */
+  const raw = await readTextInput(path);
+  /** JSON-safe representation passed to domain validation. */
+  const value = toJsonValue(JSON.parse(raw) as unknown);
+  return parseReportErrorInput(value);
+}
+
+/** Reads UTF-8 text from a file or standard input. */
+async function readTextInput(path: string): Promise<string> {
+  return path === "-" ? readStdin() : readFile(path, "utf8");
+}
+
+/** Collects standard input as UTF-8 text. */
+async function readStdin(): Promise<string> {
+  /** Binary chunks collected from the input stream. */
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin)
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+/** Reads a required string-valued CLI flag. */
+function requiredFlag(
+  flags: Readonly<Record<string, boolean | string>>,
+  name: string,
+): string {
+  /** String value supplied for the named flag. */
+  const value = optionalString(flags[name]);
+  if (value === undefined || value === "") throw new Error(`Missing --${name}`);
   return value;
 }
 
-/** Reports whether this module is the process entry point. */
-async function isMainModule(): Promise<boolean> {
-  if (process.argv[1] === undefined) return false;
-  try {
-    return (
-      (await realpath(process.argv[1])) ===
-      (await realpath(fileURLToPath(import.meta.url)))
-    );
-  } catch {
-    return resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url));
-  }
+/** Reads a non-empty identity value injected by the trusted harness. */
+function requiredEnvironmentValue(
+  env: NodeJS.ProcessEnv,
+  name: string,
+): string {
+  /** Raw value supplied by the trusted harness environment. */
+  const value = env[name];
+  if (value === undefined || value.trim() === "")
+    throw new Error(`Missing ${name}`);
+  return value;
 }
 
-if (await isMainModule()) {
-  main().then(
-    (code) => {
-      process.exitCode = code;
+/** Resolves manager-only lock storage provisioned outside Agent sandboxes. */
+function coordinationDirectory(env: NodeJS.ProcessEnv): string {
+  /** Required manager-owned coordination path. */
+  const path = requiredEnvironmentValue(
+    env,
+    "AGENT_TASK_MANAGER_COORDINATION_DIRECTORY",
+  );
+  if (!isAbsolute(path))
+    throw new Error(
+      "AGENT_TASK_MANAGER_COORDINATION_DIRECTORY must be an absolute path",
+    );
+  return path;
+}
+
+/** Narrows an optional flag value to a string. */
+function optionalString(
+  value: boolean | string | undefined,
+): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+if (isDirectExecution(import.meta.url, process.argv[1])) {
+  runCli(process.argv.slice(2)).then(
+    (result) => {
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      /** Process exit code derived from the thrown value. */
+      const exitCode = proxyExitCode(result);
+      if (exitCode !== null) process.exitCode = exitCode;
     },
     (error: unknown) => {
       process.stderr.write(
-        `${error instanceof Error ? error.message : String(error)}\n`,
+        `${JSON.stringify(cliErrorPayload(error), null, 2)}\n`,
       );
       process.exitCode = 1;
     },
   );
+}
+
+/** Converts a rejected CLI invocation into its stable machine-readable envelope. */
+export function cliErrorPayload(error: unknown): JsonValue {
+  /** Human-readable failure text preserved without serializing sensitive causes. */
+  const message = error instanceof Error ? error.message : String(error);
+  /** Structured validation details available for aggregate configuration errors. */
+  const issues =
+    error instanceof EnvironmentConfigError ? [...error.issues] : undefined;
+  return {
+    error: {
+      ...(issues === undefined ? {} : { issues }),
+      message,
+      name: error instanceof Error ? error.name : "Error",
+    },
+  };
+}
+
+/** Identifies a CLI entry point after resolving package-manager links. */
+export function isDirectExecution(
+  moduleUrl: string,
+  argumentPath: string | undefined,
+): boolean {
+  if (argumentPath === undefined) return false;
+  try {
+    /** Canonical path of this module. */
+    const modulePath = realpathSync(fileURLToPath(moduleUrl));
+    /** Canonical path used to invoke the process. */
+    const invokedPath = realpathSync(argumentPath);
+    return process.platform === "win32"
+      ? modulePath.toLowerCase() === invokedPath.toLowerCase()
+      : modulePath === invokedPath;
+  } catch {
+    return moduleUrl === pathToFileURL(argumentPath).href;
+  }
+}
+
+/** Returns a nonzero status for failed or signalled proxied commands. */
+export function proxyExitCode(result: JsonValue): number | null {
+  if (result === null || Array.isArray(result) || typeof result !== "object")
+    return null;
+  if (typeof result.signal === "string") return 1;
+  return typeof result.exitCode === "number" ? result.exitCode : null;
 }

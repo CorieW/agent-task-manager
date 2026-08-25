@@ -1,136 +1,114 @@
-/** Provider-neutral contract for schema management, workflow records, leases, Resources, and recovery. */
+/** Persistence and workspace-management contract used by the coordinator. */
 import type {
-  ActivityMutation,
-  ConditionalTaskMutation,
-  ErrorMutation,
-  LeaseRelease,
-  LeaseRenewal,
-  LeaseRequest,
-  LeaseResult,
-  LeaseProjection,
-  LeaseSnapshot,
-  ResourceMutation,
-  OperationMutation,
-  OperationRecord,
+  ActiveAgentRecord,
+  AgentRecord,
+  ErrorRecord,
+  ReportErrorInput,
   ResourceRecord,
-  ResourceRef,
-  AgentDefinition,
-  AgentActivity,
-  TaskQuery,
-  TaskSnapshot,
-  TaskSummary,
+  TaskRecord,
 } from "../domain/records.js";
-import type { JsonValue } from "../domain/json.js";
-import type {
-  ProviderCapabilities,
-  ProviderEnvironment,
-  ProviderOperationIntent,
-  ReconciliationResult,
-  ValidationReport,
-  WriteReceipt,
-} from "../domain/provider.js";
-import type {
-  TableValidationReport,
-  WorkspaceMigrationPlan,
-  WorkspaceMigrationStep,
-  WorkspaceSchemaRequest,
-  WorkspaceSchemaSnapshot,
-} from "../domain/schema.js";
+import type { ValidationReport, WorkspacePlan } from "../domain/provider.js";
 
-/**
- * Defines the provider serialization boundary for workflow state.
- *
- * Implementations provide detached JSON-compatible reads, opaque conditional
- * versions, payload-bound idempotency, deterministic pagination, and
- * evidence-based reconciliation. Production adapters persist authoritative
- * state, and every implementation must satisfy the shared conformance matrix.
- */
+/** Complete immutable input required to create a running Active Agent. */
+export interface CreateActiveAgentRecord {
+  /** Provider record ID of the related Agent. */
+  readonly agentId: string;
+  /** Agent record version pinned when the run starts. */
+  readonly agentVersion: string;
+  /** One-based attempt number within the retry chain. */
+  readonly attempt: number;
+  /** Identity of the harness that owns the run. */
+  readonly harnessId: string;
+  /** Run ID of the parent run, or null for a root. */
+  readonly parentRunId: string | null;
+  /** Run ID of the terminated attempt being replaced. */
+  readonly restartOfRunId: string | null;
+  /** Stable identity shared by attempts in one retry chain. */
+  readonly retryKey: string;
+  /** Harness-supplied idempotency identity of the run attempt. */
+  readonly runId: string;
+  /** ISO timestamp when the run attempt started. */
+  readonly startedAt: string;
+  /** Provider record ID of the assigned Task. */
+  readonly taskId: string;
+  /** Absolute execution directory, or null for the host default. */
+  readonly workingDirectory: string | null;
+}
+
+/** Mutable lifecycle fields accepted when updating an Active Agent. */
+export interface ActiveAgentPatch {
+  /** Task status captured when resumable completion began. */
+  readonly completionTaskStatus?: string;
+  /** Terminal failure explanation recorded for the run. */
+  readonly failureSummary?: string;
+  /** ISO timestamp when the run reached a terminal state. */
+  readonly finishedAt?: string | null;
+  /** ISO timestamp of the run's most recent heartbeat. */
+  readonly lastHeartbeat?: string;
+  /** Agent-declared terminal outcome. */
+  readonly outcome?: string;
+  /** Current lifecycle status of the record or process. */
+  readonly status?: ActiveAgentRecord["status"];
+}
+
+/** Provider-neutral persistence boundary for all five managed record families. */
 export interface AgentTaskProvider {
-  /** Returns capabilities. */
-  getCapabilities(): Promise<ProviderCapabilities>;
-  /** Validates environment. */
-  validateEnvironment(
-    environment: ProviderEnvironment,
-  ): Promise<ValidationReport>;
-  /** Validates tables. */
-  validateTables(): Promise<TableValidationReport>;
-  /** Inspects workspace schema without mutation. */
-  inspectWorkspaceSchema(): Promise<WorkspaceSchemaSnapshot>;
-  /** Plans ordered additive workspace changes without applying them. */
-  planWorkspaceChanges(
-    request: WorkspaceSchemaRequest,
-  ): Promise<WorkspaceMigrationPlan>;
-  /** Applies workspace step. */
-  applyWorkspaceStep(step: WorkspaceMigrationStep): Promise<WriteReceipt>;
-  /** Reconciles workspace step against provider state. */
-  reconcileWorkspaceStep(stepId: string): Promise<ReconciliationResult>;
-
-  /** Returns agent definitions in deterministic order. */
-  listAgentDefinitions(): Promise<readonly AgentDefinition[]>;
-  /** Returns Agent definition. */
-  getAgentDefinition(id: string): Promise<AgentDefinition>;
-  /** Returns Agent activity. */
-  getAgentActivity(id: string): Promise<AgentActivity>;
-  /** Returns lease projection. */
-  getLeaseProjection(id: string): Promise<LeaseProjection>;
-  /** Returns lease snapshot. */
-  getLeaseSnapshot(leaseId: string): Promise<LeaseSnapshot | null>;
-  /** Reconciles Agent activity against provider state. */
-  reconcileAgentActivity(
-    agentId: string,
-    idempotencyKey: string,
-  ): Promise<ReconciliationResult>;
-  /** Returns task status options in deterministic order. */
-  listTaskStatusOptions(): Promise<readonly string[]>;
-  /** Returns Task properties derived from authoritative provider state elsewhere. */
-  listDerivedTaskPropertyNames(): Promise<readonly string[]>;
-  /** Updates Agent activity. */
-  updateAgentActivity(change: ActivityMutation): Promise<WriteReceipt>;
-
-  /** Returns task summaries in deterministic order. */
-  listTaskSummaries(query: TaskQuery): Promise<readonly TaskSummary[]>;
-  /** Returns task snapshot. */
-  getTaskSnapshot(taskId: string): Promise<TaskSnapshot>;
-  /** Applies task mutation. */
-  applyTaskMutation(mutation: ConditionalTaskMutation): Promise<WriteReceipt>;
-
-  /** Returns resources. */
-  getResources(
-    refs: readonly ResourceRef[],
-  ): Promise<readonly ResourceRecord[]>;
-  /** Returns optional resource. */
-  getOptionalResource(key: string): Promise<ResourceRecord | null>;
-  /** Persists resource. */
-  putResource(record: ResourceMutation): Promise<WriteReceipt>;
-  /** Returns manager-owned operational state by stable key. */
-  getOptionalOperation(key: string): Promise<OperationRecord | null>;
-  /** Persists manager-owned operational state. */
-  putOperation(record: OperationMutation): Promise<WriteReceipt>;
-
-  /** Acquires lease. */
-  acquireLease(request: LeaseRequest): Promise<LeaseResult>;
-  /** Renews lease. */
-  renewLease(request: LeaseRenewal): Promise<LeaseResult>;
-  /** Releases lease. */
-  releaseLease(request: LeaseRelease): Promise<WriteReceipt>;
-
-  /** Creates or updates the Error identified by Error Key. */
-  createOrUpdateError(error: ErrorMutation): Promise<WriteReceipt>;
-  /** Reconciles intent against provider state. */
-  reconcileIntent(intentId: string): Promise<ReconciliationResult>;
-  /** Returns a durable logical-operation intent, if one exists. */
-  getOperationIntent(intentId: string): Promise<ProviderOperationIntent | null>;
-  /** Creates or validates a pending logical-operation intent. */
-  beginOperationIntent(
-    intentId: string,
-    operation: string,
-    payload: JsonValue,
-  ): Promise<ProviderOperationIntent>;
-  /** Completes a matching logical-operation intent. */
-  completeOperationIntent(
-    intentId: string,
-    operation: string,
-    payload: JsonValue,
-    result: JsonValue,
-  ): Promise<ProviderOperationIntent>;
+  /** Validates provider configuration without mutating external state. */
+  validateEnvironment(): Promise<ValidationReport>;
+  /** Validates configured tables, schema, and managed records without mutation. */
+  validateWorkspace(): Promise<ValidationReport>;
+  /** Builds a deterministic digest-bearing workspace plan without mutation. */
+  planWorkspace(environmentId: string): Promise<WorkspacePlan>;
+  /** Applies an authorized plan and returns the resulting table identifiers. */
+  applyWorkspacePlan(
+    plan: WorkspacePlan,
+  ): Promise<Readonly<Record<string, string>>>;
+  /** Lists live, non-archived Tasks, optionally filtered by status. */
+  listTasks(status?: string): Promise<readonly TaskRecord[]>;
+  /** Returns a Task by provider record ID, or null. */
+  getTask(id: string): Promise<TaskRecord | null>;
+  /** Replaces a Task status only while its expected state still matches. */
+  setTaskStatus(
+    id: string,
+    expectedStatus: string,
+    expectedVersion: string,
+    status: string,
+  ): Promise<TaskRecord>;
+  /** Atomically replaces exact Task Markdown and returns the versioned record. */
+  updateTaskBody(
+    id: string,
+    expectedBody: string,
+    body: string,
+  ): Promise<TaskRecord>;
+  /** Lists live, non-archived Agents. */
+  listAgents(): Promise<readonly AgentRecord[]>;
+  /** Returns an Agent by provider record ID without loading unrelated Agents. */
+  getAgent(id: string): Promise<AgentRecord | null>;
+  /** Returns the Agent with the stable definition key, or null. */
+  getAgentByKey(key: string): Promise<AgentRecord | null>;
+  /** Lists live, non-archived Resources. */
+  listResources(): Promise<readonly ResourceRecord[]>;
+  /** Returns the uniquely keyed Resource, or null. */
+  getResourceByKey(key: string): Promise<ResourceRecord | null>;
+  /** Lists live, non-archived Active Agent records. */
+  listActiveAgents(): Promise<readonly ActiveAgentRecord[]>;
+  /** Returns the Active Agent identified by its harness Run ID, or null. */
+  getActiveAgent(runId: string): Promise<ActiveAgentRecord | null>;
+  /** Creates one new running Active Agent; duplicate Run IDs are rejected. */
+  createActiveAgent(input: CreateActiveAgentRecord): Promise<ActiveAgentRecord>;
+  /** Applies a lifecycle patch and returns the newly versioned record. */
+  updateActiveAgent(
+    runId: string,
+    patch: ActiveAgentPatch,
+  ): Promise<ActiveAgentRecord>;
+  /** Archives an Active Agent record without deleting its history. */
+  archiveActiveAgent(runId: string): Promise<void>;
+  /** Lists live, non-archived Errors. */
+  listErrors(): Promise<readonly ErrorRecord[]>;
+  /** Returns the Error with the stable key, or null. */
+  getErrorByKey(key: string): Promise<ErrorRecord | null>;
+  /** Creates or reopens the Error identified by `errorKey`. */
+  reportError(input: ReportErrorInput): Promise<ErrorRecord>;
+  /** Stores a resolution and marks the keyed Error resolved. */
+  resolveError(key: string, resolution: string): Promise<ErrorRecord>;
 }

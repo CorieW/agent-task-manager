@@ -1,7 +1,7 @@
 {
   "name": "agent-task-manager",
-  "version": "0.1.0",
-  "description": "Provider-neutral orchestration for task-driven AI agents",
+  "version": "0.4.0",
+  "description": "Single-host coordination for disposable task-driven AI agents",
   "type": "module",
   "private": true,
   "bin": {
@@ -17,7 +17,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "node scripts/build.mjs",
     "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

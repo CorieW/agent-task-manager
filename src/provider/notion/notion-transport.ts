@@ -11,7 +11,7 @@ export interface NotionRequest {
   readonly body?: JsonValue;
   /** HTTP method used for the provider request. */
   readonly method: "DELETE" | "GET" | "PATCH" | "POST";
-  /** Provider-relative request path. */
+  /** Provider-relative API path, including its leading slash. */
   readonly path: string;
   /** Optionally contains query for Notion request. */
   readonly query?: Readonly<Record<string, boolean | number | string | null>>;
@@ -23,6 +23,31 @@ export interface NotionRequest {
 export interface NotionTransport {
   /** Executes one provider request. */
   request(request: NotionRequest): Promise<JsonObject>;
+}
+
+/** Validates a complete page-Markdown response and returns normalized content. */
+export function decodeCompletePageMarkdown(
+  response: JsonObject,
+  messages: {
+    /** Error for absent or malformed completeness metadata. */
+    readonly invalidMetadata: string;
+    /** Error for a response known to omit page content. */
+    readonly incomplete: string;
+    /** TypeError for a non-string Markdown field. */
+    readonly invalidMarkdown: string;
+  },
+): string {
+  if (
+    typeof response.truncated !== "boolean" ||
+    !Array.isArray(response.unknown_block_ids) ||
+    !response.unknown_block_ids.every((id) => typeof id === "string")
+  )
+    throw new Error(messages.invalidMetadata);
+  if (response.truncated || response.unknown_block_ids.length !== 0)
+    throw new Error(messages.incomplete);
+  if (typeof response.markdown !== "string")
+    throw new TypeError(messages.invalidMarkdown);
+  return response.markdown.replace(/\r\n?/gu, "\n").normalize("NFC");
 }
 
 /** Inputs accepted by Notion HTTP transport. */
@@ -44,7 +69,7 @@ export class NotionApiError extends Error {
   /** Initializes Notion API error. */
   public constructor(
     message: string,
-    /** Current workflow status. */ public readonly status: number,
+    /** HTTP response status, or zero for a local timeout/abort. */ public readonly status: number,
     /** Machine-readable outcome or failure code. */ public readonly code:
       string | null,
     /** Retry-After seconds when supplied by Notion. */ public readonly retryAfterSeconds:
@@ -54,9 +79,9 @@ export class NotionApiError extends Error {
   }
 }
 
-/** Implements Notion HTTP transport. */
+/** Sends authenticated Notion API requests and decodes strict JSON responses. */
 export class NotionHttpTransport implements NotionTransport {
-  /** Contains API version for Notion HTTP transport. */
+  /** Notion API version sent with every request. */
   readonly #apiVersion: string;
   /** Base URL of the Notion API. */
   readonly #baseUrl: string;
@@ -89,13 +114,13 @@ export class NotionHttpTransport implements NotionTransport {
 
   /** Executes one provider request. */
   public async request(request: NotionRequest): Promise<JsonObject> {
-    /** Holds the `url` intermediate used by `request`. */
+    /** Absolute request URL with all non-null query parameters applied. */
     const url = new URL(`${this.#baseUrl}${request.path}`);
     for (const [key, value] of Object.entries(request.query ?? {})) {
       if (value !== null) url.searchParams.set(key, String(value));
     }
 
-    /** Holds the `init` intermediate used by `request`. */
+    /** Fetch options that enforce authentication, API versioning, and timeout. */
     const init: RequestInit = {
       headers: {
         Accept: "application/json",
@@ -138,7 +163,7 @@ export class NotionHttpTransport implements NotionTransport {
       .catch(() => ({ message: "Non-JSON Notion response" }));
     /** Strict JSON response shared by success and error handling. */
     const value = toJsonValue(raw);
-    /** Holds the `object` intermediate used by `request`. */
+    /** Strict JSON object shared by success and provider-error handling. */
     const object = asObject(value, "Notion response");
     if (!response.ok) {
       throw new NotionApiError(
@@ -156,11 +181,11 @@ export class NotionHttpTransport implements NotionTransport {
 
 /** Provider-neutral Notion page contract. */
 export interface NotionPage<T extends JsonObject> {
-  /** Reports whether has more. */
+  /** Whether Notion has another result page after this response. */
   readonly has_more: boolean;
-  /** Ordered next cursor used by Notion page. */
+  /** Cursor required to request the next page, or null at completion. */
   readonly next_cursor: string | null;
-  /** Results callback invoked by Notion page. */
+  /** Ordered records returned by this page. */
   readonly results: readonly T[];
 }
 
@@ -169,17 +194,17 @@ export async function collectNotionPages<T extends JsonObject>(
   fetchPage: (cursor: string | null) => Promise<JsonObject>,
   maxResults = Number.POSITIVE_INFINITY,
 ): Promise<readonly T[]> {
-  /** Holds the `results` intermediate used by `collectNotionPages`. */
+  /** Records accumulated in provider page order. */
   const results: T[] = [];
   /** Tracks unique entries in `seen` for `collectNotionPages`. */
   const seen = new Set<string>();
-  /** Holds the `cursor` intermediate used by `collectNotionPages`. */
+  /** Cursor requested next, or null before the first and after the final page. */
   let cursor: string | null = null;
   do {
     if (cursor !== null && seen.has(cursor))
       throw new Error("Notion pagination cursor repeated");
     if (cursor !== null) seen.add(cursor);
-    /** Holds the `page` intermediate used by `collectNotionPages`. */
+    /** Strictly validated page returned for the current cursor. */
     const page: NotionPage<T> = parseNotionPage<T>(await fetchPage(cursor));
     results.push(...page.results);
     if (results.length > maxResults)
@@ -212,7 +237,7 @@ function parseNotionPage<T extends JsonObject>(
     throw new TypeError("Notion list response omitted results");
   if (typeof value.has_more !== "boolean")
     throw new TypeError("Notion list response omitted has_more");
-  /** Holds the `nextCursor` intermediate used by `parseNotionPage`. */
+  /** Untrusted continuation cursor validated before it crosses the boundary. */
   const nextCursor = value.next_cursor;
   if (nextCursor !== null && typeof nextCursor !== "string") {
     throw new TypeError("Notion list response has invalid next_cursor");
@@ -229,7 +254,7 @@ function parseNotionPage<T extends JsonObject>(
 /** Parses and validates retry after. */
 function parseRetryAfter(value: string | null): number | null {
   if (value === null) return null;
-  /** Holds the `seconds` intermediate used by `parseRetryAfter`. */
+  /** Numeric retry delay accepted only when finite and non-negative. */
   const seconds = Number(value);
   return Number.isFinite(seconds) && seconds >= 0 ? seconds : null;
 }
