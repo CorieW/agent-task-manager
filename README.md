@@ -1,8 +1,19 @@
 # Agent Task Manager
 
-Single-host coordination for disposable, task-driven AI agents. Notion stores project Tasks, Agent definitions, reusable Resources, Active Agent metadata, and Errors. Each Agent definition may run shell-free commands before and after its duties, bind its runs to a working-directory template, and receive any active Resources granted through its selectors. The external harness owns conversations, tools, publications, effects, repeat safety, and child processes.
+Agent Task Manager is a provider-agnostic control boundary between an external
+AI-agent harness and a task provider such as Notion. Its JSON CLI validates
+which agents may work on which tasks, scopes their resources and commands,
+records active runs, protects task updates, routes outcomes, and coordinates
+recovery.
 
-If a run fails, its failed subtree is restarted from the beginning. The manager deliberately stores no transcript, command history, lease, checkpoint, effect receipt, or resumable conversation state.
+The harness owns models, conversations, tools, child processes, repositories,
+and external effects. The provider remains the source of truth for Tasks,
+Agent definitions, Resources, Active Agents, and Errors. Agent Task Manager
+connects the two; it does not run models or execute agent tools.
+
+```text
+External harness  →  Agent Task Manager  ↔  Task provider
+```
 
 ## Requirements
 
@@ -10,7 +21,27 @@ If a run fails, its failed subtree is restarted from the beginning. The manager 
 - pnpm 11
 - A Notion integration token when using the Notion provider
 
-## Commands
+## Getting started
+
+```powershell
+pnpm install
+pnpm build
+Copy-Item agent-task-manager.environment.example.json agent-task-manager.environment.json
+node dist/src/cli.js validate
+```
+
+Set `AGENT_TASK_MANAGER_ENVIRONMENT` to use a configuration file outside the
+default `agent-task-manager.environment.json`. The example configuration names
+`NOTION_TOKEN` as the Notion integration-token environment variable.
+
+The trusted harness must also provide:
+
+- `AGENT_TASK_MANAGER_COORDINATION_DIRECTORY`: a protected absolute directory
+  for manager lock files.
+- `AGENT_TASK_MANAGER_COMMAND_BROKER`: an absolute path to the trusted sandbox
+  broker used by `command proxy`.
+
+## CLI
 
 ```text
 task list|get
@@ -24,15 +55,10 @@ init --plan|--apply
 providers
 ```
 
-Every command emits JSON. Set `AGENT_TASK_MANAGER_ENVIRONMENT` or pass `--environment`; the default is `agent-task-manager.environment.json`. For Notion, place the token in the environment variable named by `provider.connection.tokenEnv` (default `NOTION_TOKEN`).
+Every command emits JSON. Run `node dist/src/cli.js help` for complete usage.
 
-Set `AGENT_TASK_MANAGER_COORDINATION_DIRECTORY` to an existing absolute directory reserved for manager lock files. Its operating-system permissions or mount namespace must prevent Agent sandboxes from listing or modifying it.
-
-Agent commands additionally require `AGENT_TASK_MANAGER_COMMAND_BROKER` to name an absolute trusted sandbox-broker executable. The trusted harness must inject the current run through `AGENT_TASK_MANAGER_COMMAND_RUN_ID` and `AGENT_TASK_MANAGER_COMMAND_HARNESS_ID`; these values must not be controllable by the Agent. The manager authorizes requests but never spawns Agent-requested executables directly.
-
-Agent-definition v1 accepts optional `lifecycleCommands`. `beforeAgent` commands run after assignment preflight and before the Active Agent is created; `afterAgent` commands run after duties finish but before Task and Active Agent terminal mutations. A failure therefore leaves lifecycle state retryable. External command effects are not transactional, so configured commands must be idempotent and must not daemonize. These trusted commands are separate from Agent command allowlists and execute without a shell.
-
-Agent-definition v1 also accepts optional `taskDescription` boundaries. `writableSections` authorizes exact level-two Task-description sections, while `requiredSectionsByOutcome` prevents a declared outcome from completing until its configured sections exist with non-empty content. The harness persists content with `active-agent update-task-section`; Agents never receive arbitrary Task or Notion mutation access.
+See the [documentation index](docs/README.md) for configuration, lifecycle,
+security, and provider details.
 
 ## Development
 
@@ -40,7 +66,4 @@ Agent-definition v1 also accepts optional `taskDescription` boundaries. `writabl
 pnpm install
 pnpm check
 pnpm build
-node dist/src/cli.js help
 ```
-
-See [the documentation index](docs/README.md) for lifecycle and provider details.
