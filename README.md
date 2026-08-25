@@ -66,46 +66,8 @@ Every command emits JSON. Run `agent-task-manager help` for complete usage.
 See the [documentation index](docs/README.md) for configuration, lifecycle,
 security, and provider details.
 
-## Development
-
-Development requires pnpm 11 in addition to Node.js 22 or newer.
-
-```powershell
-pnpm install
-pnpm check
-pnpm build
-```
-
-## Releasing
-
-For a user-facing change, run `pnpm changeset`, choose the semantic version
-bump, and commit the generated file. When changesets reach `main`, [the release
-workflow](.github/workflows/release.yml) opens or updates a version pull request.
-Merging that pull request runs all checks, publishes the package, creates its
-Git tag and GitHub Release, and updates its changelog.
-
-Publishing uses npm trusted publishing with GitHub OIDC instead of an npm token;
-npm generates provenance automatically. The `id-token: write` permission is
-limited to the publish job.
-
-npm requires a package to exist before a trusted publisher can be attached, so
-the initial version must be bootstrapped once from a clean `main` checkout by a
-maintainer using 2FA. Then configure the publisher with npm 11.15 or newer:
-
-```powershell
-npm trust github @corie_w/agent-task-manager `
-  --repo CorieW/agent-task-manager `
-  --file release.yml `
-  --env npm `
-  --allow-publish
-```
-
-After verifying the first automated release, disallow token-based publishing in
-the package settings on npm.
-
 ## Contributing
 
-Contributions are welcome. For substantial or breaking changes, open an issue
-first to agree on the approach. Keep pull requests focused, add or update tests,
-run `pnpm changeset` for user-facing changes, and run `pnpm check` before
-submitting.
+Found a bug or have a feature request? Open a
+[GitHub issue](https://github.com/CorieW/agent-task-manager/issues).
+Contributions are welcome.
