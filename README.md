@@ -15,24 +15,30 @@ connects the two; it does not run models or execute agent tools.
 External harness  →  Agent Task Manager  ↔  Task provider
 ```
 
-## Requirements
+## Installation
 
-- Node.js 22 or newer
-- pnpm 11
-- A Notion integration token when using the Notion provider
-
-## Getting started
+Node.js 22 or newer is required. Install the CLI globally:
 
 ```powershell
-pnpm install
-pnpm build
-Copy-Item agent-task-manager.environment.example.json agent-task-manager.environment.json
-node dist/src/cli.js validate
+npm install --global @corie_w/agent-task-manager
+agent-task-manager help
 ```
 
+Install the package locally instead when using its exported coordinator and
+provider APIs:
+
+```powershell
+npm install @corie_w/agent-task-manager
+```
+
+## Configuration
+
+Create `agent-task-manager.environment.json` from the included
+[`agent-task-manager.environment.example.json`](agent-task-manager.environment.example.json).
 Set `AGENT_TASK_MANAGER_ENVIRONMENT` to use a configuration file outside the
 default `agent-task-manager.environment.json`. The example configuration names
-`NOTION_TOKEN` as the Notion integration-token environment variable.
+`NOTION_TOKEN` as the Notion integration-token environment variable; a token is
+required when using the Notion provider.
 
 The trusted harness must also provide:
 
@@ -55,18 +61,43 @@ init --plan|--apply
 providers
 ```
 
-Every command emits JSON. Run `node dist/src/cli.js help` for complete usage.
+Every command emits JSON. Run `agent-task-manager help` for complete usage.
 
 See the [documentation index](docs/README.md) for configuration, lifecycle,
 security, and provider details.
 
 ## Development
 
+Development requires pnpm 11 in addition to Node.js 22 or newer.
+
 ```powershell
 pnpm install
 pnpm check
 pnpm build
 ```
+
+## Releasing
+
+Publishing a GitHub Release runs [the release workflow](.github/workflows/release.yml).
+Its tag must be `v` followed by the version in `package.json`. The workflow runs
+all checks and publishes the public package through npm trusted publishing; it
+uses GitHub OIDC instead of an npm token, and npm generates provenance
+automatically. GitHub prereleases use the npm `next` tag.
+
+npm requires a package to exist before a trusted publisher can be attached, so
+the initial version must be bootstrapped once from a clean `main` checkout by a
+maintainer using 2FA. Then configure the publisher with npm 11.15 or newer:
+
+```powershell
+npm trust github @corie_w/agent-task-manager `
+  --repo CorieW/agent-task-manager `
+  --file release.yml `
+  --env npm `
+  --allow-publish
+```
+
+After verifying the first automated release, disallow token-based publishing in
+the package settings on npm.
 
 ## Contributing
 
