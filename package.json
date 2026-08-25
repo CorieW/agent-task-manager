@@ -1,9 +1,21 @@
 {
-  "name": "agent-task-manager",
+  "name": "@corie_w/agent-task-manager",
   "version": "0.4.0",
-  "description": "Single-host coordination for disposable task-driven AI agents",
+  "description": "Provider-agnostic control boundary between an AI-agent harness and a task provider",
   "type": "module",
-  "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/CorieW/agent-task-manager.git"
+  },
+  "bugs": {
+    "url": "https://github.com/CorieW/agent-task-manager/issues"
+  },
+  "homepage": "https://github.com/CorieW/agent-task-manager#readme",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "bin": {
     "agent-task-manager": "./dist/src/cli.js"
   },
@@ -11,19 +23,21 @@
     ".": "./dist/src/index.js"
   },
   "files": [
-    "dist",
+    "dist/src",
     "docs",
+    "agent-task-manager.environment.example.json",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
     "build": "node scripts/build.mjs",
-    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm knip && pnpm test",
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm knip && pnpm test && pnpm pack:check",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "knip": "knip",
+    "pack:check": "pnpm build && npm pack --dry-run",
     "test": "pnpm build && node --test dist/test/*.test.js",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
