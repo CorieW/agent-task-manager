@@ -126,17 +126,22 @@ test("Agent command policies require exactly one normalized list", () => {
     () => parseAgentDefinition(markdown({ inclusion: ["git"], exclusion: [] })),
     /commands must define exactly one/u,
   );
-  assert.deepEqual(parseAgentCommandPolicy({ inclusion: ["git.com"] }), {
-    inclusion: ["git"],
-  });
-  assert.deepEqual(parseAgentCommandPolicy({ inclusion: ["git.exe.com..."] }), {
-    inclusion: ["git"],
-  });
+  assert.deepEqual(
+    parseAgentCommandPolicy({ inclusion: ["git.com"] }, "win32"),
+    { inclusion: ["git"] },
+  );
+  assert.deepEqual(
+    parseAgentCommandPolicy({ inclusion: ["git.exe.com..."] }, "win32"),
+    { inclusion: ["git"] },
+  );
   assert.throws(
     () =>
-      parseAgentCommandPolicy({
-        inclusion: ["git", "git.com", "git.exe.com..."],
-      }),
+      parseAgentCommandPolicy(
+        {
+          inclusion: ["git", "git.com", "git.exe.com..."],
+        },
+        "win32",
+      ),
     /contains duplicates/u,
   );
 });
@@ -199,7 +204,7 @@ test("command proxy enforces inclusion, ownership, and path-free names", async (
     };
   };
   /** Proxy boundary exercised by "command proxy enforces inclusion, ownership, and path-free names". */
-  const proxy = new CommandProxy(coordinator, executor, gate);
+  const proxy = new CommandProxy(coordinator, executor, gate, "win32");
   assert.match(context.systemPrompt, /exclusively through/u);
   assert.match(context.systemPrompt, /allowedTaskTypes and allowedStatuses/u);
   assert.match(context.systemPrompt, /Never invoke a shell/u);
@@ -277,7 +282,7 @@ test("command prompt delegates configured Task sections to the harness", () => {
 test("command proxy exclusion denies only configured commands", async () => {
   /** Coordinator boundary exercised by "command proxy exclusion denies only configured commands". */
   const { coordinator } = await setup(
-    parseAgentCommandPolicy({ exclusion: ["rm"] }),
+    parseAgentCommandPolicy({ exclusion: ["rm"] }, "win32"),
   );
   /** Executor boundary exercised by "command proxy exclusion denies only configured commands". */
   const executor: CommandExecutor = async (request) => ({
@@ -288,7 +293,7 @@ test("command proxy exclusion denies only configured commands", async () => {
     stdout: request.command,
   });
   /** Proxy boundary exercised by "command proxy exclusion denies only configured commands". */
-  const proxy = new CommandProxy(coordinator, executor, immediateGate);
+  const proxy = new CommandProxy(coordinator, executor, immediateGate, "win32");
   assert.equal(
     (
       await proxy.execute({

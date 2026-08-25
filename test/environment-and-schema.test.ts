@@ -145,6 +145,12 @@ test("Notion schema has only Tasks, Agents, Resources, Active Agents, and Errors
 });
 
 test("Agent configuration is parsed from the page body", () => {
+  /** Host-valid run-directory template used by the lifecycle fixture. */
+  const workingDirectory =
+    process.platform === "win32" ? "C:\\runs\\{{runId}}" : "/runs/{{runId}}";
+  /** Host-valid command directory used by the lifecycle fixture. */
+  const commandWorkingDirectory =
+    process.platform === "win32" ? "C:\\project" : "/project";
   /** Strict Agent definition parsed from authoritative Markdown. */
   const definition = parseAgentDefinition(`## Agent definition
 
@@ -152,18 +158,18 @@ test("Agent configuration is parsed from the page body", () => {
 {
   "schema": "agent-definition-v1",
   "enabled": true,
-  "commands": {"inclusion": ["git", "pnpm.cmd"]},
+  "commands": {"inclusion": ["git", "pnpm"]},
   "allowedTaskTypes": ["Bug", "Vulnerability"],
   "allowedStatuses": ["In progress", "Blocked"],
   "id": "code-reviewer",
   "model": "gpt-5.6-sol",
   "reasoning": "high",
   "lifecycleCommands": {
-    "workingDirectory": "C:\\\\runs\\\\{{runId}}",
+    "workingDirectory": ${JSON.stringify(workingDirectory)},
     "beforeAgent": [{
       "executable": "prepare",
       "arguments": ["{{workingDirectory}}"],
-      "workingDirectory": "C:\\\\project",
+      "workingDirectory": ${JSON.stringify(commandWorkingDirectory)},
       "environment": {"TASK_ID": "{{taskId}}"},
       "inheritEnvironment": [],
       "timeoutMilliseconds": 30000
@@ -189,10 +195,7 @@ test("Agent configuration is parsed from the page body", () => {
     definition.lifecycleCommands.beforeAgent[0]?.executable,
     "prepare",
   );
-  assert.equal(
-    definition.lifecycleCommands.workingDirectory,
-    "C:\\runs\\{{runId}}",
-  );
+  assert.equal(definition.lifecycleCommands.workingDirectory, workingDirectory);
   assert.deepEqual(definition.resourceKeys, [
     "prompt/code-reviewer",
     "agent-policy/review",

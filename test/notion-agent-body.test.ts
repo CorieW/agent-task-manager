@@ -30,6 +30,10 @@ const ids = {
   tasks: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
 } as const;
 
+/** Host-valid working directory used by Active Agent fixtures. */
+const activeAgentWorkingDirectory =
+  process.platform === "win32" ? "C:\\runs\\child" : "/runs/child";
+
 test("Notion Agent records derive configuration and Resources from the page body", async () => {
   /** Provider implementation that owns persistence for this invocation. */
   const provider = new NotionProvider(
@@ -499,7 +503,7 @@ test("Notion Active Agent creation persists historical Task identity", async () 
     runId: "child",
     startedAt: "2026-08-17T12:00:00.000Z",
     taskId: ids.task,
-    workingDirectory: "C:\\runs\\child",
+    workingDirectory: activeAgentWorkingDirectory,
   });
 
   assert.equal(transport.queryCount, 1);
@@ -523,7 +527,7 @@ test("Notion Active Agent creation persists historical Task identity", async () 
     status: "running",
     taskId: ids.task,
     version: "2026-08-17T12:00:00.000Z",
-    workingDirectory: "C:\\runs\\child",
+    workingDirectory: activeAgentWorkingDirectory,
   });
   assert.deepEqual(
     transport.createdProperties?.Task,
@@ -535,7 +539,7 @@ test("Notion Active Agent creation persists historical Task identity", async () 
   );
   assert.deepEqual(
     transport.createdProperties?.["Working Directory"],
-    requestRichText("C:\\runs\\child"),
+    requestRichText(activeAgentWorkingDirectory),
   );
 });
 
@@ -1032,7 +1036,10 @@ class ActiveAgentCreationTransport implements NotionTransport {
       );
       this.createdProperties = properties;
       return activeAgentLifecyclePage([ids.task], false, {
-        "Working Directory": richTextProperty("rich_text", "C:\\runs\\child"),
+        "Working Directory": richTextProperty(
+          "rich_text",
+          activeAgentWorkingDirectory,
+        ),
       });
     }
     throw new Error(
