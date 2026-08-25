@@ -719,6 +719,36 @@ test("ordinary open Errors are informational and inactive Resources block start"
   assert.equal((await unavailable.listActiveAgents()).length, 0);
 });
 
+test("Agent context includes arbitrary active Resource kinds", async () => {
+  /** Agent granted a schema Resource through its resolved Resource IDs. */
+  const customAgent = {
+    ...agent(),
+    resourceIds: ["prompt", "schema"],
+  };
+  /** Provider containing a non-Prompt, non-Policy Resource. */
+  const provider = new InMemoryProvider({
+    agents: [customAgent],
+    resources: [resource("prompt"), resource("schema", "Schema")],
+    tasks: [task()],
+  });
+
+  const context = await new AgentCoordinator(provider).start({
+    agentKey: "coder",
+    harnessId: "h",
+    parentRunId: null,
+    runId: "custom-resource",
+    taskId: "task-1",
+  });
+
+  assert.deepEqual(
+    context.resources.map(({ key, kind }) => ({ key, kind })),
+    [
+      { key: "prompt", kind: "Prompt" },
+      { key: "schema", kind: "Schema" },
+    ],
+  );
+});
+
 test("Agent Task type and status allowlists guard assignment", async () => {
   /** Denied type case exercised by "Agent Task type and status allowlists guard assignment". */
   const deniedType = new InMemoryProvider({

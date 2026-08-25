@@ -943,13 +943,9 @@ export class NotionProvider implements AgentTaskProvider {
         issues.push(
           validationIssue("resource_key", path, "Resource key is empty"),
         );
-      if (!["Prompt", "Policy"].includes(resource.kind))
+      if (resource.kind === "")
         issues.push(
-          validationIssue(
-            "resource_kind",
-            path,
-            `Unsupported Kind: ${resource.kind}`,
-          ),
+          validationIssue("resource_kind", path, "Resource Kind is empty"),
         );
       if (!["Active", "Draft", "Retired"].includes(resource.state))
         issues.push(
@@ -1043,14 +1039,12 @@ export class NotionProvider implements AgentTaskProvider {
               "Referenced Resource must be active",
             ),
           );
-        /** Resource kind required by the Agent selector. */
-        const expectedKind = key.startsWith("prompt/") ? "Prompt" : "Policy";
-        if (resource.kind !== expectedKind)
+        if (key.startsWith("prompt/") && resource.kind !== "Prompt")
           issues.push(
             validationIssue(
               "resource_kind_mismatch",
               path,
-              `Expected ${expectedKind}, received ${resource.kind}`,
+              `Expected Prompt, received ${resource.kind}`,
             ),
           );
       }

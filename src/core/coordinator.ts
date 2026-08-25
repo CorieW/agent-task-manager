@@ -687,12 +687,14 @@ export class AgentCoordinator {
         resource.state !== "active"
       )
         throw new Error(`Agent Resource is unavailable: ${id}`);
+      if (resource.kind.trim() === "")
+        throw new Error(`Agent Resource Kind is empty: ${resource.key}`);
       if (
-        resource.kind.toLowerCase() !== "prompt" &&
-        resource.kind.toLowerCase() !== "policy"
+        resource.key.startsWith("prompt/") &&
+        resource.kind.toLowerCase() !== "prompt"
       )
         throw new Error(
-          `Agent Resource must be Prompt or Policy: ${resource.key}`,
+          `Agent Prompt Resource has wrong Kind: ${resource.key}`,
         );
       return resource;
     });

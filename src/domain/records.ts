@@ -471,7 +471,7 @@ export function parseAgentDefinition(markdown: string): AgentDefinition {
     definition.promptResources,
     "promptResources",
   );
-  /** Resource selectors declared by the legacy Agent manifest. */
+  /** Additional Resource selectors granted to the Agent. */
   const inputResourceSelectors = definitionStrings(
     definition.inputResourceSelectors,
     "inputResourceSelectors",
@@ -482,14 +482,6 @@ export function parseAgentDefinition(markdown: string): AgentDefinition {
   )
     throw new TypeError(
       "Agent definition promptResources must contain prompt/* keys",
-    );
-  /** Agent Policy Resources selected by the Agent definition. */
-  const policyResources = inputResourceSelectors.filter((key) =>
-    key.startsWith("agent-policy/"),
-  );
-  if (policyResources.length === 0)
-    throw new TypeError(
-      "Agent definition inputResourceSelectors must contain an agent-policy/* key",
     );
   if (typeof definition.enabled !== "boolean")
     throw new TypeError("Agent definition enabled must be a boolean");
@@ -513,7 +505,7 @@ export function parseAgentDefinition(markdown: string): AgentDefinition {
     model: definitionText(definition.model, "model"),
     notes: optionalDefinitionText(definition.notes, "notes"),
     reasoning: definitionText(definition.reasoning, "reasoning"),
-    resourceKeys: [...new Set([...promptResources, ...policyResources])],
+    resourceKeys: [...new Set([...promptResources, ...inputResourceSelectors])],
     taskDescription: parseAgentTaskDescriptionConfig(
       definition.taskDescription,
       transitions,

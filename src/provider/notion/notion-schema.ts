@@ -74,7 +74,7 @@ export const NOTION_TABLES: readonly NotionTableDescriptor[] = [
     title: "Resources",
     properties: [
       property("Resource", "title"),
-      property("Kind", "select", true, ["Prompt", "Policy"]),
+      property("Kind", "select"),
       property("State", "select", true, ["Active", "Draft", "Retired"]),
       property("Owner", "people", false),
       property("Review Date", "date", false),

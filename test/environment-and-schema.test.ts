@@ -136,6 +136,12 @@ test("Notion schema has only Tasks, Agents, Resources, Active Agents, and Errors
     )?.options,
     [],
   );
+  assert.deepEqual(
+    NOTION_TABLES.find((table) => table.kind === "resources")?.properties.find(
+      (property) => property.name === "Kind",
+    )?.options,
+    [],
+  );
 });
 
 test("Agent configuration is parsed from the page body", () => {
@@ -190,6 +196,7 @@ test("Agent configuration is parsed from the page body", () => {
   assert.deepEqual(definition.resourceKeys, [
     "prompt/code-reviewer",
     "agent-policy/review",
+    "schema/result-v1",
   ]);
   assert.deepEqual(definition.transitions, {
     blocked: "Blocked",
@@ -289,22 +296,22 @@ test("Agent v1 requires unique user-defined Task type and status allowlists", ()
   );
 });
 
-test("Agent definitions require explicit Prompt and Agent Policy resources", () => {
-  /** Valid case exercised by "Agent definitions require explicit Prompt and Agent Policy resources". */
+test("Agent definitions require Prompt resources and accept arbitrary inputs", () => {
+  /** Valid case exercised by "Agent definitions require Prompt resources and accept arbitrary inputs". */
   const valid = {
     allowedStatuses: ["In progress"],
     allowedTaskTypes: ["Feature"],
     commands: { exclusion: [] },
     enabled: true,
     id: "code-reviewer",
-    inputResourceSelectors: ["agent-policy/review", "schema/result-v1"],
+    inputResourceSelectors: ["schema/result-v1"],
     model: "gpt-5.6-sol",
     promptResources: ["prompt/code-reviewer"],
     reasoning: "high",
     schema: "agent-definition-v1",
     transitions: { succeeded: "In progress" },
   };
-  /** Markdown supplied to "Agent definitions require explicit Prompt and Agent Policy resources". */
+  /** Markdown supplied to "Agent definitions require Prompt resources and accept arbitrary inputs". */
   const markdown = (definition: object): string =>
     `## Agent definition\n\n\`\`\`json\n${JSON.stringify(definition)}\n\`\`\`\n`;
 
@@ -315,15 +322,14 @@ test("Agent definitions require explicit Prompt and Agent Policy resources", () 
       ),
     /promptResources must contain prompt\/\*/u,
   );
-  assert.throws(
-    () =>
-      parseAgentDefinition(
-        markdown({
-          ...valid,
-          inputResourceSelectors: ["agent-polciy/review", "schema/result-v1"],
-        }),
-      ),
-    /inputResourceSelectors must contain an agent-policy\/\*/u,
+  assert.deepEqual(parseAgentDefinition(markdown(valid)).resourceKeys, [
+    "prompt/code-reviewer",
+    "schema/result-v1",
+  ]);
+  assert.deepEqual(
+    parseAgentDefinition(markdown({ ...valid, inputResourceSelectors: [] }))
+      .resourceKeys,
+    ["prompt/code-reviewer"],
   );
 });
 

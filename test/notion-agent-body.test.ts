@@ -22,6 +22,7 @@ const ids = {
   errors: "cccccccccccccccccccccccccccccccc",
   policy: "22222222222222222222222222222222",
   prompt: "33333333333333333333333333333333",
+  schema: "12121212121212121212121212121212",
   parentRun: "66666666666666666666666666666666",
   restartRun: "77777777777777777777777777777777",
   resources: "dddddddddddddddddddddddddddddddd",
@@ -53,7 +54,7 @@ test("Notion Agent records derive configuration and Resources from the page body
   assert.equal(agent.enabled, true);
   assert.equal(agent.model, "gpt-5.6-sol");
   assert.equal(agent.reasoning, "high");
-  assert.deepEqual(agent.resourceIds, [ids.prompt, ids.policy]);
+  assert.deepEqual(agent.resourceIds, [ids.prompt, ids.policy, ids.schema]);
   assert.deepEqual(agent.transitions, {
     blocked: "Blocked",
     succeeded: "In progress",
@@ -276,13 +277,13 @@ test("workspace validation rejects incomplete relation and select contracts", as
   const selectReport = await new NotionProvider(
     environment,
     new AgentBodyTransport({
-      name: "Kind",
+      name: "State",
       table: "resources",
       type: "select",
     }),
   ).validateWorkspace();
   assert.ok(
-    selectReport.issues.some((entry) => entry.path === "Resources.Kind"),
+    selectReport.issues.some((entry) => entry.path === "Resources.State"),
   );
   /** Validation report for a missing required Active Agent property. */
   const requiredReport = await new NotionProvider(
@@ -761,6 +762,7 @@ class AgentBodyTransport implements NotionTransport {
       return pageResults([
         resourcePage(ids.prompt, "prompt/code-reviewer", "Prompt"),
         resourcePage(ids.policy, "agent-policy/review", "Policy"),
+        resourcePage(ids.schema, "schema/result-v1", "Schema"),
       ]);
     if (request.path === `/v1/pages/${ids.agent}/markdown`)
       return {
@@ -805,6 +807,12 @@ class AgentBodyTransport implements NotionTransport {
     if (request.path === `/v1/pages/${ids.policy}/markdown`)
       return {
         markdown: "Apply review policy.",
+        truncated: false,
+        unknown_block_ids: [],
+      };
+    if (request.path === `/v1/pages/${ids.schema}/markdown`)
+      return {
+        markdown: "Use result schema v1.",
         truncated: false,
         unknown_block_ids: [],
       };

@@ -1,6 +1,6 @@
 # Agent Task Manager
 
-Single-host coordination for disposable, task-driven AI agents. Notion stores project Tasks, Agent definitions, reusable Prompt and Policy Resources, Active Agent metadata, and Errors. Each Agent definition may run shell-free commands before and after its duties and bind its runs to a working-directory template. The external harness owns conversations, tools, publications, effects, repeat safety, and child processes.
+Single-host coordination for disposable, task-driven AI agents. Notion stores project Tasks, Agent definitions, reusable Resources, Active Agent metadata, and Errors. Each Agent definition may run shell-free commands before and after its duties, bind its runs to a working-directory template, and receive any active Resources granted through its selectors. The external harness owns conversations, tools, publications, effects, repeat safety, and child processes.
 
 If a run fails, its failed subtree is restarted from the beginning. The manager deliberately stores no transcript, command history, lease, checkpoint, effect receipt, or resumable conversation state.
 
