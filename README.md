@@ -78,11 +78,15 @@ pnpm build
 
 ## Releasing
 
-Publishing a GitHub Release runs [the release workflow](.github/workflows/release.yml).
-Its tag must be `v` followed by the version in `package.json`. The workflow runs
-all checks and publishes the public package through npm trusted publishing; it
-uses GitHub OIDC instead of an npm token, and npm generates provenance
-automatically. GitHub prereleases use the npm `next` tag.
+For a user-facing change, run `pnpm changeset`, choose the semantic version
+bump, and commit the generated file. When changesets reach `main`, [the release
+workflow](.github/workflows/release.yml) opens or updates a version pull request.
+Merging that pull request runs all checks, publishes the package, creates its
+Git tag and GitHub Release, and updates its changelog.
+
+Publishing uses npm trusted publishing with GitHub OIDC instead of an npm token;
+npm generates provenance automatically. The `id-token: write` permission is
+limited to the publish job.
 
 npm requires a package to exist before a trusted publisher can be attached, so
 the initial version must be bootstrapped once from a clean `main` checkout by a
@@ -103,4 +107,5 @@ the package settings on npm.
 
 Contributions are welcome. For substantial or breaking changes, open an issue
 first to agree on the approach. Keep pull requests focused, add or update tests,
-and run `pnpm check` before submitting.
+run `pnpm changeset` for user-facing changes, and run `pnpm check` before
+submitting.
