@@ -112,7 +112,7 @@ test("Agent command policies require exactly one normalized list", () => {
     allowedTaskTypes: ["Feature"],
     enabled: true,
     id: "coder",
-    inputResourceSelectors: ["policy/review"],
+    inputResourceSelectors: ["agent-policy/review"],
     model: "gpt",
     promptResources: ["prompt/coder"],
     reasoning: "high",

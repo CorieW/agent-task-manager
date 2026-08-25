@@ -2,7 +2,7 @@
 
 ## Starting and replay
 
-An Active Agent is a disposable execution projection. Starting one parses the Agent definition from its page body, validates that it is enabled, resolves its `prompt/*` and `policy/*` selectors to active Resources, and then validates the Task Type and Status against the Agent's user-defined allowlists, optional same-Task parent, and Task root exclusivity. Replay and restart recheck those allowlists. The response contains the current Task and Resource bodies, a narrowed Agent execution projection, and a strict assignment-and-command system prompt; it contains no Agent body, manager-only policy, raw provider properties, transcript, or snapshot.
+An Active Agent is a disposable execution projection. Starting one parses the Agent definition from its page body, validates that it is enabled, resolves its `prompt/*` and `agent-policy/*` selectors to active Resources, and then validates the Task Type and Status against the Agent's user-defined allowlists, optional same-Task parent, and Task root exclusivity. Replay and restart recheck those allowlists. The response contains the current Task and Resource bodies, a narrowed Agent execution projection, and a strict assignment-and-command system prompt; it contains no Agent body, manager-only policy, raw provider properties, transcript, or snapshot.
 
 ## Heartbeats and terminal records
 

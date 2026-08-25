@@ -483,13 +483,13 @@ export function parseAgentDefinition(markdown: string): AgentDefinition {
     throw new TypeError(
       "Agent definition promptResources must contain prompt/* keys",
     );
-  /** Policy Resources selected by the Agent definition. */
+  /** Agent Policy Resources selected by the Agent definition. */
   const policyResources = inputResourceSelectors.filter((key) =>
-    key.startsWith("policy/"),
+    key.startsWith("agent-policy/"),
   );
   if (policyResources.length === 0)
     throw new TypeError(
-      "Agent definition inputResourceSelectors must contain a policy/* key",
+      "Agent definition inputResourceSelectors must contain an agent-policy/* key",
     );
   if (typeof definition.enabled !== "boolean")
     throw new TypeError("Agent definition enabled must be a boolean");

@@ -760,7 +760,7 @@ class AgentBodyTransport implements NotionTransport {
     if (request.path === `/v1/data_sources/${ids.resources}/query`)
       return pageResults([
         resourcePage(ids.prompt, "prompt/code-reviewer", "Prompt"),
-        resourcePage(ids.policy, "policy/review", "Policy"),
+        resourcePage(ids.policy, "agent-policy/review", "Policy"),
       ]);
     if (request.path === `/v1/pages/${ids.agent}/markdown`)
       return {
@@ -1270,7 +1270,7 @@ function agentMarkdown(commands: string): string {
   return `## Agent definition
 
 \`\`\`json
-{"schema":"agent-definition-v1","enabled":true,"commands":${commands},"allowedTaskTypes":["Feature"],"allowedStatuses":["In progress"],"id":"code-reviewer","model":"gpt-5.6-sol","reasoning":"high","inputResourceSelectors":["policy/review","schema/result-v1"],"promptResources":["prompt/code-reviewer"],"transitions":{"succeeded":"In progress","blocked":"Blocked"}}
+{"schema":"agent-definition-v1","enabled":true,"commands":${commands},"allowedTaskTypes":["Feature"],"allowedStatuses":["In progress"],"id":"code-reviewer","model":"gpt-5.6-sol","reasoning":"high","inputResourceSelectors":["agent-policy/review","schema/result-v1"],"promptResources":["prompt/code-reviewer"],"transitions":{"succeeded":"In progress","blocked":"Blocked"}}
 \`\`\`
 `;
 }

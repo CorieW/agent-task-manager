@@ -164,7 +164,7 @@ test("Agent configuration is parsed from the page body", () => {
     }],
     "afterAgent": []
   },
-  "inputResourceSelectors": ["policy/review", "schema/result-v1"],
+  "inputResourceSelectors": ["agent-policy/review", "schema/result-v1"],
   "promptResources": ["prompt/code-reviewer"],
   "taskDescription": {
     "writableSections": ["Planning"],
@@ -189,7 +189,7 @@ test("Agent configuration is parsed from the page body", () => {
   );
   assert.deepEqual(definition.resourceKeys, [
     "prompt/code-reviewer",
-    "policy/review",
+    "agent-policy/review",
   ]);
   assert.deepEqual(definition.transitions, {
     blocked: "Blocked",
@@ -209,7 +209,7 @@ test("Agent definitions accept only the complete v1 schema", () => {
     commands: { exclusion: [] },
     enabled: true,
     id: "code-reviewer",
-    inputResourceSelectors: ["policy/review"],
+    inputResourceSelectors: ["agent-policy/review"],
     model: "gpt-5.6-sol",
     promptResources: ["prompt/code-reviewer"],
     reasoning: "high",
@@ -262,7 +262,7 @@ test("Agent v1 requires unique user-defined Task type and status allowlists", ()
     commands: { inclusion: [] },
     enabled: true,
     id: "coder",
-    inputResourceSelectors: ["policy/review"],
+    inputResourceSelectors: ["agent-policy/review"],
     model: "gpt",
     promptResources: ["prompt/coder"],
     reasoning: "high",
@@ -289,22 +289,22 @@ test("Agent v1 requires unique user-defined Task type and status allowlists", ()
   );
 });
 
-test("Agent definitions require explicit Prompt and Policy resources", () => {
-  /** Valid case exercised by "Agent definitions require explicit Prompt and Policy resources". */
+test("Agent definitions require explicit Prompt and Agent Policy resources", () => {
+  /** Valid case exercised by "Agent definitions require explicit Prompt and Agent Policy resources". */
   const valid = {
     allowedStatuses: ["In progress"],
     allowedTaskTypes: ["Feature"],
     commands: { exclusion: [] },
     enabled: true,
     id: "code-reviewer",
-    inputResourceSelectors: ["policy/review", "schema/result-v1"],
+    inputResourceSelectors: ["agent-policy/review", "schema/result-v1"],
     model: "gpt-5.6-sol",
     promptResources: ["prompt/code-reviewer"],
     reasoning: "high",
     schema: "agent-definition-v1",
     transitions: { succeeded: "In progress" },
   };
-  /** Markdown supplied to "Agent definitions require explicit Prompt and Policy resources". */
+  /** Markdown supplied to "Agent definitions require explicit Prompt and Agent Policy resources". */
   const markdown = (definition: object): string =>
     `## Agent definition\n\n\`\`\`json\n${JSON.stringify(definition)}\n\`\`\`\n`;
 
@@ -320,10 +320,10 @@ test("Agent definitions require explicit Prompt and Policy resources", () => {
       parseAgentDefinition(
         markdown({
           ...valid,
-          inputResourceSelectors: ["polciy/review", "schema/result-v1"],
+          inputResourceSelectors: ["agent-polciy/review", "schema/result-v1"],
         }),
       ),
-    /inputResourceSelectors must contain a policy\/\*/u,
+    /inputResourceSelectors must contain an agent-policy\/\*/u,
   );
 });
 
