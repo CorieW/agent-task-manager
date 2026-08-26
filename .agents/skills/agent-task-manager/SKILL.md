@@ -7,6 +7,8 @@ description: Operate Agent Task Manager as a trusted external harness by inspect
 
 Use the CLI as the trusted harness-side control boundary. Agent Task Manager validates and persists coordination state; it does not run models, own conversations, execute tools, manage repositories, or authorize external effects.
 
+This skill applies to a trusted controller or harness regardless of its underlying model provider. Do not inject it into an ordinary managed Active Agent; managed Agents must follow the system prompt and Resources returned for their run. A model should receive this skill only when that model is itself operating the trusted harness.
+
 ## Prepare
 
 - Locate the configuration through `AGENT_TASK_MANAGER_ENVIRONMENT` or the repository default. Preserve existing environment variables and never print secrets.
