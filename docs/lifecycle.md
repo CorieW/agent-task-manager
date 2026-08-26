@@ -2,11 +2,11 @@
 
 ## Starting and replay
 
-An Active Agent is a disposable execution projection. Starting one parses the Agent definition from its page body, validates that it is enabled, resolves every `promptResources` and `inputResourceSelectors` key to an active Resource, and then validates the Task Type and Status against the Agent's user-defined allowlists, optional same-Task parent, and Task root exclusivity. Prompt keys must use `prompt/*` and resolve to Prompt Resources; input selectors may use any key and Resource Kind. Replay and restart recheck those allowlists and Resource grants. The response contains the current Task and Resource bodies, a narrowed Agent execution projection, and a strict assignment-and-command system prompt; it contains no Agent body, manager-only policy, raw provider properties, transcript, or snapshot.
+An Active Agent is a disposable execution projection. Starting one parses the Agent definition from its record body, validates that it is enabled, resolves every `promptResources` and `inputResourceSelectors` key to an active Resource, and then validates the Task Type and Status against the Agent's user-defined allowlists, optional same-Task parent, and Task root exclusivity. Prompt keys must use `prompt/*` and resolve to Prompt Resources; input selectors may use any key and Resource Kind. Replay and restart recheck those allowlists and Resource grants. The response contains the current Task and Resource bodies, a narrowed Agent execution projection, and a strict assignment-and-command system prompt; it contains no Agent body, manager-only policy, raw provider properties, transcript, or snapshot.
 
 ## Heartbeats and terminal records
 
-The harness refreshes `Last Heartbeat`. A heartbeat more than five minutes old is stale. Failure or staleness stops and archives descendants but leaves the run's parent running. Every terminal transition clears the run's live `Task` relation so the reciprocal Task `Active Agents` relation contains running agents only. The immutable `Task ID` metadata preserves retry and audit identity after detachment. Failed and stale rows remain visible; successful and ancestor-stopped rows are archived.
+The harness refreshes the Active Agent's last heartbeat. A heartbeat more than five minutes old is stale. Failure or staleness stops and archives descendants but leaves the run's parent running. Providers retain immutable Task identity for retry and audit while ensuring live-run queries do not expose terminal records. Failed and stale records remain visible; successful and ancestor-stopped records are archived.
 
 ## Retry chains
 
@@ -18,7 +18,7 @@ Completion is rejected while descendants run and unless the outcome exists in th
 
 ## Task-description capability
 
-`taskDescription.writableSections` is an Agent-owned capability boundary, not a global Planner special case. A running, harness-owned Agent may ask the harness to call `active-agent update-task-section` for an allowed section. The manager rechecks the pinned Agent version, working directory, Task eligibility, and exact section name, rejects section content that could escape into another top-level section, and atomically replaces the exact observed Task Markdown through the provider. No Agent receives unrestricted Task property, status, or page mutation access.
+`taskDescription.writableSections` is an Agent-owned capability boundary, not a global Planner special case. A running, harness-owned Agent may ask the harness to call `active-agent update-task-section` for an allowed section. The manager rechecks the pinned Agent version, working directory, Task eligibility, and exact section name, rejects section content that could escape into another top-level section, and atomically replaces the exact observed Task Markdown through the provider. No Agent receives unrestricted Task property, status, or provider-record mutation access.
 
 ## Coordination and run leases
 

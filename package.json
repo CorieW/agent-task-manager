@@ -20,7 +20,8 @@
     "agent-task-manager": "./dist/src/cli.js"
   },
   "exports": {
-    ".": "./dist/src/index.js"
+    ".": "./dist/src/index.js",
+    "./providers/notion": "./dist/src/provider/notion/index.js"
   },
   "files": [
     "dist/src",

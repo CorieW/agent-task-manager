@@ -64,13 +64,13 @@ export function agentDefinitionSection(markdown: string): {
   };
 }
 
-/** Strictly parses an authoritative Agent definition from page Markdown. */
+/** Strictly parses an authoritative Agent definition from record Markdown. */
 export function parseAgentDefinition(markdown: string): AgentDefinition {
   /** Managed Markdown section located by its exact heading. */
   const section = agentDefinitionSection(markdown);
   if (section === null)
     throw new TypeError(
-      "Agent page body must contain an '## Agent definition' JSON block",
+      "Agent body must contain an '## Agent definition' JSON block",
     );
 
   /** Untyped serialized input after JSON or argument parsing. */

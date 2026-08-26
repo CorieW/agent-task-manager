@@ -2,17 +2,19 @@
   "schema": "agent-task-manager-environment-v1",
   "environmentId": "management-v2",
   "provider": {
-    "type": "notion",
-    "connection": {
-      "tokenEnv": "NOTION_TOKEN"
-    },
-    "bootstrapParent": null,
-    "tables": {
-      "tasks": null,
-      "agents": null,
-      "activeAgents": null,
-      "errors": null,
-      "resources": null
+    "module": "@corie_w/agent-task-manager/providers/notion",
+    "options": {
+      "connection": {
+        "tokenEnv": "NOTION_TOKEN"
+      },
+      "bootstrapParent": null,
+      "tables": {
+        "tasks": null,
+        "agents": null,
+        "activeAgents": null,
+        "errors": null,
+        "resources": null
+      }
     }
   }
 }

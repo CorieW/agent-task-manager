@@ -1,6 +1,6 @@
 /** Parses and validates provider environment configuration. */
 import type { JsonObject, JsonValue } from "../domain/json.js";
-import { TABLE_KINDS, type ProviderEnvironment } from "../domain/provider.js";
+import type { ProviderEnvironment } from "../domain/provider.js";
 
 /** Validated v1 environment configuration and its original JSON value. */
 export interface EnvironmentConfig {
@@ -44,44 +44,15 @@ export function parseEnvironmentConfig(value: JsonValue): EnvironmentConfig {
   );
   /** Unvalidated provider settings object. */
   const provider = configObject(root.provider, "provider", issues);
-  rejectUnknownConfigKeys(
-    provider,
-    ["type", "connection", "bootstrapParent", "tables"],
-    "provider",
-    issues,
-  );
-  /** Provider implementation discriminator. */
-  const type = configString(provider.type, "provider.type", issues);
-  /** Provider connection settings retained as strict JSON. */
-  const connection = configObject(
-    provider.connection,
-    "provider.connection",
-    issues,
-  );
-  /** Optional Notion page under which managed databases may be created. */
-  const parent = nullableConfigString(
-    provider.bootstrapParent,
-    "provider.bootstrapParent",
-    issues,
-  );
-  /** Untyped table mapping before strict ID validation. */
-  const tableObject = configObject(provider.tables, "provider.tables", issues);
-  rejectUnknownConfigKeys(tableObject, TABLE_KINDS, "provider.tables", issues);
-  /** Configured Notion data-source IDs keyed by managed table. */
-  const tables = Object.fromEntries(
-    TABLE_KINDS.map((kind) => [
-      kind,
-      nullableConfigString(
-        tableObject[kind],
-        `provider.tables.${kind}`,
-        issues,
-      ),
-    ]),
-  ) as Record<(typeof TABLE_KINDS)[number], string | null>;
+  rejectUnknownConfigKeys(provider, ["module", "options"], "provider", issues);
+  /** Import specifier for the selected provider implementation. */
+  const module = configString(provider.module, "provider.module", issues);
+  /** Opaque provider-owned settings retained as strict JSON. */
+  const options = configObject(provider.options, "provider.options", issues);
   if (issues.length > 0) throw new EnvironmentConfigError(issues);
   return {
     environmentId,
-    provider: { bootstrapParent: parent, connection, tables, type },
+    provider: { module, options },
     raw: root,
     schema: "agent-task-manager-environment-v1",
   };
@@ -111,16 +82,6 @@ function configString(
     return "";
   }
   return value;
-}
-
-/** Parses an optional nullable configuration string. */
-function nullableConfigString(
-  value: JsonValue | undefined,
-  path: string,
-  issues: string[],
-): string | null {
-  if (value === null) return null;
-  return configString(value, path, issues);
 }
 
 /** Rejects object keys outside the boundary's explicit allowlist. */

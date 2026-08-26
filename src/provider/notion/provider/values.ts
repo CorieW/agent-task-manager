@@ -5,7 +5,8 @@ import {
   type JsonObject,
   type JsonValue,
 } from "../../../domain/json.js";
-import type { TableKind, ValidationIssue } from "../../../domain/provider.js";
+import type { ValidationIssue } from "../../../domain/provider.js";
+import type { NotionTableKind } from "../notion-schema.js";
 import type {
   ActiveAgentRecord,
   ErrorSource,
@@ -16,7 +17,7 @@ import type { NotionPropertyDescriptor } from "../notion-schema.js";
 /** Builds the Notion schema payload for one canonical property. */
 export function propertySchema(
   descriptor: NotionPropertyDescriptor,
-  tables: Readonly<Record<TableKind, string | null>>,
+  tables: Readonly<Record<NotionTableKind, string | null>>,
 ): JsonObject {
   if (descriptor.relation !== null) {
     /** Destination Task status or related Notion table selected by the operation. */
@@ -54,7 +55,7 @@ export function propertySchema(
 export function propertyContractMismatch(
   descriptor: NotionPropertyDescriptor,
   observed: JsonObject,
-  tables: Readonly<Record<TableKind, string | null>>,
+  tables: Readonly<Record<NotionTableKind, string | null>>,
 ): string | null {
   /** Observed property discriminator compared before type-specific details. */
   const actualType =

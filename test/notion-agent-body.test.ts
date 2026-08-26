@@ -19,7 +19,6 @@ test("Notion Agent records derive configuration and Resources from the page body
         resources: fixtures.ids.resources,
         tasks: fixtures.ids.tasks,
       },
-      type: "notion",
     },
     new fixtures.AgentBodyTransport(),
   );
@@ -67,7 +66,6 @@ test("Notion Agent record lookup isolates unrelated malformed bodies", async () 
         resources: fixtures.ids.resources,
         tasks: fixtures.ids.tasks,
       },
-      type: "notion",
     },
     new fixtures.AgentBodyTransport(),
   );
@@ -126,7 +124,6 @@ test("Notion Agent loading retries a body and metadata torn read", async () => {
         resources: fixtures.ids.resources,
         tasks: fixtures.ids.tasks,
       },
-      type: "notion",
     },
     new fixtures.TornAgentBodyTransport(),
   );
@@ -154,7 +151,6 @@ test("Notion Agent versions bind same-timestamp command policy changes", async (
         resources: fixtures.ids.resources,
         tasks: fixtures.ids.tasks,
       },
-      type: "notion",
     },
     transport,
   );
@@ -183,7 +179,6 @@ test("Notion workspace validation reports malformed Agent bodies", async () => {
         resources: fixtures.ids.resources,
         tasks: fixtures.ids.tasks,
       },
-      type: "notion",
     },
     new fixtures.AgentBodyTransport(),
   );

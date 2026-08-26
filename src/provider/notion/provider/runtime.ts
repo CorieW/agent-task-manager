@@ -14,10 +14,8 @@ import {
   type ResourceState,
   type TaskRecord,
 } from "../../../domain/records.js";
-import type {
-  ProviderEnvironment,
-  TableKind,
-} from "../../../domain/provider.js";
+import type { NotionProviderOptions } from "../notion-environment.js";
+import type { NotionTableKind } from "../notion-schema.js";
 import { normalizeNotionId as normalizeId } from "../notion-id.js";
 import {
   collectNotionPages,
@@ -49,10 +47,10 @@ import {
 
 /** Runtime shared by the public Notion provider facade. */
 export class NotionProviderRuntime {
-  protected readonly tables: Record<TableKind, string | null>;
+  protected readonly tables: Record<NotionTableKind, string | null>;
 
   public constructor(
-    protected readonly environment: ProviderEnvironment,
+    protected readonly environment: NotionProviderOptions,
     protected readonly transport: NotionTransport,
   ) {
     this.tables = { ...environment.tables };
@@ -354,7 +352,7 @@ export class NotionProviderRuntime {
   }
 
   /** Rejects direct page IDs outside the configured managed data source. */
-  protected assertManagedPage(page: JsonObject, kind: TableKind): void {
+  protected assertManagedPage(page: JsonObject, kind: NotionTableKind): void {
     /** Page-parent metadata compared with the configured data-source ID. */
     const parent = requireJsonObject(page.parent, "Page parent");
     if (
@@ -367,7 +365,7 @@ export class NotionProviderRuntime {
 
   /** Queries every page in one configured managed table. */
   protected async query(
-    kind: TableKind,
+    kind: NotionTableKind,
     filter?: JsonObject,
   ): Promise<readonly JsonObject[]> {
     /** Configured data-source ID for this query. */
@@ -386,7 +384,7 @@ export class NotionProviderRuntime {
   }
 
   /** Returns the configured data-source ID for a managed table. */
-  protected table(kind: TableKind): string {
+  protected table(kind: NotionTableKind): string {
     /** Configured data-source ID before normalization. */
     const value = this.tables[kind];
     if (value === null)

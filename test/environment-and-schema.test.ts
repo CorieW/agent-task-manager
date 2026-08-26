@@ -13,6 +13,7 @@ import {
   validateAgentTransitions,
 } from "../src/domain/records.js";
 import { normalizeNotionId } from "../src/provider/notion/notion-id.js";
+import { parseNotionProviderOptions } from "../src/provider/notion/notion-environment.js";
 import { NOTION_TABLES } from "../src/provider/notion/notion-schema.js";
 
 test("Notion identifiers share one strict normalization boundary", () => {
@@ -58,33 +59,22 @@ test("decoded Agent transitions validate without a JSON round trip", () => {
   );
 });
 
-test("v1 environment contains provider configuration only", () => {
+test("v1 environment keeps provider configuration opaque", () => {
   /** Parsed provider-only environment compared with the source JSON. */
   const value = parseEnvironmentConfig(
     toJsonValue({
       environmentId: "management-v2",
       provider: {
-        bootstrapParent: "parent",
-        connection: { tokenEnv: "NOTION_TOKEN" },
-        tables: {
-          activeAgents: null,
-          agents: "a",
-          errors: "e",
-          resources: "r",
-          tasks: "t",
-        },
-        type: "notion",
+        module: "custom-provider",
+        options: { arbitrary: { nested: true } },
       },
       schema: "agent-task-manager-environment-v1",
     }),
   );
-  assert.deepEqual(Object.keys(value.provider.tables).sort(), [
-    "activeAgents",
-    "agents",
-    "errors",
-    "resources",
-    "tasks",
-  ]);
+  assert.deepEqual(value.provider, {
+    module: "custom-provider",
+    options: { arbitrary: { nested: true } },
+  });
   assert.throws(
     () => parseEnvironmentConfig(toJsonValue({ ...value.raw, runtime: {} })),
     EnvironmentConfigError,
@@ -99,6 +89,39 @@ test("v1 environment contains provider configuration only", () => {
       ),
     /lifecycleCommands is not allowed/u,
   );
+  assert.throws(
+    () =>
+      parseEnvironmentConfig(
+        toJsonValue({
+          environmentId: "management-v2",
+          provider: { options: {}, type: "notion" },
+          schema: "agent-task-manager-environment-v1",
+        }),
+      ),
+    /provider.type is not allowed/u,
+  );
+});
+
+test("Notion owns validation of its opaque provider options", () => {
+  const options = parseNotionProviderOptions({
+    bootstrapParent: "parent",
+    connection: { tokenEnv: "NOTION_TOKEN" },
+    tables: {
+      activeAgents: null,
+      agents: "a",
+      errors: "e",
+      resources: "r",
+      tasks: "t",
+    },
+  });
+  assert.equal(options.bootstrapParent, "parent");
+  assert.deepEqual(Object.keys(options.tables).sort(), [
+    "activeAgents",
+    "agents",
+    "errors",
+    "resources",
+    "tasks",
+  ]);
 });
 
 test("Notion schema has only Tasks, Agents, Resources, Active Agents, and Errors", () => {

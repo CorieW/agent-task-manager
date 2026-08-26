@@ -37,7 +37,6 @@ export function lifecycleProvider(transport: NotionTransport): NotionProvider {
         resources: ids.resources,
         tasks: ids.tasks,
       },
-      type: "notion",
     },
     transport,
   );

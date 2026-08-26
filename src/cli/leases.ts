@@ -2,7 +2,7 @@
 import type { AgentCoordinator, SweepResult } from "../core/coordinator.js";
 import type { ActiveAgentRecord } from "../domain/records.js";
 import type { AgentTaskProvider } from "../provider/agent-task-provider.js";
-import type { SingleHostMutex } from "../provider/notion/single-host-mutex.js";
+import type { SingleHostMutex } from "../core/single-host-mutex.js";
 
 /** Serializes a terminal lifecycle mutation against commands in its subtree. */
 export async function withRunLeases<T>(

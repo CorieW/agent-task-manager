@@ -18,7 +18,7 @@ import { EnvironmentConfigError } from "../src/config/environment.js";
 import { AgentCoordinator } from "../src/core/coordinator.js";
 import type { ActiveAgentRecord } from "../src/domain/records.js";
 import { InMemoryProvider } from "../src/provider/in-memory-provider.js";
-import { SingleHostMutex } from "../src/provider/notion/single-host-mutex.js";
+import { SingleHostMutex } from "../src/core/single-host-mutex.js";
 
 test("CLI rejects unknown and command-irrelevant flags", async () => {
   await assert.rejects(
@@ -29,9 +29,28 @@ test("CLI rejects unknown and command-irrelevant flags", async () => {
     runCli(["task", "list", "--outcome", "succeeded"]),
     /Flag --outcome is not allowed for task list/u,
   );
-  assert.deepEqual(await runCli(["providers", "--json"]), {
-    providers: [{ connectionSecret: "NOTION_TOKEN", type: "notion" }],
-  });
+  /** Configured adapter descriptor loaded without creating a provider. */
+  const configured = await runCli([
+    "providers",
+    "--environment",
+    "agent-task-manager.environment.example.json",
+    "--json",
+  ]);
+  /** First configured provider descriptor returned by the CLI. */
+  const descriptor =
+    typeof configured === "object" &&
+    configured !== null &&
+    "providers" in configured &&
+    Array.isArray(configured.providers)
+      ? configured.providers[0]
+      : null;
+  assert.equal(
+    typeof descriptor === "object" &&
+      descriptor !== null &&
+      !Array.isArray(descriptor) &&
+      descriptor.type === "notion",
+    true,
+  );
   await assert.rejects(
     runCli(["command", "proxy", "--run-id", "other", "--", "git"]),
     /Flag --run-id is not allowed for command proxy/u,
@@ -104,11 +123,19 @@ test("CLI retains the documented separated proxy syntax", () => {
 });
 
 test("boolean flags do not consume command positionals", async () => {
-  /** Provider-list result reused to compare both boolean-flag positions. */
-  const providers = {
-    providers: [{ connectionSecret: "NOTION_TOKEN", type: "notion" }],
-  };
-  assert.deepEqual(await runCli(["--json", "providers"]), providers);
+  /** Provider-list result proving the global flag left the command intact. */
+  const providers = await runCli([
+    "--json",
+    "providers",
+    "--environment",
+    "agent-task-manager.environment.example.json",
+  ]);
+  assert.equal(
+    typeof providers === "object" &&
+      providers !== null &&
+      "providers" in providers,
+    true,
+  );
   /** Help response proving the boolean flag left action tokens intact. */
   const help = await runCli(["task", "--help", "list"]);
   assert.equal(

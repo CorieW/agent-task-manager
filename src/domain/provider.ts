@@ -1,27 +1,12 @@
-/** Provider environment and workspace contracts. */
+/** Provider environment references and provider-owned workspace contracts. */
 import type { JsonObject } from "./json.js";
 
-/** Provider table kinds in deterministic schema and planning order. */
-export const TABLE_KINDS = [
-  "tasks",
-  "agents",
-  "activeAgents",
-  "errors",
-  "resources",
-] as const;
-/** Name of one provider-managed record table. */
-export type TableKind = (typeof TABLE_KINDS)[number];
-
-/** Provider connection metadata, bootstrap parent, and configured table IDs. */
+/** Importable provider module and its opaque provider-owned configuration. */
 export interface ProviderEnvironment {
-  /** Notion page under which missing managed databases are created. */
-  readonly bootstrapParent: string | null;
-  /** Provider-specific connection settings such as the token variable name. */
-  readonly connection: JsonObject;
-  /** Configured Notion data-source IDs keyed by managed table. */
-  readonly tables: Readonly<Record<TableKind, string | null>>;
-  /** Provider implementation discriminator. */
-  readonly type: string;
+  /** Node.js module specifier exporting `agentTaskProviderModule`. */
+  readonly module: string;
+  /** Strict JSON passed unchanged to the selected provider module. */
+  readonly options: JsonObject;
 }
 
 /** One path-addressed environment or workspace validation failure. */
@@ -42,16 +27,14 @@ export interface ValidationReport {
   readonly valid: boolean;
 }
 
-/** One deterministic additive table or property operation. */
+/** One deterministic provider-owned workspace operation. */
 export interface WorkspaceStep {
   /** Provider-owned record identifier. */
   readonly id: string;
-  /** Domain or protocol classification of the record. */
-  readonly kind: "create_table" | "add_property";
+  /** Provider-defined operation classification. */
+  readonly kind: string;
   /** JSON payload carried by the workspace step. */
   readonly payload: JsonObject;
-  /** Managed table affected by the operation. */
-  readonly table: TableKind;
 }
 
 /** Digest-bound additive workspace plan for one environment and target schema. */
@@ -68,11 +51,6 @@ export interface WorkspacePlan {
   readonly steps: readonly WorkspaceStep[];
   /** Digest of the canonical schema the plan converges on. */
   readonly targetSchemaDigest: string;
-  /** Exact provider target whose current state the plan authorizes mutating. */
-  readonly target: {
-    /** Normalized parent used to create missing tables. */
-    readonly bootstrapParent: string | null;
-    /** Normalized configured data-source IDs in canonical table order. */
-    readonly tables: Readonly<Record<TableKind, string | null>>;
-  };
+  /** Provider-defined target whose current state the plan authorizes mutating. */
+  readonly target: JsonObject;
 }

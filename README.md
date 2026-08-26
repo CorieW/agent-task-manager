@@ -35,10 +35,11 @@ npm install @corie_w/agent-task-manager
 
 Create `agent-task-manager.environment.json` from the included
 [`agent-task-manager.environment.example.json`](agent-task-manager.environment.example.json).
-Set `AGENT_TASK_MANAGER_ENVIRONMENT` to use a configuration file outside the
-default `agent-task-manager.environment.json`. The example configuration names
-`NOTION_TOKEN` as the Notion integration-token environment variable; a token is
-required when using the Notion provider.
+Each environment selects an importable provider module and passes it opaque
+JSON options. Set `AGENT_TASK_MANAGER_ENVIRONMENT` to use a configuration file
+outside the default location. The example selects the bundled Notion adapter;
+replace its module and options to use any adapter implementing the provider
+module contract.
 
 The trusted harness must also provide:
 
@@ -63,8 +64,8 @@ providers
 
 Every command emits JSON. Run `agent-task-manager help` for complete usage.
 
-See the [documentation index](docs/README.md) for configuration, lifecycle,
-security, and provider details.
+See the [documentation index](docs/README.md) for configuration, provider-module
+development, lifecycle, security, and adapter details.
 
 ## Contributing
 

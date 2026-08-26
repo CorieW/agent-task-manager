@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 
 import type { JsonObject } from "../../../src/domain/json.js";
-import type { TableKind } from "../../../src/domain/provider.js";
+import type { NotionTableKind } from "../../../src/provider/notion/notion-schema.js";
 import { NOTION_TABLES } from "../../../src/provider/notion/notion-schema.js";
 import {
   NotionApiError,
@@ -38,7 +38,7 @@ export class AgentBodyTransport implements NotionTransport {
       /** Name captured by the record fixture. */
       readonly name: string;
       /** Canonical managed-table descriptor for the current operation. */
-      readonly table: TableKind;
+      readonly table: NotionTableKind;
       /** Type captured by the record fixture. */
       readonly type: string | null;
     },

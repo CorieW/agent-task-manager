@@ -18,7 +18,7 @@ export type ErrorSeverity = "critical" | "high" | "medium" | "low";
 /** Maps Agent outcomes to Task statuses; `$current` preserves the status. */
 export type AgentTransitions = Readonly<Record<string, string>>;
 
-/** Validated authoritative configuration parsed from an Agent page body. */
+/** Validated authoritative configuration parsed from an Agent record body. */
 export interface AgentDefinition {
   /** Task statuses from which this Agent may be assigned work. */
   readonly allowedStatuses: readonly string[];

@@ -55,11 +55,11 @@ export interface ActiveAgentPatch {
 export interface AgentTaskProvider {
   /** Validates provider configuration without mutating external state. */
   validateEnvironment(): Promise<ValidationReport>;
-  /** Validates configured tables, schema, and managed records without mutation. */
+  /** Validates provider workspace state and managed records without mutation. */
   validateWorkspace(): Promise<ValidationReport>;
   /** Builds a deterministic digest-bearing workspace plan without mutation. */
   planWorkspace(environmentId: string): Promise<WorkspacePlan>;
-  /** Applies an authorized plan and returns the resulting table identifiers. */
+  /** Applies an authorized plan and returns provider-defined identifiers. */
   applyWorkspacePlan(
     plan: WorkspacePlan,
   ): Promise<Readonly<Record<string, string>>>;

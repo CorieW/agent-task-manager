@@ -18,7 +18,6 @@ test("Notion Active Agent lookup preserves parent and restart Run IDs", async ()
         resources: fixtures.ids.resources,
         tasks: fixtures.ids.tasks,
       },
-      type: "notion",
     },
     new fixtures.AgentBodyTransport(),
   );

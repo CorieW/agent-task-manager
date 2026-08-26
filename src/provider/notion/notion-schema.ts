@@ -1,7 +1,17 @@
 /** Canonical Notion schema for the simplified five-table workspace. */
 import { digestJson } from "../../core/digest.js";
 import { toJsonValue } from "../../domain/json.js";
-import type { TableKind } from "../../domain/provider.js";
+
+/** Managed Notion data sources in deterministic schema and planning order. */
+export const NOTION_TABLE_KINDS = [
+  "tasks",
+  "agents",
+  "activeAgents",
+  "errors",
+  "resources",
+] as const;
+/** Name of one Notion-managed data source. */
+export type NotionTableKind = (typeof NOTION_TABLE_KINDS)[number];
 
 /** Canonical shape of one Notion database property. */
 export interface NotionPropertyDescriptor {
@@ -10,7 +20,7 @@ export interface NotionPropertyDescriptor {
   /** Allowed select values for the Notion property. */
   readonly options: readonly string[];
   /** Managed table targeted by a Notion relation property. */
-  readonly relation: TableKind | null;
+  readonly relation: NotionTableKind | null;
   /** Whether the property must exist in a configured table. */
   readonly required: boolean;
   /** Name of the reverse relation created by Notion. */
@@ -22,7 +32,7 @@ export interface NotionPropertyDescriptor {
 /** Canonical title and properties for one managed Notion table. */
 export interface NotionTableDescriptor {
   /** Domain or protocol classification of the record. */
-  readonly kind: TableKind;
+  readonly kind: NotionTableKind;
   /** Canonical properties in deterministic schema order. */
   readonly properties: readonly NotionPropertyDescriptor[];
   /** Human-readable Notion database title. */
@@ -45,7 +55,7 @@ const property = (
 /** Builds a canonical relation property descriptor. */
 const relationProperty = (
   name: string,
-  relation: TableKind,
+  relation: NotionTableKind,
   syncedName?: string,
 ): NotionPropertyDescriptor => ({
   name,
@@ -149,7 +159,7 @@ export const NOTION_SCHEMA_DIGEST = digestJson(
   toJsonValue({ tables: NOTION_TABLES, version: NOTION_SCHEMA_VERSION }),
 );
 /** Returns the canonical descriptor for a provider table kind. */
-export function notionTable(kind: TableKind): NotionTableDescriptor {
+export function notionTable(kind: NotionTableKind): NotionTableDescriptor {
   /** Canonical managed-table descriptor for this operation. */
   const table = NOTION_TABLES.find((entry) => entry.kind === kind);
   if (table === undefined) throw new Error(`Unknown Notion table: ${kind}`);

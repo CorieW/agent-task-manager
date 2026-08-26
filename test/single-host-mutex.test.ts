@@ -9,7 +9,7 @@ import {
   SingleHostMutex,
   type SingleHostMutexIdentity,
   type SingleHostMutexRelease,
-} from "../src/provider/notion/single-host-mutex.js";
+} from "../src/core/single-host-mutex.js";
 
 test("mutex requires an explicit absolute coordination root", () => {
   assert.throws(

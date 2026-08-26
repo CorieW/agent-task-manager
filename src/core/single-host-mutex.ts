@@ -1,4 +1,4 @@
-/** Serializes in-process Notion writes and rejects live same-host writers through a shared lock file. */
+/** Serializes lifecycle mutations and rejects live same-host writers through a shared lock file. */
 import { createHash } from "node:crypto";
 import { open, readFile, rm } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";

@@ -6,21 +6,21 @@ import {
   type JsonValue,
 } from "../../../domain/json.js";
 import {
-  TABLE_KINDS,
-  type ProviderEnvironment,
-  type TableKind,
   type ValidationIssue,
   type ValidationReport,
   type WorkspacePlan,
   type WorkspaceStep,
 } from "../../../domain/provider.js";
+import type { NotionProviderOptions } from "../notion-environment.js";
 import { normalizeNotionId as normalizeId } from "../notion-id.js";
 import {
+  NOTION_TABLE_KINDS,
   NOTION_SCHEMA_DIGEST,
   NOTION_TABLES,
   notionTable,
   type NotionPropertyDescriptor,
   type NotionTableDescriptor,
+  type NotionTableKind,
 } from "../notion-schema.js";
 import {
   asObject,
@@ -58,9 +58,9 @@ interface WorkspaceSchemaInspection {
 /** Owns Notion workspace schema discovery and mutation. */
 export class NotionWorkspace {
   public constructor(
-    private readonly environment: ProviderEnvironment,
+    private readonly environment: NotionProviderOptions,
     private readonly transport: NotionTransport,
-    private readonly tables: Record<TableKind, string | null>,
+    private readonly tables: Record<NotionTableKind, string | null>,
     private readonly gateway: AgentValidationGateway,
   ) {}
 
@@ -68,19 +68,11 @@ export class NotionWorkspace {
   public async validateEnvironment(): Promise<ValidationReport> {
     /** Validation issues accumulated without failing the remaining checks. */
     const issues: ValidationIssue[] = [];
-    if (this.environment.type !== "notion")
-      issues.push(
-        validationIssue(
-          "provider_type",
-          "provider.type",
-          "Provider type must be notion",
-        ),
-      );
     if (this.environment.bootstrapParent === null)
       issues.push(
         validationIssue(
           "bootstrap_parent",
-          "provider.bootstrapParent",
+          "provider.options.bootstrapParent",
           "Bootstrap parent is required",
         ),
       );
@@ -98,7 +90,7 @@ export class NotionWorkspace {
         issues.push(
           validationIssue(
             "missing_table",
-            `provider.tables.${table.kind}`,
+            `provider.options.tables.${table.kind}`,
             `${table.title} is not configured`,
           ),
         );
@@ -140,8 +132,7 @@ export class NotionWorkspace {
         steps.push({
           id: `create:${table.kind}`,
           kind: "create_table",
-          payload: { title: table.title },
-          table: table.kind,
+          payload: { table: table.kind, title: table.title },
         });
         for (const property of table.properties.filter(
           (entry) => entry.relation !== null,
@@ -149,8 +140,7 @@ export class NotionWorkspace {
           steps.push({
             id: `property:${table.kind}:${property.name}`,
             kind: "add_property",
-            payload: { name: property.name },
-            table: table.kind,
+            payload: { name: property.name, table: table.kind },
           });
         continue;
       }
@@ -165,8 +155,7 @@ export class NotionWorkspace {
         steps.push({
           id: `property:${table.kind}:${property.name}`,
           kind: "add_property",
-          payload: { name: property.name },
-          table: table.kind,
+          payload: { name: property.name, table: table.kind },
         });
     }
     /** Serialized fields covered by the deterministic digest. */
@@ -185,7 +174,7 @@ export class NotionWorkspace {
   private async discoverManagedTables(): Promise<void> {
     if (
       this.environment.bootstrapParent === null ||
-      TABLE_KINDS.every((kind) => this.tables[kind] !== null)
+      NOTION_TABLE_KINDS.every((kind) => this.tables[kind] !== null)
     )
       return;
     /** Non-trashed child databases beneath the configured bootstrap page. */
@@ -320,22 +309,27 @@ export class NotionWorkspace {
       this.workspaceInspectionDigest(await this.inspectWorkspaceSchema())
     )
       throw new Error("Workspace schema changed after the plan was created");
+    for (const step of plan.steps)
+      if (step.kind !== "create_table" && step.kind !== "add_property")
+        throw new Error(`Unknown Notion workspace step kind: ${step.kind}`);
     for (const step of plan.steps.filter(
       (entry) => entry.kind === "create_table",
     ))
-      await this.createTable(step.table);
+      await this.createTable(notionStepTable(step));
     for (const step of plan.steps.filter(
       (entry) => entry.kind === "add_property",
     )) {
       /** Human-readable display name. */
       const name = requiredString(step.payload.name, "Workspace property name");
+      /** Managed Notion data source selected by the provider-owned payload. */
+      const table = notionStepTable(step);
       /** Canonical schema descriptor for the requested property. */
-      const descriptor = notionTable(step.table).properties.find(
+      const descriptor = notionTable(table).properties.find(
         (entry) => entry.name === name,
       );
       if (descriptor === undefined)
-        throw new Error(`Unknown property ${step.table}.${name}`);
-      await this.addProperty(step.table, descriptor);
+        throw new Error(`Unknown property ${table}.${name}`);
+      await this.addProperty(table, descriptor);
     }
     return Object.fromEntries(
       Object.entries(this.tables).filter(
@@ -345,18 +339,18 @@ export class NotionWorkspace {
   }
 
   /** Returns the normalized provider target covered by workspace authorization. */
-  private workspaceTarget(): WorkspacePlan["target"] {
+  private workspaceTarget(): JsonObject {
     return {
       bootstrapParent:
         this.environment.bootstrapParent === null
           ? null
           : normalizeId(this.environment.bootstrapParent),
       tables: Object.fromEntries(
-        TABLE_KINDS.map((kind) => [
+        NOTION_TABLE_KINDS.map((kind) => [
           kind,
           this.tables[kind] === null ? null : normalizeId(this.tables[kind]),
         ]),
-      ) as Record<TableKind, string | null>,
+      ) as Record<NotionTableKind, string | null>,
     };
   }
 
@@ -377,7 +371,7 @@ export class NotionWorkspace {
   }
 
   /** Returns the normalized configured data-source ID for a managed table. */
-  private table(kind: TableKind): string {
+  private table(kind: NotionTableKind): string {
     const value = this.tables[kind];
     if (value === null)
       throw new Error(`Notion table is not configured: ${kind}`);
@@ -385,7 +379,7 @@ export class NotionWorkspace {
   }
 
   /** Creates an absent managed table under the configured bootstrap page. */
-  private async createTable(kind: TableKind): Promise<void> {
+  private async createTable(kind: NotionTableKind): Promise<void> {
     if (this.tables[kind] !== null) return;
     if (this.environment.bootstrapParent === null)
       throw new Error("Notion bootstrap parent is required");
@@ -423,7 +417,7 @@ export class NotionWorkspace {
 
   /** Adds one canonical property to a configured Notion data source. */
   private async addProperty(
-    kind: TableKind,
+    kind: NotionTableKind,
     descriptor: NotionPropertyDescriptor,
   ): Promise<void> {
     /** Current data-source schema returned by Notion. */
@@ -447,4 +441,13 @@ export class NotionWorkspace {
       path: `/v1/data_sources/${this.table(kind)}`,
     });
   }
+}
+
+/** Decodes the Notion table stored inside one provider-owned plan step. */
+function notionStepTable(step: WorkspaceStep): NotionTableKind {
+  /** Untrusted table name carried by a serialized workspace plan. */
+  const table = requiredString(step.payload.table, "Workspace step table");
+  if (!NOTION_TABLE_KINDS.some((kind) => kind === table))
+    throw new Error(`Unknown Notion workspace table: ${table}`);
+  return table as NotionTableKind;
 }

@@ -1,6 +1,7 @@
 /** Semantic validation for Notion Agent definitions and Resources. */
 import type { JsonObject } from "../../../domain/json.js";
-import type { TableKind, ValidationIssue } from "../../../domain/provider.js";
+import type { ValidationIssue } from "../../../domain/provider.js";
+import type { NotionTableKind } from "../notion-schema.js";
 import {
   parseAgentDefinition,
   type AgentDefinition,
@@ -16,13 +17,16 @@ import {
 
 export interface AgentValidationGateway {
   markdown(pageId: string): Promise<string>;
-  query(kind: TableKind, filter?: JsonObject): Promise<readonly JsonObject[]>;
+  query(
+    kind: NotionTableKind,
+    filter?: JsonObject,
+  ): Promise<readonly JsonObject[]>;
 }
 
 /** Validates agent semantics. */
 export async function validateAgentSemantics(
   gateway: AgentValidationGateway,
-  tables: Readonly<Record<TableKind, string | null>>,
+  tables: Readonly<Record<NotionTableKind, string | null>>,
   issues: ValidationIssue[],
 ): Promise<void> {
   if (tables.agents === null || tables.resources === null) return;

@@ -1,5 +1,34 @@
 # Notion provider
 
+## Configuration
+
+Select the bundled adapter through its package subpath. All Notion-specific configuration belongs under the opaque provider options:
+
+```json
+{
+  "schema": "agent-task-manager-environment-v1",
+  "environmentId": "management-v2",
+  "provider": {
+    "module": "@corie_w/agent-task-manager/providers/notion",
+    "options": {
+      "connection": { "tokenEnv": "NOTION_TOKEN" },
+      "bootstrapParent": "NOTION_PAGE_ID",
+      "tables": {
+        "tasks": null,
+        "agents": null,
+        "activeAgents": null,
+        "errors": null,
+        "resources": null
+      }
+    }
+  }
+}
+```
+
+`tokenEnv` defaults to `NOTION_TOKEN`. The adapter—not the shared environment parser—validates the bootstrap parent and complete data-source mapping, resolves the token, owns Notion schema planning, and interprets its provider-owned workspace plans.
+
+Programmatic consumers import Notion APIs from `@corie_w/agent-task-manager/providers/notion`; the provider-neutral package root no longer re-exports adapter-specific APIs.
+
 ## Record mapping
 
 The Notion provider maps the five provider-neutral record families to five data sources. Page bodies hold Task descriptions, Agent definitions, Resource instructions, and Error description/resolution text. Active Agents hold metadata only. Scoped Task-description updates use Notion's exact `update_content` operation with the previously observed complete Markdown, so concurrent edits fail instead of being overwritten and unrelated Task content is preserved. While a run is running, its `Task` relation supplies the Task's reciprocal `Active Agents` membership. Every terminal transition clears that relation; the separate immutable `Task ID` field preserves historical and restart identity without leaving completed, failed, stale, or stopped runs attached to the Task. `Working Directory` persists the generic execution directory resolved for the run so replays and command authorization fail closed on configuration drift.

@@ -1,5 +1,8 @@
 /** Environment and provider construction for CLI invocations. */
+import { createRequire } from "node:module";
 import { readFile } from "node:fs/promises";
+import { dirname, isAbsolute, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
 import {
   parseEnvironmentConfig,
@@ -8,8 +11,11 @@ import {
 import { createCommandBrokerExecutor } from "../core/command-proxy.js";
 import { toJsonValue } from "../domain/json.js";
 import type { AgentTaskProvider } from "../provider/agent-task-provider.js";
-import { NotionProvider } from "../provider/notion/notion-provider.js";
-import { NotionHttpTransport } from "../provider/notion/notion-transport.js";
+import {
+  assertAgentTaskProvider,
+  parseAgentTaskProviderModule,
+  type AgentTaskProviderModule,
+} from "../provider/provider-module.js";
 import { optionalString } from "./input.js";
 
 /** Loads and validates the selected environment configuration file. */
@@ -22,31 +28,67 @@ export async function loadEnvironment(
     optionalString(flag) ??
     env.AGENT_TASK_MANAGER_ENVIRONMENT ??
     "agent-task-manager.environment.json";
-  return parseEnvironmentConfig(
-    toJsonValue(JSON.parse(await readFile(path, "utf8")) as unknown),
+  /** Absolute configuration path used to resolve local provider modules. */
+  const absolutePath = resolve(path);
+  /** Strict configuration parsed before module-specifier normalization. */
+  const configuration = parseEnvironmentConfig(
+    toJsonValue(JSON.parse(await readFile(absolutePath, "utf8")) as unknown),
   );
+  return {
+    ...configuration,
+    provider: {
+      ...configuration.provider,
+      module: resolveProviderModuleSpecifier(
+        configuration.provider.module,
+        absolutePath,
+      ),
+    },
+  };
 }
 
-/** Creates the configured provider after resolving its credentials. */
-export function providerFor(
+/** Loads and validates the configured provider-module descriptor. */
+export async function providerModuleFor(
+  configuration: EnvironmentConfig,
+): Promise<AgentTaskProviderModule> {
+  /** Dynamic namespace loaded only from trusted host configuration. */
+  const namespace: unknown = await import(configuration.provider.module);
+  return parseAgentTaskProviderModule(namespace, configuration.provider.module);
+}
+
+/** Creates the provider selected by the environment configuration. */
+export async function providerFor(
   configuration: EnvironmentConfig,
   env: NodeJS.ProcessEnv,
-): AgentTaskProvider {
-  if (configuration.provider.type !== "notion")
-    throw new Error(`Unsupported provider: ${configuration.provider.type}`);
-  /** Environment-variable name holding the Notion token. */
-  const tokenVariable =
-    typeof configuration.provider.connection.tokenEnv === "string"
-      ? configuration.provider.connection.tokenEnv
-      : "NOTION_TOKEN";
-  /** Notion token resolved from the configured environment variable. */
-  const token = env[tokenVariable];
-  if (token === undefined || token.trim() === "")
-    throw new Error(`Missing Notion token in ${tokenVariable}`);
-  return new NotionProvider(
-    configuration.provider,
-    new NotionHttpTransport({ token }),
-  );
+): Promise<AgentTaskProvider> {
+  /** Validated provider factory loaded from the configured module. */
+  const module = await providerModuleFor(configuration);
+  /** Provider instance created with opaque settings and trusted host context. */
+  const provider: unknown = await module.create({
+    environmentId: configuration.environmentId,
+    environmentVariables: { ...env },
+    options: structuredClone(configuration.provider.options),
+  });
+  assertAgentTaskProvider(provider, module.type);
+  return provider;
+}
+
+/** Resolves filesystem modules relative to the environment configuration. */
+function resolveProviderModuleSpecifier(
+  specifier: string,
+  environmentPath: string,
+): string {
+  if (specifier.startsWith("file:")) return specifier;
+  if (isAbsolute(specifier)) return pathToFileURL(specifier).href;
+  if (specifier.startsWith("."))
+    return pathToFileURL(resolve(dirname(environmentPath), specifier)).href;
+  try {
+    /** Resolver rooted beside the environment file for locally installed adapters. */
+    const localRequire = createRequire(environmentPath);
+    return pathToFileURL(localRequire.resolve(specifier)).href;
+  } catch {
+    // Preserve bare specifiers so package self-references and global peers resolve.
+    return specifier;
+  }
 }
 
 /** Loads the mandatory host-owned sandbox broker used for Agent commands. */

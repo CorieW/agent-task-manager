@@ -13,6 +13,7 @@ This skill applies to a trusted controller or harness regardless of its underlyi
 
 - Locate the configuration through `AGENT_TASK_MANAGER_ENVIRONMENT` or the repository default. Preserve existing environment variables and never print secrets.
 - Read [Configuration and CLI](../../../docs/getting-started.md) when configuring providers, lifecycle hooks, task sections, or resources.
+- Read [Provider modules](../../../docs/provider-modules.md) when selecting, implementing, or diagnosing a provider adapter. Treat the configured module as trusted host code; its options and workspace-plan details are provider-owned.
 - Read [Lifecycle and harness contract](../../../docs/lifecycle.md) before changing a harness, command broker, locks, leases, or recovery behavior.
 - Read [Notion provider](../../../docs/notion-provider.md) when working with Notion-backed schemas or field mappings.
 - Run `agent-task-manager validate` and inspect its JSON result before starting work.
@@ -32,7 +33,7 @@ This skill applies to a trusted controller or harness regardless of its underlyi
 
 - Invoke trusted harness lifecycle operations directly through the CLI.
 - Route Agent-requested operating-system commands exclusively through `command proxy`. The harness, outside Agent-controlled arguments, must inject `AGENT_TASK_MANAGER_COMMAND_RUN_ID` and `AGENT_TASK_MANAGER_COMMAND_HARNESS_ID`. Never let an Agent choose its run identity or environment file.
-- Treat returned capabilities as constraints, not authorization for GitHub, Notion, or other external mutations. Confirm user and human-checkpoint authority immediately before a material external action.
+- Treat returned capabilities as constraints, not authorization for provider, GitHub, or other external mutations. Confirm user and human-checkpoint authority immediately before a material external action.
 - Treat external effects as at-least-once. Make operations idempotent and read current external state before retrying an ambiguous mutation.
 - Never place tokens or credentials in Task content, Resources, logs, errors, documentation, or command output.
 
@@ -41,6 +42,7 @@ This skill applies to a trusted controller or harness regardless of its underlyi
 - Use the returned working directory and verify its repository, branch, and path before editing.
 - A lifecycle hook may create a worktree without installing dependencies or generating artifacts. Inspect repository conventions when bootstrap state is missing.
 - Fix bootstrap gaps with trusted repository commands or idempotent lifecycle hooks. Do not hard-code platform-specific junctions or change product code merely to compensate for harness setup.
+- Treat `init` targets, steps, and returned identifiers as opaque provider-owned JSON. Authorize only the exact current digest and do not assume a table, database, page, or filesystem layout.
 
 ## Recover Safely
 
@@ -67,7 +69,7 @@ All commands emit JSON. Use IDs and values returned by earlier commands rather t
 
 ```text
 agent-task-manager validate
-agent-task-manager providers
+agent-task-manager providers [--environment <file>]
 agent-task-manager task list
 agent-task-manager task get --id <task-id>
 agent-task-manager agent list

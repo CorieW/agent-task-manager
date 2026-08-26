@@ -11,12 +11,7 @@ import type {
   ResourceRecord,
   TaskRecord,
 } from "../domain/records.js";
-import {
-  TABLE_KINDS,
-  type TableKind,
-  type ValidationReport,
-  type WorkspacePlan,
-} from "../domain/provider.js";
+import type { ValidationReport, WorkspacePlan } from "../domain/provider.js";
 import type {
   ActiveAgentPatch,
   AgentTaskProvider,
@@ -84,12 +79,7 @@ export class InMemoryProvider implements AgentTaskProvider {
       observedSchemaDigest: "memory",
       schema: "workspace-plan-v1" as const,
       steps: [],
-      target: {
-        bootstrapParent: null,
-        tables: Object.fromEntries(
-          TABLE_KINDS.map((kind) => [kind, null]),
-        ) as Record<TableKind, null>,
-      },
+      target: { storage: "memory" },
       targetSchemaDigest: "memory",
     };
     return { ...core, digest: digestJson(toJsonValue(core)) };

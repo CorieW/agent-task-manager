@@ -1,6 +1,21 @@
 # Configuration and CLI
 
-Copy `agent-task-manager.environment.example.json` to the ignored `agent-task-manager.environment.json`. Use schema `agent-task-manager-environment-v1`; configure the Management page and the data-source IDs for `tasks`, `agents`, `activeAgents`, `errors`, and `resources`.
+Copy `agent-task-manager.environment.example.json` to the ignored `agent-task-manager.environment.json`. Use schema `agent-task-manager-environment-v1` and select an importable provider module:
+
+```json
+{
+  "schema": "agent-task-manager-environment-v1",
+  "environmentId": "management-v2",
+  "provider": {
+    "module": "@corie_w/agent-task-manager/providers/notion",
+    "options": {}
+  }
+}
+```
+
+`provider.options` is opaque to Agent Task Manager and validated only by the selected adapter. Relative and absolute filesystem modules are supported; relative paths resolve beside the environment file. Bare package specifiers first resolve from that environment's package context, allowing a project-local adapter. A provider module is trusted host code and receives the host environment, so only configure reviewed modules. See [Provider modules](provider-modules.md) for the contract and [Notion provider](notion-provider.md) for the complete bundled-adapter options.
+
+The `providers` command loads the configured module descriptor without creating its provider. All other commands create the selected provider and use only the provider-neutral `AgentTaskProvider` interface.
 
 An Agent definition's optional `lifecycleCommands` provides ordered trusted commands around that Agent's duties. This Coder fragment creates an isolated Git worktree without embedding Git behavior in Agent Task Manager:
 
@@ -52,9 +67,9 @@ An Agent may also receive a scoped Task-description capability from its own defi
 
 The trusted harness supplies the complete section body through `active-agent update-task-section --run-id ID --harness-id ID --section Planning --input FILE|-`. The manager verifies run ownership, the pinned Agent definition, current Task eligibility, and the configured section allowlist. It then performs an exact-body compare-and-swap update that preserves all other Task content. Section bodies may contain nested headings but cannot introduce level-one or level-two headings. Completion fails closed when an outcome's required section is absent or empty.
 
-Before-command failure prevents Active Agent creation. After-command failure occurs before terminal Notion or Task mutations, leaving the run retryable. A process crash can still repeat an external command, so every configured command must be idempotent. Commands must finish and must not leave detached descendants. Lifecycle commands are trusted host automation and do not use the Agent's command inclusion/exclusion policy.
+Before-command failure prevents Active Agent creation. After-command failure occurs before terminal provider or Task mutations, leaving the run retryable. A process crash can still repeat an external command, so every configured command must be idempotent. Commands must finish and must not leave detached descendants. Lifecycle commands are trusted host automation and do not use the Agent's command inclusion/exclusion policy.
 
-Run `validate` before starting work. `init --plan` emits a deterministic digest. Apply only the still-current plan with `init --apply --expected-plan-digest <digest>`.
+Run `validate` before starting work. `init --plan` emits a deterministic provider-owned plan and digest. Apply only the still-current plan with `init --apply --expected-plan-digest <digest>`; successful apply output exposes provider-defined `identifiers` rather than assuming tables or data sources.
 
 The harness starts a run with caller-supplied Run and Harness IDs, sends heartbeats, and then calls `complete` or `fail`. Reusing the same Run ID with identical start parameters replays the existing run. Use `sweep` to mark expired runs stale and `restart` to start a failed subtree again.
 

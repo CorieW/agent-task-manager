@@ -9,7 +9,7 @@ import {
   createCommandExecutionGate,
 } from "./core/command-proxy.js";
 import { toJsonValue, type JsonValue } from "./domain/json.js";
-import { SingleHostMutex } from "./provider/notion/single-host-mutex.js";
+import { SingleHostMutex } from "./core/single-host-mutex.js";
 import { HELP, parseArguments, validateFlags } from "./cli/arguments.js";
 import {
   cliErrorPayload,
@@ -28,6 +28,7 @@ import { sweepWithRunLeases, withRunLeases } from "./cli/leases.js";
 import {
   commandBrokerExecutor,
   loadEnvironment,
+  providerModuleFor,
   providerFor,
 } from "./cli/runtime.js";
 
@@ -48,15 +49,19 @@ export async function runCli(
   if (parsed.commandArguments.length !== 0 && command !== "command proxy")
     throw new Error(`Command arguments are not allowed for ${command}`);
   if (helpRequested || command === "help") return { help: HELP };
-  if (family === "providers")
-    return {
-      providers: [{ connectionSecret: "NOTION_TOKEN", type: "notion" }],
-    };
-
   /** Validated environment configuration for the requested command. */
   const configuration = await loadEnvironment(parsed.flags.environment, env);
+  if (family === "providers") {
+    /** Descriptor exported by the configured provider module. */
+    const providerModule = await providerModuleFor(configuration);
+    return {
+      providers: [
+        { module: configuration.provider.module, type: providerModule.type },
+      ],
+    };
+  }
   /** Provider implementation that owns persistence for this invocation. */
-  const provider = providerFor(configuration, env);
+  const provider = await providerFor(configuration, env);
   /** Lifecycle coordinator bound to this invocation's provider and hooks. */
   const coordinator = new AgentCoordinator(
     provider,
@@ -153,10 +158,10 @@ export async function runCli(
         `Workspace plan drifted: expected ${expected}, observed ${plan.digest}`,
       );
     return toJsonValue({
-      plan,
-      tables: await environmentMutex().run(() =>
+      identifiers: await environmentMutex().run(() =>
         provider.applyWorkspacePlan(plan),
       ),
+      plan,
     });
   }
   if (family === "task") {

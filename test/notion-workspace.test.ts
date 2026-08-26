@@ -18,7 +18,6 @@ test("workspace planning rejects property types found invalid by validation", as
         resources: fixtures.ids.resources,
         tasks: fixtures.ids.tasks,
       },
-      type: "notion",
     },
     new fixtures.AgentBodyTransport({
       name: "Status",
@@ -110,7 +109,6 @@ test("workspace plans are bound to the configured Notion target", async () => {
       bootstrapParent: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       connection: {},
       tables,
-      type: "notion",
     },
     new fixtures.AgentBodyTransport(),
   );
@@ -120,7 +118,6 @@ test("workspace plans are bound to the configured Notion target", async () => {
       bootstrapParent: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       connection: {},
       tables,
-      type: "notion",
     },
     new fixtures.AgentBodyTransport(),
   );
@@ -149,7 +146,6 @@ test("workspace planning reuses a uniquely named bootstrap database", async () =
         resources: null,
         tasks: null,
       },
-      type: "notion",
     },
     new fixtures.ExistingTableDiscoveryTransport(),
   );
@@ -157,10 +153,17 @@ test("workspace planning reuses a uniquely named bootstrap database", async () =
   /** Plan expected to adopt rather than recreate the discovered Tasks table. */
   const plan = await provider.planWorkspace("management-v2");
 
-  assert.equal(plan.target.tables.tasks, fixtures.ids.tasks);
+  assert.equal(
+    typeof plan.target.tables === "object" &&
+      plan.target.tables !== null &&
+      !Array.isArray(plan.target.tables)
+      ? plan.target.tables.tasks
+      : null,
+    fixtures.ids.tasks,
+  );
   assert.equal(
     plan.steps.some(
-      (step) => step.kind === "create_table" && step.table === "tasks",
+      (step) => step.kind === "create_table" && step.payload.table === "tasks",
     ),
     false,
   );
