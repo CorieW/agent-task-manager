@@ -33,7 +33,13 @@ async function compile(stagingRoot) {
     /** Compiler child process whose exit gates all live-output changes. */
     const child = spawn(
       process.execPath,
-      [compiler, "-p", join(root, "tsconfig.json"), "--outDir", stagingRoot],
+      [
+        compiler,
+        "-p",
+        join(root, "config", "tsconfig.json"),
+        "--outDir",
+        stagingRoot,
+      ],
       { cwd: root, stdio: "inherit" },
     );
     child.once("error", rejectPromise);

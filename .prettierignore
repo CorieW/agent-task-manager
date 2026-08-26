@@ -1,7 +1,0 @@
-.agent-task-manager/
-coverage/
-dist/
-node_modules/
-agent-task-manager.environment.json
-LICENSE
-pnpm-lock.yaml

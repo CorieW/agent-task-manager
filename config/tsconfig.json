@@ -3,8 +3,8 @@
     "target": "ES2023",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "rootDir": ".",
-    "outDir": "dist",
+    "rootDir": "..",
+    "outDir": "../dist",
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
@@ -16,6 +16,6 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["src/**/*.ts", "scripts/**/*.ts", "test/**/*.ts"],
-  "exclude": ["dist", "node_modules"]
+  "include": ["../src/**/*.ts", "../scripts/**/*.ts", "../test/**/*.ts"],
+  "exclude": ["../dist", "../node_modules"]
 }
