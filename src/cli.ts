@@ -88,7 +88,7 @@ export async function runCli(
   const runMutexes = new Map<string, SingleHostMutex>();
   /** Returns the cached mutex for a run, creating it when necessary. */
   const runMutex = (runId: string): SingleHostMutex => {
-    /** Existing record selected for an idempotent update. */
+    /** Existing run-scoped mutex reused by this invocation. */
     const existing = runMutexes.get(runId);
     if (existing !== undefined) return existing;
     /** New command-scope mutex for the requested run. */
@@ -144,6 +144,7 @@ export async function runCli(
       workspace,
     });
   }
+
   if (family === "init") {
     /** Deterministic workspace plan produced before either preview or apply. */
     const plan = await provider.planWorkspace(configuration.environmentId);
@@ -164,6 +165,7 @@ export async function runCli(
       plan,
     });
   }
+
   if (family === "task") {
     if (action === "list")
       return toJsonValue(
@@ -174,6 +176,7 @@ export async function runCli(
         await provider.getTask(requiredFlag(parsed.flags, "id")),
       );
   }
+
   if (family === "agent") {
     if (action === "list") return toJsonValue(await provider.listAgents());
     if (action === "get")
@@ -181,6 +184,7 @@ export async function runCli(
         await provider.getAgentByKey(requiredFlag(parsed.flags, "key")),
       );
   }
+
   if (family === "resource") {
     if (action === "list") return toJsonValue(await provider.listResources());
     if (action === "get")
@@ -188,6 +192,7 @@ export async function runCli(
         await provider.getResourceByKey(requiredFlag(parsed.flags, "key")),
       );
   }
+
   if (family === "active-agent") {
     if (action === "list")
       return toJsonValue(await provider.listActiveAgents());
@@ -285,6 +290,7 @@ export async function runCli(
         ),
       );
   }
+
   if (family === "error") {
     if (action === "list") return toJsonValue(await provider.listErrors());
     if (action === "get")
@@ -308,6 +314,7 @@ export async function runCli(
         ),
       );
   }
+
   throw new Error(`Unknown command: ${parsed.positionals.join(" ")}`);
 }
 

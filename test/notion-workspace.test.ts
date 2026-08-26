@@ -82,7 +82,6 @@ test("workspace validation rejects incomplete relation and select contracts", as
       resources: fixtures.ids.resources,
       tasks: fixtures.ids.tasks,
     },
-    type: "notion",
   } as const;
   /** Validation report for a relation with the wrong target contract. */
   const relationReport = await new NotionProvider(

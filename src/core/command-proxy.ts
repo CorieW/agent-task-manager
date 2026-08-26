@@ -147,9 +147,13 @@ export function createCommandExecutionGate(
 export class CommandProxy {
   /** Creates a proxy with a host-supplied, process-tree-contained executor. */
   public constructor(
+    /** Coordinator that authorizes commands against pinned run context. */
     private readonly coordinator: AgentCoordinator,
+    /** Sandboxed host executor that receives fully authorized requests. */
     private readonly executor: CommandExecutor,
+    /** Lease gate that serializes authorization with lifecycle mutations. */
     private readonly gate: CommandExecutionGate,
+    /** Platform whose executable-name rules govern command matching. */
     private readonly platform: NodeJS.Platform = process.platform,
   ) {}
 

@@ -9,6 +9,7 @@ import { NotionHttpTransport } from "./notion-transport.js";
 
 /** Dynamically loadable Notion provider adapter. */
 export const agentTaskProviderModule: AgentTaskProviderModule = {
+  /** Creates a Notion provider after resolving adapter-owned configuration and credentials. */
   async create(context) {
     /** Strict Notion settings decoded from opaque provider configuration. */
     const options = parseNotionProviderOptions(context.options);

@@ -39,9 +39,10 @@ export class NotionProvider
   extends NotionProviderRuntime
   implements AgentTaskProvider
 {
+  /** Workspace schema boundary sharing this provider's transport and table IDs. */
   private readonly workspace: NotionWorkspace;
 
-  /** Creates a provider over a validated environment and transport. */
+  /** Creates a provider over decoded Notion options and a transport. */
   public constructor(
     environment: ConstructorParameters<typeof NotionProviderRuntime>[0],
     transport: NotionTransport,
@@ -77,7 +78,7 @@ export class NotionProvider
 
   /** @inheritdoc */
   public async listTasks(status?: string): Promise<readonly TaskRecord[]> {
-    /** Notion pages returned by the bounded query. */
+    /** Task pages returned by the optional status query. */
     const pages = await this.query(
       "tasks",
       status === undefined
@@ -89,7 +90,7 @@ export class NotionProvider
 
   /** @inheritdoc */
   public async getTask(id: string): Promise<TaskRecord | null> {
-    /** Notion page selected or decoded by the current operation. */
+    /** Managed Task page selected by provider ID. */
     const page = await this.pageOrNull(id);
     if (page === null) return null;
     this.assertManagedPage(page, "tasks");
@@ -169,7 +170,7 @@ export class NotionProvider
 
   /** @inheritdoc */
   public async getAgent(agentId: string): Promise<AgentRecord | null> {
-    /** Notion page selected or decoded by the current operation. */
+    /** Managed Agent page selected by provider ID. */
     const page = await this.pageOrNull(agentId);
     if (page === null) return null;
     this.assertManagedPage(page, "agents");
@@ -178,7 +179,7 @@ export class NotionProvider
 
   /** @inheritdoc */
   public async getAgentByKey(key: string): Promise<AgentRecord | null> {
-    /** All candidates matching the requested stable key. */
+    /** Agent definitions whose declared ID matches the requested key. */
     const matches: Array<{
       /** Authoritative Markdown body of the provider record. */
       body: string;
@@ -218,13 +219,13 @@ export class NotionProvider
 
   /** @inheritdoc */
   public async getResourceByKey(key: string): Promise<ResourceRecord | null> {
-    /** Notion pages returned by the bounded query. */
+    /** Resource pages returned by the key-filtered query. */
     const pages = await this.query("resources", {
       property: "Resource",
       title: { equals: key },
     });
     if (pages.length > 1) throw new Error(`Resource Key is not unique: ${key}`);
-    /** Notion page selected or decoded by the current operation. */
+    /** Unique Resource page selected by stable key. */
     const page = pages[0];
     return page === undefined ? null : this.decodeResource(page);
   }
@@ -240,7 +241,7 @@ export class NotionProvider
   public async getActiveAgent(
     runId: string,
   ): Promise<ActiveAgentRecord | null> {
-    /** Notion pages returned by the bounded query. */
+    /** Active Agent pages returned by the Run ID query. */
     const pages = await this.query("activeAgents", {
       property: "Run ID",
       title: { equals: runId },
@@ -267,10 +268,10 @@ export class NotionProvider
       input.restartOfRunId === null
         ? null
         : await this.getActiveAgent(input.restartOfRunId);
-    /** Notion page selected or decoded by the current operation. */
+    /** Created Active Agent page returned by Notion. */
     const page = await this.transport.request({
       body: {
-        parent: { data_source_id: this.table("activeAgents") },
+        parent: { data_source_id: this.requiredTableId("activeAgents") },
         properties: {
           "Run ID": title(input.runId),
           Archived: checkbox(false),
@@ -312,7 +313,7 @@ export class NotionProvider
       await this.getActiveAgent(runId),
       `Active Agent not found: ${runId}`,
     );
-    /** Provider properties encoded or decoded for the current record. */
+    /** Notion property patch derived from supplied Active Agent fields. */
     const properties: Record<string, JsonValue> = {};
     if (patch.status !== undefined)
       properties.Status = select(toSelectLabel(patch.status));
@@ -370,22 +371,22 @@ export class NotionProvider
 
   /** @inheritdoc */
   public async getErrorByKey(key: string): Promise<ErrorRecord | null> {
-    /** Notion pages returned by the bounded query. */
+    /** Error pages returned by the Error Key query. */
     const pages = await this.query("errors", {
       property: "Error Key",
       rich_text: { equals: key },
     });
     if (pages.length > 1) throw new Error(`Error Key is not unique: ${key}`);
-    /** Notion page selected or decoded by the current operation. */
+    /** Unique Error page selected by stable key. */
     const page = pages[0];
     return page === undefined ? null : this.decodeError(page);
   }
 
   /** @inheritdoc */
   public async reportError(input: ReportErrorInput): Promise<ErrorRecord> {
-    /** Existing record selected for an idempotent update. */
+    /** Existing Error selected for an idempotent update. */
     const existing = await this.getErrorByKey(input.errorKey);
-    /** Provider properties encoded or decoded for the current record. */
+    /** Canonical Notion properties for the reported Error. */
     const properties = {
       Error: title(input.title),
       "Error Key": richText(input.errorKey),
@@ -405,7 +406,7 @@ export class NotionProvider
       await this.transport.request({
         body: {
           markdown,
-          parent: { data_source_id: this.table("errors") },
+          parent: { data_source_id: this.requiredTableId("errors") },
           properties,
         },
         method: "POST",

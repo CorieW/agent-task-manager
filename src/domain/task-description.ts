@@ -86,7 +86,7 @@ export function upsertTaskDescriptionSection(
     throw new TypeError(
       "Task section content must not contain level-one or level-two headings",
     );
-  /** All candidates matching the requested stable key. */
+  /** Level-two Task sections matching the normalized section name. */
   const matches = sectionMatches(normalizedMarkdown, normalizedSection);
   if (matches.length > 1)
     throw new Error(`Task description contains duplicate section: ${section}`);
@@ -111,7 +111,7 @@ export function taskDescriptionHasSection(
   markdown: string,
   section: string,
 ): boolean {
-  /** All candidates matching the requested stable key. */
+  /** Level-two Task sections matching the normalized section name. */
   const matches = sectionMatches(
     normalizeMarkdown(markdown),
     taskSectionName(section),
@@ -233,7 +233,7 @@ function taskSectionName(value: string): string {
     normalized === "" ||
     normalized.length > 128 ||
     [...normalized].some((character) => {
-      /** Machine-readable validation or provider error code. */
+      /** UTF-16 code unit checked for forbidden control characters. */
       const code = character.charCodeAt(0);
       return code <= 31 || code === 127;
     }) ||

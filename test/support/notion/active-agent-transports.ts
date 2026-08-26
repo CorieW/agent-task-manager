@@ -16,6 +16,7 @@ import {
   selectProperty,
 } from "./common.js";
 
+/** Simulates Active Agent lifecycle reads, updates, detachment, and archival. */
 export class ActiveAgentLifecycleTransport implements NotionTransport {
   /** Active Agent property patches received by the transport. */
   public readonly patches: JsonObject[] = [];
@@ -140,5 +141,3 @@ export class ActiveAgentCreationTransport implements NotionTransport {
     );
   }
 }
-
-/** Captures optimistic Task-property and Markdown-body updates. */

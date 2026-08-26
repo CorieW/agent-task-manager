@@ -9,7 +9,7 @@ export async function withRunLeases<T>(
   globalMutex: SingleHostMutex,
   runMutex: (runId: string) => SingleHostMutex,
   provider: AgentTaskProvider,
-  roots: readonly string[] | null,
+  roots: readonly string[],
   operation: () => Promise<T>,
 ): Promise<T> {
   return globalMutex.run(async () => {
@@ -101,10 +101,8 @@ function isLockContention(error: unknown): boolean {
 /** Returns sorted roots and descendants whose terminal state may be mutated. */
 function affectedRunIds(
   active: readonly ActiveAgentRecord[],
-  roots: readonly string[] | null,
+  roots: readonly string[],
 ): readonly string[] {
-  if (roots === null)
-    return [...new Set(active.map((run) => run.runId))].sort();
   /** Growing set seeded with the requested roots. */
   const result = new Set(roots);
   /** Whether the previous traversal discovered another descendant. */

@@ -174,7 +174,7 @@ test("concurrent stale recovery admits exactly one mutex owner", async () => {
         new SingleHostMutex(identity, root).lock(),
       ),
     );
-    /** Flag recording acquired during "concurrent stale recovery admits exactly one mutex owner". */
+    /** Successful acquisitions from the concurrent lock race. */
     const acquired = attempts.filter(
       (result): result is PromiseFulfilledResult<SingleHostMutexRelease> =>
         result.status === "fulfilled",

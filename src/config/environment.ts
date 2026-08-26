@@ -17,7 +17,10 @@ export interface EnvironmentConfig {
 /** Aggregates all problems found while parsing environment configuration. */
 export class EnvironmentConfigError extends TypeError {
   /** Creates an aggregate error from all configuration issues. */
-  public constructor(public readonly issues: readonly string[]) {
+  public constructor(
+    /** Ordered configuration diagnostics exposed to programmatic callers. */
+    public readonly issues: readonly string[],
+  ) {
     super(`Invalid environment configuration:\n- ${issues.join("\n- ")}`);
   }
 }

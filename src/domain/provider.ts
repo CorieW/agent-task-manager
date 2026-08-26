@@ -15,7 +15,7 @@ export interface ValidationIssue {
   readonly code: string;
   /** Human-readable validation issue description. */
   readonly message: string;
-  /** Configuration, validation, filesystem, or provider path for this value. */
+  /** Logical configuration or provider location associated with the issue. */
   readonly path: string;
 }
 

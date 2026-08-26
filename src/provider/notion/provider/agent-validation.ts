@@ -15,15 +15,18 @@ import {
   validationIssue,
 } from "./values.js";
 
+/** Read-only Notion access needed for cross-record Agent validation. */
 export interface AgentValidationGateway {
+  /** Loads the authoritative Markdown body for a Notion page. */
   markdown(pageId: string): Promise<string>;
+  /** Queries one configured managed table with an optional Notion filter. */
   query(
     kind: NotionTableKind,
     filter?: JsonObject,
   ): Promise<readonly JsonObject[]>;
 }
 
-/** Validates agent semantics. */
+/** Appends semantic issues for Agent definitions, Resources, and references. */
 export async function validateAgentSemantics(
   gateway: AgentValidationGateway,
   tables: Readonly<Record<NotionTableKind, string | null>>,
@@ -49,9 +52,9 @@ export async function validateAgentSemantics(
     );
     return;
   }
-  /** Resources resolved in the Agent definition's declared order. */
+  /** Resource rows decoded from the managed Resources table. */
   const resources = resourcePages.map((page) => {
-    /** Decoded Notion properties for the current page. */
+    /** Decoded Notion properties for the current Resource page. */
     const props = pageProperties(page);
     return {
       archived: archived(page),
@@ -64,7 +67,7 @@ export async function validateAgentSemantics(
   /** Resources grouped by stable key for duplicate and selector validation. */
   const resourcesByKey = new Map<string, typeof resources>();
   for (const resource of resources) {
-    /** Configuration, validation, filesystem, or provider path for this value. */
+    /** Validation-report path for the current Resource page. */
     const path = `Resources.${resource.id}`;
     if (resource.key === "")
       issues.push(
@@ -82,7 +85,7 @@ export async function validateAgentSemantics(
           `Unsupported State: ${resource.state}`,
         ),
       );
-    /** All candidates matching the requested stable key. */
+    /** Resource rows sharing the current Resource key. */
     const matches = resourcesByKey.get(resource.key) ?? [];
     matches.push(resource);
     resourcesByKey.set(resource.key, matches);
@@ -125,7 +128,7 @@ export async function validateAgentSemantics(
   /** Agent definitions grouped by stable ID for uniqueness validation. */
   const definitionsById = new Map<string, typeof definitions>();
   for (const entry of definitions) {
-    /** All candidates matching the requested stable key. */
+    /** Agent definitions sharing the current declared ID. */
     const matches = definitionsById.get(entry.definition.id) ?? [];
     matches.push(entry);
     definitionsById.set(entry.definition.id, matches);
@@ -141,9 +144,9 @@ export async function validateAgentSemantics(
       );
   for (const { definition, pageId } of definitions)
     for (const key of definition.resourceKeys) {
-      /** All candidates matching the requested stable key. */
+      /** Resource rows matching the Agent-declared Resource key. */
       const matches = resourcesByKey.get(key) ?? [];
-      /** Configuration, validation, filesystem, or provider path for this value. */
+      /** Validation-report path for this Agent's Resource reference. */
       const path = `Agents.${pageId}.resources.${key}`;
       if (matches.length === 0) {
         issues.push(

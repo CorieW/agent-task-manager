@@ -47,10 +47,13 @@ import {
 
 /** Runtime shared by the public Notion provider facade. */
 export class NotionProviderRuntime {
+  /** Shared table-ID mapping copied from configuration and normalized on use. */
   protected readonly tables: Record<NotionTableKind, string | null>;
 
+  /** Creates record operations over configured tables and a Notion transport. */
   public constructor(
-    protected readonly environment: NotionProviderOptions,
+    environment: NotionProviderOptions,
+    /** Transport boundary for all Notion API requests. */
     protected readonly transport: NotionTransport,
   ) {
     this.tables = { ...environment.tables };
@@ -198,20 +201,23 @@ export class NotionProviderRuntime {
   protected async activeRecords(
     pages: readonly JsonObject[],
   ): Promise<readonly ActiveAgentRecord[]> {
-    /** Untrusted serialized or provider response before strict conversion. */
-    const raw = pages.map((page) => ({ page, props: pageProperties(page) }));
+    /** Supplied pages paired with their decoded property maps. */
+    const pageEntries = pages.map((page) => ({
+      page,
+      props: pageProperties(page),
+    }));
     /** Active Agent rows indexed by normalized Notion page ID. */
     const runByPage = new Map(
-      raw.map(({ page, props }) => [
+      pageEntries.map(({ page, props }) => [
         normalizeId(notionPageId(page)),
         requiredTextValue(props["Run ID"], "Active Agent Run ID"),
       ]),
     );
     if (new Set(runByPage.values()).size !== runByPage.size)
       throw new Error("Active Agent Run IDs must be unique");
-    /** Distinct values tracked by active records. */
+    /** Parent and restart targets hydrated when absent from the supplied page set. */
     const relatedPageIds = new Set(
-      raw.flatMap(({ props }) => [
+      pageEntries.flatMap(({ props }) => [
         ...relationIds(props.Parent),
         ...relationIds(props["Restart Of"]),
       ]),
@@ -220,7 +226,7 @@ export class NotionProviderRuntime {
       [...relatedPageIds]
         .filter((pageId) => !runByPage.has(normalizeId(pageId)))
         .map(async (pageId) => {
-          /** Notion page selected or decoded by the current operation. */
+          /** Related Active Agent page loaded for Run ID resolution. */
           const page = await this.pageOrNull(pageId);
           if (page !== null)
             runByPage.set(
@@ -232,25 +238,31 @@ export class NotionProviderRuntime {
             );
         }),
     );
-    return raw.map(({ page, props }) => {
-      /** At-most-one relation required by the Active Agent schema. */
-      const one = (name: string, required = false): string | null => {
+    return pageEntries.map(({ page, props }) => {
+      /** Returns one relation page ID after enforcing its schema cardinality. */
+      const singleRelationPageId = (
+        propertyName: string,
+        isRequired = false,
+      ): string | null => {
         /** Related Notion page IDs supplied by the property. */
-        const ids = relationIds(props[name]);
-        if (ids.length > 1 || (required && ids.length !== 1))
+        const relationPageIds = relationIds(props[propertyName]);
+        if (
+          relationPageIds.length > 1 ||
+          (isRequired && relationPageIds.length !== 1)
+        )
           throw new Error(
-            `Active Agent ${name} relation must contain ${required ? "exactly" : "at most"} one page`,
+            `Active Agent ${propertyName} relation must contain ${isRequired ? "exactly" : "at most"} one page`,
           );
-        return ids[0] ?? null;
+        return relationPageIds[0] ?? null;
       };
       /** Parent page relation resolved to its stable Run ID. */
-      const parentPageId = one("Parent");
+      const parentPageId = singleRelationPageId("Parent");
       /** Restart-source page relation resolved to its stable Run ID. */
-      const restartPageId = one("Restart Of");
+      const restartPageId = singleRelationPageId("Restart Of");
       /** Related Agent definition required for every run. */
-      const agentId = one("Agent", true)!;
+      const agentId = singleRelationPageId("Agent", true)!;
       /** Current Task relation, absent only after terminal archival. */
-      const taskRelationId = one("Task");
+      const taskRelationId = singleRelationPageId("Task");
       /** Historical Task identity retained after detachment. */
       const taskTextId = textValue(props["Task ID"]);
       /** Assigned Task identity selected from current or historical storage. */
@@ -358,7 +370,7 @@ export class NotionProviderRuntime {
     if (
       parent.type !== "data_source_id" ||
       typeof parent.data_source_id !== "string" ||
-      normalizeId(parent.data_source_id) !== this.table(kind)
+      normalizeId(parent.data_source_id) !== this.requiredTableId(kind)
     )
       throw new Error(`Notion page is outside the configured ${kind} table`);
   }
@@ -369,7 +381,7 @@ export class NotionProviderRuntime {
     filter?: JsonObject,
   ): Promise<readonly JsonObject[]> {
     /** Configured data-source ID for this query. */
-    const source = this.table(kind);
+    const source = this.requiredTableId(kind);
     return collectNotionPages((cursor) =>
       this.transport.request({
         body: {
@@ -383,18 +395,18 @@ export class NotionProviderRuntime {
     );
   }
 
-  /** Returns the configured data-source ID for a managed table. */
-  protected table(kind: NotionTableKind): string {
-    /** Configured data-source ID before normalization. */
-    const value = this.tables[kind];
-    if (value === null)
+  /** Returns the normalized configured data-source ID for a managed table. */
+  protected requiredTableId(kind: NotionTableKind): string {
+    /** Data-source ID configured for the requested managed table. */
+    const configuredId = this.tables[kind];
+    if (configuredId === null)
       throw new Error(`Notion table is not configured: ${kind}`);
-    return normalizeId(value);
+    return normalizeId(configuredId);
   }
 
   /** Reads the complete Markdown representation of a Notion page. */
   protected async markdown(pageId: string): Promise<string> {
-    /** Notion response whose identifiers complete the operation. */
+    /** Complete Markdown response returned for the requested page. */
     const response = await this.transport.request({
       method: "GET",
       path: `/v1/pages/${pageId}/markdown`,

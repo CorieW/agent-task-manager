@@ -69,6 +69,7 @@ test("Agent context includes arbitrary active Resource kinds", async () => {
     tasks: [fixtures.task()],
   });
 
+  /** Start context retaining every Resource kind granted to the Agent. */
   const context = await new AgentCoordinator(provider).start({
     agentKey: "coder",
     harnessId: "h",

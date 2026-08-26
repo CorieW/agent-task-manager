@@ -31,7 +31,7 @@ test("configured lifecycle commands surround duties and replay only once", async
   };
   /** Coordinator state instrumented with ordered lifecycle callbacks. */
   const state = fixtures.setup(new Date("2026-08-17T12:00:00.000Z"), lifecycle);
-  /** Input supplied to "configured lifecycle commands surround duties and replay only once". */
+  /** Start request reused for the idempotency replay. */
   const input = {
     agentKey: "coder",
     harnessId: "host-1",
@@ -39,7 +39,7 @@ test("configured lifecycle commands surround duties and replay only once", async
     runId: "run-hooks",
     taskId: "task-1",
   };
-  /** Flag recording started during "configured lifecycle commands surround duties and replay only once". */
+  /** Context returned by the first start call. */
   const started = await state.coordinator.start(input);
   assert.equal(started.run.workingDirectory, resolve("runs", "run-hooks"));
   await state.coordinator.start(input);

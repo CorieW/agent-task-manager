@@ -2,7 +2,7 @@
 import { digestJson } from "../../core/digest.js";
 import { toJsonValue } from "../../domain/json.js";
 
-/** Managed Notion data sources in deterministic schema and planning order. */
+/** Stable keys for the five managed Notion tables. */
 export const NOTION_TABLE_KINDS = [
   "tasks",
   "agents",

@@ -77,6 +77,7 @@ agent-task-manager agent get --key <agent-key>
 agent-task-manager resource list
 agent-task-manager resource get --key <resource-key>
 
+agent-task-manager active-agent list
 agent-task-manager active-agent start --run-id <run-id> --task-id <task-id> --agent-key <agent-key> --harness-id <harness-id>
 agent-task-manager active-agent get --run-id <run-id>
 agent-task-manager active-agent heartbeat --run-id <run-id> --harness-id <harness-id>

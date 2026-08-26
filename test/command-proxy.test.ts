@@ -101,9 +101,9 @@ const immediateGate: CommandExecutionGate = {
 test("command proxy enforces inclusion, ownership, and path-free names", async () => {
   /** Running context and coordinator used for command-policy authorization. */
   const { context, coordinator } = await setup({ inclusion: ["git"] });
-  /** Captured calls used to verify "command proxy enforces inclusion, ownership, and path-free names". */
+  /** Command requests captured by the executor. */
   const calls: BrokerCommandRequest[] = [];
-  /** Flag recording locked during "command proxy enforces inclusion, ownership, and path-free names". */
+  /** Whether the command gate currently holds the execution lock. */
   let locked = false;
   /** Gate boundary exercised by "command proxy enforces inclusion, ownership, and path-free names". */
   const gate: CommandExecutionGate = {

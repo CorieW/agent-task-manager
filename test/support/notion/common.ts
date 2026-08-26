@@ -3,6 +3,7 @@ import type { JsonObject } from "../../../src/domain/json.js";
 import { NotionProvider } from "../../../src/provider/notion/notion-provider.js";
 import type { NotionTransport } from "../../../src/provider/notion/notion-transport.js";
 
+/** Stable page and data-source IDs shared by deterministic Notion fixtures. */
 export const ids = {
   activeAgents: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   agent: "11111111111111111111111111111111",
@@ -42,8 +43,7 @@ export function lifecycleProvider(transport: NotionTransport): NotionProvider {
   );
 }
 
-/** Transport that rejects every request with one exact error object. */
-
+/** Renders the canonical Agent-definition Markdown used by provider fixtures. */
 export function agentMarkdown(commands: string): string {
   return `## Agent definition
 
@@ -60,27 +60,15 @@ export function activeAgentPage(
   parentId?: string,
   restartId?: string,
 ): JsonObject {
-  return page(id, {
-    Agent: relationProperty([ids.agent]),
-    "Agent Version": richTextProperty("rich_text", "agent-version"),
-    Archived: { checkbox: false, type: "checkbox" },
-    Attempt: { number: 1, type: "number" },
-    "Completion Task Status": richTextProperty("rich_text", ""),
-    "Failure Summary": richTextProperty("rich_text", ""),
-    "Finished At": dateProperty(null),
-    "Harness ID": richTextProperty("rich_text", "harness"),
-    "Last Heartbeat": dateProperty("2026-08-17T12:00:00.000Z"),
-    Outcome: richTextProperty("rich_text", ""),
-    Parent: relationProperty(parentId === undefined ? [] : [parentId]),
-    "Restart Of": relationProperty(restartId === undefined ? [] : [restartId]),
-    "Retry Key": richTextProperty("rich_text", runId),
-    "Run ID": richTextProperty("title", runId),
-    "Started At": dateProperty("2026-08-17T12:00:00.000Z"),
-    Status: selectProperty("Running"),
-    Task: relationProperty([ids.task]),
-    "Task ID": richTextProperty("rich_text", ids.task),
-    "Working Directory": richTextProperty("rich_text", ""),
-  });
+  return page(
+    id,
+    activeAgentProperties({
+      parentIds: parentId === undefined ? [] : [parentId],
+      restartIds: restartId === undefined ? [] : [restartId],
+      runId,
+      taskIds: [ids.task],
+    }),
+  );
 }
 
 /** Builds the running Active Agent page used by lifecycle tests. */
@@ -89,7 +77,45 @@ export function activeAgentLifecyclePage(
   archived = false,
   overrides: JsonObject = {},
 ): JsonObject {
-  return page(ids.childRun, {
+  return page(
+    ids.childRun,
+    activeAgentProperties({
+      archived,
+      overrides,
+      parentIds: [],
+      restartIds: [],
+      runId: "child",
+      taskIds,
+    }),
+  );
+}
+
+/** Variable fields used to build one canonical Active Agent property payload. */
+interface ActiveAgentPropertiesOptions {
+  /** Whether the fixture row is archived. */
+  readonly archived?: boolean;
+  /** Property payloads applied after all canonical fixture defaults. */
+  readonly overrides?: JsonObject;
+  /** Parent relation page IDs. */
+  readonly parentIds: readonly string[];
+  /** Restart-source relation page IDs. */
+  readonly restartIds: readonly string[];
+  /** Stable Run ID and retry identity for the fixture. */
+  readonly runId: string;
+  /** Task relation page IDs. */
+  readonly taskIds: readonly string[];
+}
+
+/** Builds the shared managed-property payload for an Active Agent page. */
+function activeAgentProperties({
+  archived = false,
+  overrides = {},
+  parentIds,
+  restartIds,
+  runId,
+  taskIds,
+}: ActiveAgentPropertiesOptions): JsonObject {
+  return {
     Agent: relationProperty([ids.agent]),
     "Agent Version": richTextProperty("rich_text", "agent-version"),
     Archived: { checkbox: archived, type: "checkbox" },
@@ -100,17 +126,17 @@ export function activeAgentLifecyclePage(
     "Harness ID": richTextProperty("rich_text", "harness"),
     "Last Heartbeat": dateProperty("2026-08-17T12:00:00.000Z"),
     Outcome: richTextProperty("rich_text", ""),
-    Parent: relationProperty([]),
-    "Restart Of": relationProperty([]),
-    "Retry Key": richTextProperty("rich_text", "child"),
-    "Run ID": richTextProperty("title", "child"),
+    Parent: relationProperty(parentIds),
+    "Restart Of": relationProperty(restartIds),
+    "Retry Key": richTextProperty("rich_text", runId),
+    "Run ID": richTextProperty("title", runId),
     "Started At": dateProperty("2026-08-17T12:00:00.000Z"),
     Status: selectProperty("Running"),
     Task: relationProperty(taskIds),
     "Task ID": richTextProperty("rich_text", ids.task),
     "Working Directory": richTextProperty("rich_text", ""),
     ...overrides,
-  });
+  };
 }
 
 /** Builds a Notion Resource page fixture. */

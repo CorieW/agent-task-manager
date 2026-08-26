@@ -18,10 +18,15 @@ import {
 } from "./context.js";
 import { MAX_ATTEMPTS, retryErrorKey } from "./retry.js";
 
+/** Provides shared provider, hierarchy, and lifecycle mechanics for coordinator use cases. */
 export class CoordinatorRuntime {
+  /** Binds coordinator mechanics to persistence, time, and lifecycle hooks. */
   public constructor(
+    /** Provider boundary used for all persisted records and mutations. */
     protected readonly provider: AgentTaskProvider,
+    /** Clock used to derive deterministic lifecycle timestamps. */
     protected readonly now: () => Date,
+    /** Host-owned lifecycle command renderer and executor. */
     protected readonly lifecycle: AgentLifecycleCommands,
   ) {}
 
@@ -200,7 +205,7 @@ export class CoordinatorRuntime {
     agent: AgentRecord,
     run: ActiveAgentRecord,
   ): void {
-    /** Caller-supplied digest or value required to authorize the operation. */
+    /** Working directory rendered from the pinned Agent configuration. */
     const expected = this.lifecycle.workingDirectory(agent.lifecycleCommands, {
       agentKey: agent.key,
       failureSummary: "",

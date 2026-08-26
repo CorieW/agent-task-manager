@@ -50,7 +50,9 @@ export const agentTaskProviderModule = {
       "utf8",
     );
 
+    /** Environment whose provider module resolves relative to its own file. */
     const configuration = await loadEnvironment(environmentPath, {});
+    /** Provider created from the dynamically imported local module. */
     const provider = await providerFor(configuration, {});
     assert.equal(provider instanceof InMemoryProvider, true);
     assert.equal((await provider.validateWorkspace()).valid, true);

@@ -20,7 +20,7 @@ export function propertySchema(
   tables: Readonly<Record<NotionTableKind, string | null>>,
 ): JsonObject {
   if (descriptor.relation !== null) {
-    /** Destination Task status or related Notion table selected by the operation. */
+    /** Configured Notion data-source ID for the relation target. */
     const target = tables[descriptor.relation];
     if (target === null)
       throw new Error(`Relation target is unavailable: ${descriptor.relation}`);
@@ -82,12 +82,14 @@ export function propertyContractMismatch(
     if (descriptor.syncedName === undefined) {
       /** Single-relation mode accepted for the canonical created schema. */
       const singleProperty = relationConfiguration.single_property;
+      /** Whether the observed relation uses Notion's single-property mode. */
       const singleMode =
         singleProperty !== null &&
         typeof singleProperty === "object" &&
         !Array.isArray(singleProperty);
       /** Dual mode is also compatible when the manager does not own the reverse relation. */
       const dualProperty = relationConfiguration.dual_property;
+      /** Whether the observed relation uses Notion's dual-property mode. */
       const dualMode =
         dualProperty !== null &&
         typeof dualProperty === "object" &&

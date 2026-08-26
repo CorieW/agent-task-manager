@@ -4,6 +4,7 @@ import test from "node:test";
 
 import {
   type BrokerCommandRequest,
+  ContainmentShutdownUnconfirmedError,
   createCommandBrokerExecutor,
 } from "../src/core/command-proxy.js";
 
@@ -98,7 +99,7 @@ test("sandbox broker path must be absolute", () => {
 });
 
 test("sandbox broker exchange enforces timeout and output bounds", async () => {
-  /** Flag recording hanging during "sandbox broker exchange enforces timeout and output bounds". */
+  /** Broker executor that must time out before producing a result. */
   const hanging = createCommandBrokerExecutor(
     process.execPath,
     ["-e", "setInterval(() => undefined, 1000)"],
@@ -126,7 +127,7 @@ test("sandbox broker exchange enforces timeout and output bounds", async () => {
 
 test("sandbox broker confirms forced shutdown and handles early stdin closure", async () => {
   if (process.platform !== "win32") {
-    /** Flag recording resistant during "sandbox broker confirms forced shutdown and handles early stdin closure". */
+    /** Broker executor that ignores graceful termination. */
     const resistant = createCommandBrokerExecutor(
       process.execPath,
       [
@@ -135,13 +136,11 @@ test("sandbox broker confirms forced shutdown and handles early stdin closure", 
       ],
       { terminationGraceMilliseconds: 40, timeoutMilliseconds: 20 },
     );
-    /** Flag recording started during "sandbox broker confirms forced shutdown and handles early stdin closure". */
-    const started = Date.now();
-    await assert.rejects(
-      resistant(brokerRequest()),
-      /timed out after 20 milliseconds/u,
-    );
-    assert.ok(Date.now() - started >= 40);
+    await assert.rejects(resistant(brokerRequest()), (error: unknown) => {
+      assert.ok(error instanceof ContainmentShutdownUnconfirmedError);
+      assert.match(error.message, /timed out after 20 milliseconds/u);
+      return true;
+    });
   }
   /** Early exit state observed by "sandbox broker confirms forced shutdown and handles early stdin closure". */
   const earlyExit = createCommandBrokerExecutor(process.execPath, [
@@ -166,13 +165,12 @@ test("sandbox broker receives cancellation through its liveness channel", async 
     ["-e", broker],
     { terminationGraceMilliseconds: 1000, timeoutMilliseconds: 25 },
   );
-  /** Flag recording started during "sandbox broker receives cancellation through its liveness channel". */
-  const started = Date.now();
-  await assert.rejects(
-    executor(brokerRequest()),
-    /timed out after 25 milliseconds/u,
-  );
-  assert.ok(Date.now() - started < 1000);
+  await assert.rejects(executor(brokerRequest()), (error: unknown) => {
+    assert.ok(error instanceof Error);
+    assert.equal(error instanceof ContainmentShutdownUnconfirmedError, false);
+    assert.match(error.message, /timed out after 25 milliseconds/u);
+    return true;
+  });
 });
 
 test("sandbox broker rejects ambiguous terminal results", async () => {

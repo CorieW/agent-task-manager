@@ -8,10 +8,24 @@ Copy `agent-task-manager.environment.example.json` to the ignored `agent-task-ma
   "environmentId": "management-v2",
   "provider": {
     "module": "@corie_w/agent-task-manager/providers/notion",
-    "options": {}
+    "options": {
+      "connection": {
+        "tokenEnv": "NOTION_TOKEN"
+      },
+      "bootstrapParent": null,
+      "tables": {
+        "tasks": null,
+        "agents": null,
+        "activeAgents": null,
+        "errors": null,
+        "resources": null
+      }
+    }
   }
 }
 ```
+
+Before running `validate` or `init`, replace `bootstrapParent: null` with the ID of the Notion parent page under which the managed data sources should be created. The `null` table IDs are intentional placeholders for discovery and initialization.
 
 `provider.options` is opaque to Agent Task Manager and validated only by the selected adapter. Relative and absolute filesystem modules are supported; relative paths resolve beside the environment file. Bare package specifiers first resolve from that environment's package context, allowing a project-local adapter. A provider module is trusted host code and receives the host environment, so only configure reviewed modules. See [Provider modules](provider-modules.md) for the contract and [Notion provider](notion-provider.md) for the complete bundled-adapter options.
 

@@ -42,29 +42,55 @@ import {
 
 /** Observed type mismatch for one managed Notion property. */
 interface WorkspacePropertyMismatch {
+  /** Human-readable reason the observed property violates its contract. */
   readonly actual: string;
+  /** Canonical property whose contract was not satisfied. */
   readonly property: NotionPropertyDescriptor;
 }
 
 /** Non-mutating comparison of one configured table with its canonical schema. */
 interface WorkspaceSchemaInspection {
+  /** Whether a data-source ID is configured for the managed table. */
   readonly configured: boolean;
+  /** Configured properties whose observed contracts are incompatible. */
   readonly mismatched: readonly WorkspacePropertyMismatch[];
+  /** Canonical properties absent from the observed data source. */
   readonly missing: readonly NotionPropertyDescriptor[];
+  /** Complete observed property map, or null for an unconfigured table. */
   readonly observedProperties: JsonObject | null;
+  /** Canonical managed-table descriptor being inspected. */
   readonly table: NotionTableDescriptor;
+}
+
+/** Selects the fields covered by the workspace-plan digest. */
+function workspacePlanCore(
+  plan: Omit<WorkspacePlan, "digest">,
+): Omit<WorkspacePlan, "digest"> {
+  return {
+    environmentId: plan.environmentId,
+    observedSchemaDigest: plan.observedSchemaDigest,
+    schema: plan.schema,
+    steps: plan.steps,
+    target: plan.target,
+    targetSchemaDigest: plan.targetSchemaDigest,
+  };
 }
 
 /** Owns Notion workspace schema discovery and mutation. */
 export class NotionWorkspace {
+  /** Binds workspace operations to configuration, transport, and shared table state. */
   public constructor(
+    /** Provider options containing bootstrap and connection configuration. */
     private readonly environment: NotionProviderOptions,
+    /** Transport used for workspace discovery and schema mutation. */
     private readonly transport: NotionTransport,
+    /** Shared table IDs updated as managed data sources are discovered or created. */
     private readonly tables: Record<NotionTableKind, string | null>,
+    /** Read-only gateway used for Agent and Resource semantic checks. */
     private readonly gateway: AgentValidationGateway,
   ) {}
 
-  /** @inheritdoc */
+  /** Validates required Notion bootstrap configuration without external mutation. */
   public async validateEnvironment(): Promise<ValidationReport> {
     /** Validation issues accumulated without failing the remaining checks. */
     const issues: ValidationIssue[] = [];
@@ -79,7 +105,7 @@ export class NotionWorkspace {
     return { issues, valid: issues.length === 0 };
   }
 
-  /** @inheritdoc */
+  /** Inspects managed schemas and Agent references without external mutation. */
   public async validateWorkspace(): Promise<ValidationReport> {
     /** Validation issues accumulated without failing the remaining checks. */
     const issues: ValidationIssue[] = [];
@@ -118,7 +144,7 @@ export class NotionWorkspace {
     return { issues, valid: issues.length === 0 };
   }
 
-  /** @inheritdoc */
+  /** Builds a deterministic additive plan from the observed Notion schema. */
   public async planWorkspace(environmentId: string): Promise<WorkspacePlan> {
     await this.discoverManagedTables();
     /** Ordered workspace mutations authorized by the plan. */
@@ -159,14 +185,14 @@ export class NotionWorkspace {
         });
     }
     /** Serialized fields covered by the deterministic digest. */
-    const core = {
+    const core = workspacePlanCore({
       environmentId,
       observedSchemaDigest: this.workspaceInspectionDigest(inspections),
-      schema: "workspace-plan-v1" as const,
+      schema: "workspace-plan-v1",
       steps,
       target: this.workspaceTarget(),
       targetSchemaDigest: NOTION_SCHEMA_DIGEST,
-    };
+    });
     return { ...core, digest: digestJson(toJsonValue(core)) };
   }
 
@@ -249,7 +275,7 @@ export class NotionWorkspace {
         method: "GET",
         path: `/v1/data_sources/${normalizeId(id)}`,
       });
-      /** Provider properties encoded or decoded for the current record. */
+      /** Observed property schema for the configured managed data source. */
       const properties = requireJsonObject(
         source.properties,
         `${table.title} properties`,
@@ -284,38 +310,36 @@ export class NotionWorkspace {
     return inspections;
   }
 
-  /** @inheritdoc */
+  /** Verifies and applies an authorized additive workspace plan. */
   public async applyWorkspacePlan(
     plan: WorkspacePlan,
   ): Promise<Readonly<Record<string, string>>> {
     /** Serialized fields covered by the deterministic digest. */
-    const core = {
-      environmentId: plan.environmentId,
-      observedSchemaDigest: plan.observedSchemaDigest,
-      schema: plan.schema,
-      steps: plan.steps,
-      target: plan.target,
-      targetSchemaDigest: plan.targetSchemaDigest,
-    };
+    const core = workspacePlanCore(plan);
     if (plan.digest !== digestJson(toJsonValue(core)))
       throw new Error("Workspace plan digest is invalid");
+
     if (
       digestJson(toJsonValue(plan.target)) !==
       digestJson(toJsonValue(this.workspaceTarget()))
     )
       throw new Error("Workspace plan target does not match the provider");
+
     if (
       plan.observedSchemaDigest !==
       this.workspaceInspectionDigest(await this.inspectWorkspaceSchema())
     )
       throw new Error("Workspace schema changed after the plan was created");
+
     for (const step of plan.steps)
       if (step.kind !== "create_table" && step.kind !== "add_property")
         throw new Error(`Unknown Notion workspace step kind: ${step.kind}`);
+
     for (const step of plan.steps.filter(
       (entry) => entry.kind === "create_table",
     ))
       await this.createTable(notionStepTable(step));
+
     for (const step of plan.steps.filter(
       (entry) => entry.kind === "add_property",
     )) {
@@ -331,6 +355,7 @@ export class NotionWorkspace {
         throw new Error(`Unknown property ${table}.${name}`);
       await this.addProperty(table, descriptor);
     }
+
     return Object.fromEntries(
       Object.entries(this.tables).filter(
         (entry): entry is [string, string] => entry[1] !== null,
@@ -371,11 +396,12 @@ export class NotionWorkspace {
   }
 
   /** Returns the normalized configured data-source ID for a managed table. */
-  private table(kind: NotionTableKind): string {
-    const value = this.tables[kind];
-    if (value === null)
+  private requiredTableId(kind: NotionTableKind): string {
+    /** Data-source ID configured for the requested managed table. */
+    const configuredId = this.tables[kind];
+    if (configuredId === null)
       throw new Error(`Notion table is not configured: ${kind}`);
-    return normalizeId(value);
+    return normalizeId(configuredId);
   }
 
   /** Creates an absent managed table under the configured bootstrap page. */
@@ -385,13 +411,13 @@ export class NotionWorkspace {
       throw new Error("Notion bootstrap parent is required");
     /** Canonical managed-table descriptor for this operation. */
     const table = notionTable(kind);
-    /** Provider properties encoded or decoded for the current record. */
+    /** Non-relation properties included in the initial data source. */
     const properties = Object.fromEntries(
       table.properties
         .filter((entry) => entry.relation === null)
         .map((entry) => [entry.name, propertySchema(entry, this.tables)]),
     );
-    /** Notion response whose identifiers complete the operation. */
+    /** Created database response containing its initial data-source ID. */
     const response = await this.transport.request({
       body: {
         initial_data_source: { properties },
@@ -423,7 +449,7 @@ export class NotionWorkspace {
     /** Current data-source schema returned by Notion. */
     const source = await this.transport.request({
       method: "GET",
-      path: `/v1/data_sources/${this.table(kind)}`,
+      path: `/v1/data_sources/${this.requiredTableId(kind)}`,
     });
     if (
       requireJsonObject(source.properties, "Data source properties")[
@@ -438,7 +464,7 @@ export class NotionWorkspace {
         },
       },
       method: "PATCH",
-      path: `/v1/data_sources/${this.table(kind)}`,
+      path: `/v1/data_sources/${this.requiredTableId(kind)}`,
     });
   }
 }

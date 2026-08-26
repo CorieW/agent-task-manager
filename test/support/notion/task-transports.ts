@@ -14,13 +14,17 @@ import {
   selectProperty,
 } from "./common.js";
 
+/** Serves and mutates one deterministic Task page and Markdown body. */
 export class TaskBodyTransport implements NotionTransport {
   /** Task property patch received before the Markdown update. */
   public patch: JsonObject | null = null;
   /** Current Markdown body served by the transport. */
   private markdown = "## Context\n\nOriginal.\n";
   /** Creates a Task fixture under the requested data source. */
-  public constructor(private readonly parentId: string = ids.tasks) {}
+  public constructor(
+    /** Data-source parent used to test managed-table containment. */
+    private readonly parentId: string = ids.tasks,
+  ) {}
 
   /** Routes the reads and writes required by a Task body update. */
   public async request(request: NotionRequest): Promise<JsonObject> {
@@ -109,5 +113,3 @@ export class TruncatedTaskRelationTransport extends TaskBodyTransport {
     return super.request(request);
   }
 }
-
-/** Fails Error Markdown replacement and records any premature status patch. */

@@ -19,9 +19,9 @@ export interface NotionRequest {
   readonly signal?: AbortSignal;
 }
 
-/** Provider-neutral Notion transport contract. */
+/** Notion API request boundary used by provider operations. */
 export interface NotionTransport {
-  /** Executes one provider request. */
+  /** Executes one Notion API request. */
   request(request: NotionRequest): Promise<JsonObject>;
 }
 
@@ -179,7 +179,7 @@ export class NotionHttpTransport implements NotionTransport {
   }
 }
 
-/** Provider-neutral Notion page contract. */
+/** Validated pagination envelope returned by a Notion list endpoint. */
 export interface NotionPage<T extends JsonObject> {
   /** Whether Notion has another result page after this response. */
   readonly has_more: boolean;

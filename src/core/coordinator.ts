@@ -22,7 +22,6 @@ import {
 
 /** Maximum time a running Agent may go without a heartbeat. */
 export const STALE_AFTER_MILLISECONDS = 5 * 60 * 1000;
-/** Maximum attempts in one retry chain before human resolution is required. */
 
 /** Result of terminating one stale root and its running descendants. */
 export interface SweepResult {

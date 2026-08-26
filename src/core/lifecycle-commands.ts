@@ -90,8 +90,11 @@ export const NO_LIFECYCLE_COMMANDS: AgentLifecycleCommands = {
 export class ConfiguredLifecycleCommands implements AgentLifecycleCommands {
   /** Creates a renderer bound to one environment and host executor. */
   public constructor(
+    /** Stable environment identity exposed to lifecycle templates. */
     private readonly environmentId: string,
+    /** Host variables available only through explicit inheritance. */
     private readonly hostEnvironment: NodeJS.ProcessEnv = process.env,
+    /** Shell-free host executor for each rendered lifecycle command. */
     private readonly execute: LifecycleCommandExecutor = executeCommand,
   ) {}
 

@@ -20,9 +20,13 @@ import {
   selectProperty,
 } from "./common.js";
 
+/** Rejects every Notion request with one stable error instance. */
 export class FailingTransport implements NotionTransport {
   /** Creates a transport around the failure expected by the scenario. */
-  public constructor(private readonly failure: Error) {}
+  public constructor(
+    /** Exact error propagated by every request. */
+    private readonly failure: Error,
+  ) {}
 
   /** Rejects without wrapping so tests can assert error identity. */
   public async request(_request: NotionRequest): Promise<JsonObject> {
@@ -34,6 +38,7 @@ export class FailingTransport implements NotionTransport {
 export class AgentBodyTransport implements NotionTransport {
   /** Creates an instance with its required collaborators. */
   public constructor(
+    /** Optional schema property mutation applied to one managed table fixture. */
     private readonly propertyOverride?: {
       /** Name captured by the record fixture. */
       readonly name: string;
@@ -276,5 +281,3 @@ export class TruncatedAgentBodyTransport extends AgentBodyTransport {
     return super.request(request);
   }
 }
-
-/** Captures Active Agent terminal updates and Task detachment. */

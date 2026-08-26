@@ -16,6 +16,7 @@ import {
   selectProperty,
 } from "./common.js";
 
+/** Fails Error Markdown replacement while recording premature status updates. */
 export class FailingErrorResolutionTransport implements NotionTransport {
   /** Number of Error property patches attempted by the provider. */
   public statusPatches = 0;
@@ -149,5 +150,3 @@ export class ErrorRoundTripTransport implements NotionTransport {
     );
   }
 }
-
-/** Renders an Agent-definition section with a chosen command policy. */

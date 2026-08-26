@@ -128,7 +128,7 @@ function object(value: unknown, path: string): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-/** Requires a JSON string and preserves the empty-string contract. */
+/** Requires and NFC-normalizes a non-empty string. */
 function text(value: unknown, path: string): string {
   if (typeof value !== "string" || value.trim() === "")
     throw new TypeError(`${path} must be a non-empty string`);

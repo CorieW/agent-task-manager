@@ -103,6 +103,7 @@ test("v1 environment keeps provider configuration opaque", () => {
 });
 
 test("Notion owns validation of its opaque provider options", () => {
+  /** Notion options decoded independently from the shared environment parser. */
   const options = parseNotionProviderOptions({
     bootstrapParent: "parent",
     connection: { tokenEnv: "NOTION_TOKEN" },
