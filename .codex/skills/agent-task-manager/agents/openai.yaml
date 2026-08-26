@@ -1,0 +1,4 @@
+interface:
+  display_name: "Agent Task Manager"
+  short_description: "Coordinate provider-backed agent task lifecycles"
+  default_prompt: "Use $agent-task-manager to coordinate this task safely through its configured agent lifecycle."
