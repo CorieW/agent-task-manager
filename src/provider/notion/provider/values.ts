@@ -80,8 +80,19 @@ export function propertyContractMismatch(
     )
       return "relation target differs";
     if (descriptor.syncedName === undefined) {
-      if (!("single_property" in relationConfiguration))
-        return "relation mode differs";
+      /** Single-relation mode accepted for the canonical created schema. */
+      const singleProperty = relationConfiguration.single_property;
+      const singleMode =
+        singleProperty !== null &&
+        typeof singleProperty === "object" &&
+        !Array.isArray(singleProperty);
+      /** Dual mode is also compatible when the manager does not own the reverse relation. */
+      const dualProperty = relationConfiguration.dual_property;
+      const dualMode =
+        dualProperty !== null &&
+        typeof dualProperty === "object" &&
+        !Array.isArray(dualProperty);
+      if (singleMode === dualMode) return "relation mode differs";
     } else {
       /** Dual-relation configuration whose synchronized name must be exact. */
       const dualProperty = relationConfiguration.dual_property;

@@ -3,7 +3,37 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { NotionProvider } from "../src/provider/notion/notion-provider.js";
+import { notionTable } from "../src/provider/notion/notion-schema.js";
+import { propertyContractMismatch } from "../src/provider/notion/provider/values.js";
 import * as fixtures from "./support/notion.js";
+
+test("forward-only relations accept an unused reciprocal property", () => {
+  /** Forward Dependencies descriptor whose reverse relation is not manager-owned. */
+  const dependencies = notionTable("tasks").properties.find(
+    (property) => property.name === "Dependencies",
+  );
+  assert.ok(dependencies !== undefined);
+  assert.equal(
+    propertyContractMismatch(
+      dependencies,
+      {
+        relation: {
+          data_source_id: fixtures.ids.tasks,
+          dual_property: { synced_property_name: "Is Blocking" },
+        },
+        type: "relation",
+      },
+      {
+        activeAgents: fixtures.ids.activeAgents,
+        agents: fixtures.ids.agents,
+        errors: fixtures.ids.errors,
+        resources: fixtures.ids.resources,
+        tasks: fixtures.ids.tasks,
+      },
+    ),
+    null,
+  );
+});
 
 test("workspace planning rejects property types found invalid by validation", async () => {
   /** Provider implementation that owns persistence for this invocation. */
