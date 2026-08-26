@@ -1,6 +1,6 @@
 {
   "name": "@corie_w/agent-task-manager",
-  "version": "0.4.0",
+  "version": "1.0.0",
   "description": "Provider-agnostic control boundary between an AI-agent harness and a task provider",
   "type": "module",
   "license": "MIT",
